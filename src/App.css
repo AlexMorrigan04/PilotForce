@@ -1,0 +1,21 @@
+/* src/index.css or src/App.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Add global styles here */
+body {
+  background-color: #ffffff; /* Reverting to the previous background color */
+  margin: 0;
+  padding: 0;
+}
+
+/* Ensure all pages have the previous background color */
+#root {
+  background-color: #ffffff; /* Reverting to the previous background color */
+}
+
+/* Override any component-specific background colors */
+.bg-gray-100, .bg-gray-200, .bg-gray-300 {
+  background-color: #ffffff !important; /* Reverting to the previous background color */
+}

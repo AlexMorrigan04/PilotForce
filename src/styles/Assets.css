@@ -1,0 +1,20 @@
+/* html {
+    overflow: hidden;
+} */
+
+#map { 
+  width: 100%; 
+  height: 100%;
+}
+
+/* Add styles for mapbox-gl-draw if needed */
+.mapboxgl-ctrl-top-right {
+  z-index: 5;
+}
+
+/* Fix for mapbox controls on mobile */
+@media (max-width: 640px) {
+  .mapboxgl-ctrl-top-right {
+    top: 60px;
+  }
+}

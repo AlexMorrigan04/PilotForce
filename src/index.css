@@ -1,0 +1,60 @@
+/* src/index.css or src/app.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for the image popup */
+.map-image-popup .mapboxgl-popup-content {
+  padding: 10px;
+  max-width: 300px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.map-image-popup .mapboxgl-popup-close-button {
+  font-size: 16px;
+  padding: 4px 8px;
+  color: #4b5563;
+}
+
+.map-image-popup .mapboxgl-popup-close-button:hover {
+  background-color: transparent;
+  color: #1f2937;
+}
+
+.map-image-popup .mapboxgl-popup-tip {
+  border-top-color: white;
+}
+
+/* Improve image loading appearance */
+.image-container {
+  background-color: #f3f4f6;
+}
+
+.image-container img {
+  transition: opacity 0.3s ease;
+}
+
+.image-container img[src=""] {
+  opacity: 0;
+}
+
+/* Custom scrollbar styles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
