@@ -668,7 +668,7 @@ export const Dashboard: React.FC = () => {
         <section className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-gray-900">Company Users</h2>
-            {isAdmin && (
+            {/* {isAdmin && (
               <Link
                 to="/manage-users"
                 className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -678,7 +678,7 @@ export const Dashboard: React.FC = () => {
                 </svg>
                 Manage Users
               </Link>
-            )}
+            )} */}
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
             <CompanyUsers />
