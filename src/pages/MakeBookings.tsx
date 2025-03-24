@@ -1,8 +1,8 @@
-import React, { useState, useContext, useEffect, useCallback } from 'react';
+import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
-import Map, { Source, Layer, NavigationControl } from 'react-map-gl';
+import Map, { Source, Layer, NavigationControl, MapRef } from 'react-map-gl';
 import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -143,17 +143,67 @@ const MakeBookings: React.FC = () => {
     secretAccessKey: secretKey
   });
 
+  const mapRef = useRef<MapRef | null>(null);
+  
+  // Update the useEffect for handling the asset from location state
   useEffect(() => {
-    if (location.state && location.state.selectedAsset) {
+    // Prevent double initialization when receiving state from AssetDetails
+    if (location.state && location.state.selectedAsset && !asset) {
+      console.log('Setting asset from location state');
       setAsset(location.state.selectedAsset);
-      const center = turf.centroid(turf.polygon(location.state.selectedAsset.coordinates)).geometry.coordinates;
-      setViewState({
-        longitude: center[0],
-        latitude: center[1],
-        zoom: 16
-      });
+      
+      try {
+        const center = turf.centroid(turf.polygon(location.state.selectedAsset.coordinates)).geometry.coordinates;
+        setViewState({
+          longitude: center[0],
+          latitude: center[1],
+          zoom: 16
+        });
+      } catch (error) {
+        console.warn('Error calculating center of asset:', error);
+        // Use default view state if calculation fails
+      }
     }
+  }, [location.state, asset]);
+
+  // Complete rework of the reload mechanism to be more robust
+  useEffect(() => {
+    // Only reload if this is first time visiting from AssetDetails
+    const needsReload = 
+      location.state?.fromAssetDetails && 
+      !sessionStorage.getItem('makeBookings_loaded');
+    
+    if (needsReload) {
+      console.log('First load from AssetDetails, marking as loaded');
+      sessionStorage.setItem('makeBookings_loaded', 'true');
+    }
+    
+    return () => {
+      // Don't clear the flag on unmount as we want it to persist during navigation
+    };
   }, [location.state]);
+
+  // Improved map cleanup with proper ref handling
+  useEffect(() => {
+    return () => {
+      console.log('MakeBookings component unmounting, cleaning up map');
+      
+      try {
+        // Properly handle cleanup of the map to avoid the indoor error
+        if (mapLoaded) {
+          setMapLoaded(false);
+          
+          // Access the mapbox gl global instance to clean up
+          if (mapRef.current) {
+            mapRef.current.getMap().remove();
+            console.log('Cleaning up global mapbox instance');
+          }
+        }
+      } catch (error) {
+        console.warn('Error during map cleanup in MakeBookings:', error);
+      }
+    };
+  }, [mapLoaded]);
 
   // Fetch company details when component loads
   useEffect(() => {
@@ -168,22 +218,6 @@ const MakeBookings: React.FC = () => {
       fetchUserDetails(user.username);
     }
   }, [user]);
-
-  // Reload the page once automatically when loaded from the AssetDetails page
-  useEffect(() => {
-    if (location.state && location.state.fromAssetDetails && !sessionStorage.getItem('reloaded')) {
-      sessionStorage.setItem('reloaded', 'true');
-      window.location.reload();
-    }
-  }, [location.state]);
-
-  useEffect(() => {
-    // Check if the page has already been reloaded
-    if (!sessionStorage.getItem('reloaded')) {
-      sessionStorage.setItem('reloaded', 'true');
-      window.location.reload();
-    }
-  }, []);
 
   // Function to fetch company details including email domain
   const fetchCompanyDetails = async (companyId: string) => {
@@ -887,6 +921,9 @@ const MakeBookings: React.FC = () => {
                     mapStyle="mapbox://styles/mapbox/satellite-v9"
                     mapboxAccessToken="pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
                     onLoad={() => setMapLoaded(true)}
+                    reuseMaps={false}
+                    ref={mapRef}
+                    key={`map-${asset?.AssetId || 'default'}`} // Add key to force re-render with new asset
                   >
                     {/* <NavigationControl position="top-right" /> */}
                     

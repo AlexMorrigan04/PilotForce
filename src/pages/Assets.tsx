@@ -888,6 +888,29 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
     fetchData();
   }, [user]);
 
+  // Add the following useEffect near other initialization code
+  useEffect(() => {
+    // Check if we're coming from AssetDetails and if reload is requested
+    const needsRefresh = sessionStorage.getItem('reloadAssetsPage') === 'true';
+    
+    if (needsRefresh) {
+      console.log('Detected navigation from AssetDetails, refreshing assets');
+      // Clear the flag
+      sessionStorage.removeItem('reloadAssetsPage');
+      
+      // Refresh assets list if needed
+      if (setAssets) {
+        setAssets([]);
+      }
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      // Clear any remaining navigation flags
+      sessionStorage.removeItem('navigating_to_assets');
+    };
+  }, [setAssets]);
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar userInfo={userInfo} />

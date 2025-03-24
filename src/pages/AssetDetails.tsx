@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
@@ -197,9 +197,17 @@ const AssetDetails: React.FC = () => {
   // Add a cleanup effect that safely removes the map
   useEffect(() => {
     return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
+      console.log('AssetDetails component unmounting, cleaning up map');
+      try {
+        if (mapRef.current) {
+          mapRef.current.remove();
+          mapRef.current = null;
+        }
+        
+        // Also clear navigation locks on unmount
+        sessionStorage.removeItem('navigating_to_booking');
+      } catch (error) {
+        console.warn('Error cleaning up map in AssetDetails:', error);
       }
     };
   }, []);
@@ -230,16 +238,95 @@ const AssetDetails: React.FC = () => {
     };
   };
 
-  // Return to assets list page
-  const handleBackToList = () => {
+  // Return to assets list page - modify this function
+  const handleBackToList = useCallback(() => {
+    // Add a navigation lock to prevent double navigation
+    if (sessionStorage.getItem('navigating_to_assets')) {
+      console.log('Navigation already in progress, ignoring duplicate click');
+      return;
+    }
+    
+    // Set navigation lock
+    sessionStorage.setItem('navigating_to_assets', 'true');
+    
+    // Clean up map instance before navigating
+    try {
+      if (mapRef.current) {
+        console.log('Cleaning up map instance before navigation to Assets');
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    } catch (e) {
+      console.warn('Error during map cleanup during Assets navigation:', e);
+    }
+    
+    // Mark that assets page should reload
     sessionStorage.setItem('reloadAssetsPage', 'true');
-    navigate('/assets');
-  };
+    
+    // Use setTimeout to ensure map cleanup completes before navigation
+    setTimeout(() => {
+      navigate('/assets', {
+        state: {
+          fromAssetDetails: true,
+          timestamp: Date.now() // Add timestamp to ensure state is always unique
+        }
+      });
+      
+      // Clear the navigation lock after navigation is triggered
+      setTimeout(() => {
+        sessionStorage.removeItem('navigating_to_assets');
+      }, 1000);
+    }, 100);
+  }, [navigate, mapRef]);
 
   // Open booking modal
   const handleOpenBookingModal = () => {
     setBookingModalOpen(true);
   };
+
+  // Find the "Book services" button click handler and modify it
+  const handleBookService = useCallback(() => {
+    // Add a navigation lock to prevent double navigation
+    if (sessionStorage.getItem('navigating_to_booking')) {
+      console.log('Navigation already in progress, ignoring duplicate click');
+      return;
+    }
+    
+    // Set navigation lock
+    sessionStorage.setItem('navigating_to_booking', 'true');
+    
+    // Completely clean up the map before navigating
+    try {
+      if (mapRef.current) {
+        console.log('Cleaning up map instance before navigation');
+        // Ensure the map instance is properly removed
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    } catch (e) {
+      console.warn('Error during map cleanup:', e);
+    }
+    
+    // Clear any existing makeBookings_loaded flag to avoid skipping needed reloads
+    sessionStorage.removeItem('makeBookings_loaded');
+    
+    // Use setTimeout to ensure map cleanup completes before navigation
+    setTimeout(() => {
+      // Navigate to the booking page with the selected asset
+      navigate('/make-booking', { 
+        state: { 
+          selectedAsset: asset,
+          fromAssetDetails: true,
+          timestamp: Date.now() // Add timestamp to ensure state is always unique
+        } 
+      });
+      
+      // Clear the navigation lock after navigation is triggered
+      setTimeout(() => {
+        sessionStorage.removeItem('navigating_to_booking');
+      }, 1000);
+    }, 100);
+  }, [asset, navigate, mapRef]);
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
@@ -278,7 +365,7 @@ const AssetDetails: React.FC = () => {
             <div className="flex space-x-3">
               {!loading && asset && (
                 <button
-                onClick={() => navigate('/make-booking', { state: { selectedAsset: asset } })}
+                onClick={handleBookService}
                   className="inline-flex items-center px-5 py-2.5 bg-white text-blue-700 border border-transparent rounded-lg font-medium hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white shadow-sm transition duration-150"
                 >
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -391,7 +478,7 @@ const AssetDetails: React.FC = () => {
                 <div className="p-6 space-y-4">
                   <button
                     className="w-full inline-flex justify-center items-center px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150"
-                    onClick={() => navigate('/make-booking', { state: { selectedAsset: asset } })}
+                    onClick={handleBookService}
                   >
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />

@@ -32,11 +32,44 @@ class ErrorBoundary extends React.Component<
     console.error("Error caught by boundary:", error);
     console.error("Component stack:", errorInfo.componentStack);
   
-    // Check if it's a Mapbox-related error
+    // Check if it's a Mapbox-related indoor error
     if (error.message && error.message.includes("indoor") && 
-        errorInfo.componentStack?.includes("Map.tsx")) {
-      console.log("Ignoring Mapbox cleanup error");
-      return; // Don't set error state for Mapbox cleanup errors
+        errorInfo.componentStack?.includes("map")) {
+      console.log("Encountered Mapbox indoor error - reloading page");
+      // Add a flag to session storage to prevent infinite reload loops
+      if (!sessionStorage.getItem('mapbox_reload_attempted')) {
+        sessionStorage.setItem('mapbox_reload_attempted', 'true');
+        window.location.reload();
+        return;
+      } else {
+        // If we've already tried reloading once, just log it and continue
+        console.log("Already attempted reload for Mapbox error, continuing without reload");
+        sessionStorage.removeItem('mapbox_reload_attempted');
+      }
+    }
+  
+    // Special handling for mapbox indoor error
+    if (error.message && error.message.includes("indoor")) {
+      console.log("Mapbox indoor error detected");
+      
+      // Clear any problematic state that might be causing map conflicts
+      sessionStorage.removeItem('navigating_to_booking');
+      sessionStorage.removeItem('makeBookings_loaded');
+      sessionStorage.removeItem('reloaded');
+      
+      // Add a mapbox-specific cleanup flag
+      if (!sessionStorage.getItem('mapbox_cleaned')) {
+        sessionStorage.setItem('mapbox_cleaned', 'true');
+        console.log("Cleaning up Mapbox state and reloading page");
+        
+        // Force reload after a brief delay
+        setTimeout(() => window.location.reload(), 100);
+        return;
+      } else {
+        // If we've already tried cleaning up once, avoid infinite loop
+        console.log("Already attempted Mapbox cleanup, continuing without reload");
+        sessionStorage.removeItem('mapbox_cleaned');
+      }
     }
   
     this.setState({
