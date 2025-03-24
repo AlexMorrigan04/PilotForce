@@ -46,22 +46,12 @@ const Map = React.forwardRef<mapboxgl.Map, MapProps>(({
 
     // Cleanup function with safety checks
     return () => {
-      // Clear all markers
-      markerRefs.current.forEach(marker => {
-        if (marker) marker.remove();
-      });
-      markerRefs.current = [];
-
-      // Check if map is defined before destroying
-      if (mapInstance) {
-        try {
-          // Check if the map is still valid (not already destroyed)
-          if (mapInstance) {
-            mapInstance.remove();
-          }
-        } catch (error) {
-          console.warn('Error cleaning up map:', error);
+      try {
+        if (mapInstance) {
+          mapInstance.remove();
         }
+      } catch (error) {
+        console.warn("Error cleaning up Mapbox instance:", error);
       }
     };
   }, []);

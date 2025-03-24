@@ -29,12 +29,19 @@ class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Error caught by boundary:", error, errorInfo);
-    
-    // Only call onError for fatal errors to prevent reload loops
-    if (this.isFatalError(error)) {
-      this.props.onError();
+    console.error("Error caught by boundary:", error);
+    console.error("Component stack:", errorInfo.componentStack);
+  
+    // Check if it's a Mapbox-related error
+    if (error.message && error.message.includes("indoor") && 
+        errorInfo.componentStack?.includes("Map.tsx")) {
+      console.log("Ignoring Mapbox cleanup error");
+      return; // Don't set error state for Mapbox cleanup errors
     }
+  
+    this.setState({
+      hasError: true
+    });
   }
   
   // Add method to determine if an error is fatal enough to warrant a reload

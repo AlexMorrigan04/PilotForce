@@ -169,6 +169,14 @@ const MakeBookings: React.FC = () => {
     }
   }, [user]);
 
+  // Reload the page once automatically when loaded from the AssetDetails page
+  useEffect(() => {
+    if (location.state && location.state.fromAssetDetails && !sessionStorage.getItem('reloaded')) {
+      sessionStorage.setItem('reloaded', 'true');
+      window.location.reload();
+    }
+  }, [location.state]);
+
   useEffect(() => {
     // Check if the page has already been reloaded
     if (!sessionStorage.getItem('reloaded')) {
