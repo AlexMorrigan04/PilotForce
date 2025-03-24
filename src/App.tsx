@@ -106,8 +106,8 @@ class ErrorBoundary extends React.Component<
       return (
         <div className="flex items-center justify-center min-h-screen bg-gray-100">
           <div className="text-center p-8 bg-white rounded-lg shadow-md">
-            <h2 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h2>
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto mb-4"></div>
+            <h2 className="text-2xl font-bold text-blue-600 mb-4">Loading Page</h2>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
             <button 
               onClick={() => window.location.reload()}
               className="px-4 py-2 bg-blue-600 text-white rounded"
