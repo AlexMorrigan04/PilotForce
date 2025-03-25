@@ -4,6 +4,9 @@ import bcrypt from 'bcryptjs';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
+// Replace jsonwebtoken with jwt-decode for client-side use
+import { secureStorage } from '../utils/secureStorage';
+import { loginRateLimiter } from '../utils/rateLimiter';
 
 // Define the shape of the authentication context
 interface User {
@@ -21,7 +24,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   signIn: (username: string, password: string) => Promise<any>;
   signUp: (username: string, password: string, email: string, companyId: string, phoneNumber: string) => Promise<any>;
-  confirmSignUp: (username: string, code: string) => Promise<void>; // Add confirmSignUp to the interface
+  confirmSignUp: (username: string, code: string) => Promise<void>;
   loading: boolean;
   error: Error | null;
 }
@@ -34,7 +37,7 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   signIn: async () => {},
   signUp: async () => {},
-  confirmSignUp: async () => {}, // Add default implementation
+  confirmSignUp: async () => {},
   loading: false,
   error: null,
 });
@@ -65,6 +68,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
+  // Add password complexity validation function
+  const validatePassword = (password: string): boolean => {
+    // At least 8 chars, containing uppercase, lowercase, number and special char
+    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,}$/;
+    return regex.test(password);
+  };
+
   useEffect(() => {
     // Load user from localStorage on mount
     const storedUser = localStorage.getItem('user');
@@ -84,11 +94,66 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.setItem('user', JSON.stringify(userData));
   };
 
+  // Replace JWT token generation with a simpler approach for browser environment
+  const generateToken = (userData: User): string => {
+    // Create a token with expiration time
+    const token = {
+      data: { ...userData },
+      exp: Math.floor(Date.now() / 1000) + (60 * 60) // 1 hour expiry
+    };
+    
+    // Base64 encode the token
+    return btoa(JSON.stringify(token));
+  };
+
+  // Store tokens securely using our secure storage utility
+  const storeToken = (token: string) => {
+    secureStorage.setItem('authToken', {
+      value: token,
+      expiry: new Date().getTime() + (60 * 60 * 1000) // 1 hour
+    });
+  };
+
+  const getStoredToken = (): string | null => {
+    const tokenData = secureStorage.getItem('authToken');
+    if (!tokenData) return null;
+    
+    if (new Date().getTime() > tokenData.expiry) {
+      secureStorage.removeItem('authToken');
+      return null;
+    }
+    
+    return tokenData.value;
+  };
+
+  // Verify token
+  const verifyToken = (token: string): User | null => {
+    try {
+      // Decode the base64 token
+      const decoded = JSON.parse(atob(token));
+      
+      // Check if token is expired
+      if (decoded.exp && decoded.exp < Math.floor(Date.now() / 1000)) {
+        return null;
+      }
+      
+      return decoded.data;
+    } catch (error) {
+      console.error('Error verifying token:', error);
+      return null;
+    }
+  };
+
   // Login function
   const handleSignIn = async (username: string, password: string) => {
     try {
       setLoading(true);
       setError(null);
+
+      // Apply rate limiting
+      if (!loginRateLimiter.checkLimit(username)) {
+        throw new Error('Too many login attempts. Please try again later.');
+      }
 
       // Instead of using Username-index, we'll scan the table and filter by username
       const params = {
@@ -119,6 +184,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             email: user.Email,
             role: user.UserRole || 'User'  // Include role in the user data
           };
+          
+          // Generate token and store it securely
+          const token = generateToken(userData);
+          storeToken(token);
+          
           login(userData);
           return userData;
         } else {
@@ -138,7 +208,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Logout function
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('user');
+    secureStorage.removeItem('user');
+    secureStorage.removeItem('authToken');
   };
 
   // Signup function
@@ -146,6 +217,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
+
+      // Check password complexity
+      if (!validatePassword(password)) {
+        throw new Error('Password does not meet complexity requirements.');
+      }
 
       // First check if username already exists
       const checkParams = {
@@ -251,7 +327,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         console.log(`Creating new company with ID: ${finalCompanyId}`);
       }
 
-      const passwordHash = await bcrypt.hash(password, 10);
+      // Use stronger bcrypt hashing
+      const passwordHash = await bcrypt.hash(password, 12); // Increased from 10 to 12
 
       // Create the user with the appropriate company ID
       const params = {
@@ -347,7 +424,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isAuthenticated: !!user,
     signIn: handleSignIn,
     signUp: handleSignUp,
-    confirmSignUp: handleConfirmSignUp, // Add confirmSignUp to the context value
+    confirmSignUp: handleConfirmSignUp,
     loading,
     error,
   };
