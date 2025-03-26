@@ -691,7 +691,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
       <Map
         {...viewState}
         onMove={evt => setViewState(evt.viewState)}
-        mapStyle="mapbox://styles/mapbox/satellite-v9"
+        mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
         mapboxAccessToken={mapboxAccessToken}
         style={{ width: '100%', height: '100%' }}
         onLoad={handleMapLoad}

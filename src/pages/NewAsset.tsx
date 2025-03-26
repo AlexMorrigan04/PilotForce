@@ -71,6 +71,8 @@ const NewAsset: React.FC = () => {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [postcode, setPostcode] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingPostcode, setIsLoadingPostcode] = useState(false);
+  const [geocodeError, setGeocodeError] = useState<string | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -294,6 +296,52 @@ const NewAsset: React.FC = () => {
     navigate('/assets');
   };
 
+  // Geocode the postcode using Google Maps API
+  const handleGeocodePostcode = async () => {
+    if (!postcode.trim()) {
+      setError('Please enter a postcode first');
+      return;
+    }
+
+    // Clear previous errors
+    setGeocodeError(null);
+    setError(null);
+    setIsLoadingPostcode(true);
+
+    try {
+      // Use Google Maps Geocoding API
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+          postcode
+        )},UK&key=${process.env.REACT_APP_GOOGLE_MAPS_API_KEY}`
+      );
+
+      const data = await response.json();
+
+      if (data.status === 'OK' && data.results && data.results.length > 0) {
+        const { lat, lng } = data.results[0].geometry.location;
+        
+        // Update the map view to center on the geocoded location
+        setViewState({
+          ...viewState,
+          latitude: lat,
+          longitude: lng,
+          zoom: 16 // Zoom in to a reasonable level for property visibility
+        });
+
+        console.log(`Postcode geocoded. Lat: ${lat}, Lng: ${lng}`);
+      } else {
+        setGeocodeError(`Could not find location for postcode: ${data.status}`);
+        console.error('Geocoding error:', data);
+      }
+    } catch (err) {
+      console.error('Error geocoding postcode:', err);
+      setGeocodeError('Failed to geocode postcode. Please try again.');
+    } finally {
+      setIsLoadingPostcode(false);
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar userInfo={userInfo} />
@@ -415,15 +463,43 @@ const NewAsset: React.FC = () => {
                 <label htmlFor="postcode" className="block text-sm font-medium text-gray-700 mb-1">
                   Postcode <span className="text-red-500">*</span>
                 </label>
-                <input
-                  id="postcode"
-                  type="text"
-                  value={postcode}
-                  onChange={(e) => setPostcode(e.target.value)}
-                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  placeholder="Enter the postcode (e.g., BS16 1QY)"
-                  required
-                />
+                <div className="flex">
+                  <input
+                    id="postcode"
+                    type="text"
+                    value={postcode}
+                    onChange={(e) => setPostcode(e.target.value)}
+                    className="block w-full border border-gray-300 rounded-l-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    placeholder="Enter the postcode (e.g., BS16 1QY)"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGeocodePostcode}
+                    disabled={isLoadingPostcode || !postcode.trim()}
+                    className={`inline-flex items-center px-3 py-2 border border-l-0 border-gray-300 
+                      rounded-r-md shadow-sm text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
+                      ${isLoadingPostcode || !postcode.trim() 
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                  >
+                    {isLoadingPostcode ? (
+                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                {geocodeError && (
+                  <p className="mt-1 text-sm text-red-600">{geocodeError}</p>
+                )}
+                <p className="mt-1 text-xs text-gray-500">Enter a postcode and click the location icon to navigate to it on the map</p>
               </div>
               
               {areaSize > 0 && (
@@ -520,13 +596,22 @@ const NewAsset: React.FC = () => {
                     {...viewState}
                     onMove={(evt: any) => setViewState(evt.viewState)}
                     style={{ width: '100%', height: '100%' }}
-                    mapStyle="mapbox://styles/mapbox/satellite-v9"
+                    mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
                     mapboxAccessToken="pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
                     scrollZoom={true}
                     onLoad={onMapLoad}
                     attributionControl={false}
                   >
                     {/* <NavigationControl position="top-right" /> */}
+                    
+                    {/* Show a marker when postcode is geocoded */}
+                    {/* {!isDrawing && postcode.trim() !== '' && !geocodeError && (
+                      <Marker 
+                        longitude={viewState.longitude} 
+                        latitude={viewState.latitude}
+                        color="#3182CE"
+                      />
+                    )} */}
                     
                     {/* Display the drawn area as a GeoJSON source/layer if available */}
                     {mapLoaded && drawnArea && drawnArea.features && drawnArea.features.length > 0 && (

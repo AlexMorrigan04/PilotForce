@@ -25,7 +25,7 @@ const MapBox: React.FC<MapBoxProps> = ({ assets, selectedAsset, setSelectedAsset
     try {
       const map = new mapboxgl.Map({
         container: mapContainerRef.current,
-        style: 'mapbox://styles/mapbox/satellite-v9',
+        style: 'mapbox://styles/mapbox/satellite-streets-v12',
         center: [-2.587910, 51.454514],
         zoom: 12
       });

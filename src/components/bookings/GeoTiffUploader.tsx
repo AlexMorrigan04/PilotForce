@@ -459,7 +459,7 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
           {...viewState}
           onMove={(evt: any) => setViewState(evt.viewState)}
           style={{ width: '100%', height: '100%' }}
-          mapStyle="mapbox://styles/mapbox/satellite-v9"
+          mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
           mapboxAccessToken={mapboxAccessToken}
           onLoad={handleMapLoad}
         >

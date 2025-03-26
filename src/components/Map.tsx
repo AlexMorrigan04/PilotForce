@@ -30,7 +30,7 @@ const Map = React.forwardRef<mapboxgl.Map, MapProps>(({
 
     const mapInstance = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/streets-v11',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
       center: center,
       zoom: zoom
     });

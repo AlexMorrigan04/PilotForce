@@ -158,7 +158,7 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
       // Create the map instance
       const map = new mapboxgl.Map({
         container: mapContainerRef.current,
-        style: 'mapbox://styles/mapbox/satellite-v9',
+        style: 'mapbox://styles/mapbox/satellite-streets-v12',
         center: [-2.587910, 51.454514], // Bristol area
         zoom: 12
       });
@@ -1168,7 +1168,7 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
                       }}
                       onMove={(evt: any) => setViewState(evt.viewState)}
                       style={{ width: '100%', height: '100%' }}
-                      mapStyle="mapbox://styles/mapbox/satellite-v9"
+                      mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
                     >
                       {/* <NavigationControl position="top-right" /> */}
                       
