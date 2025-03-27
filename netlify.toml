@@ -4,7 +4,7 @@
 
 [context.production.environment]
   REACT_APP_AWS_REGION = "eu-north-1"
-  REACT_APP_MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoieW91ci1tYXBib3gtdXNlcm5hbWUiLCJhIjoieW91ci1tYXBib3gtdG9rZW4ifQ.your-mapbox-key-part"
+  REACT_APP_MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
   # DO NOT include actual AWS credentials here for security reasons
   # Set these in Netlify's UI
 
@@ -19,17 +19,17 @@
   to = "/index.html"
   status = 200
 
-# Allow cross-origin image loading with expanded Mapbox permissions
+# Allow cross-origin image loading 
 [[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
     X-XSS-Protection = "1; mode=block"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    # Expanded Content Security Policy to allow Mapbox resources
-    Content-Security-Policy = "default-src 'self'; img-src 'self' data: blob: https://*.amazonaws.com https://*.mapbox.com https://api.mapbox.com https://events.mapbox.com; connect-src 'self' https://*.amazonaws.com https://*.mapbox.com https://api.mapbox.com https://events.mapbox.com; script-src 'self' 'unsafe-inline' https://api.mapbox.com; style-src 'self' 'unsafe-inline' https://api.mapbox.com; worker-src blob:; child-src blob:;"
+    # Allow AWS domains for images
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data: blob: https://*.amazonaws.com; connect-src 'self' https://*.amazonaws.com https://*.mapbox.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
 
-# Set up caching for images and mapbox assets
+# Set up caching for images
 [[headers]]
   for = "/*.jpg"
   [headers.values]
@@ -39,12 +39,6 @@
   for = "/*.png"
   [headers.values]
     Cache-Control = "public, max-age=86400"
-
-# Cache Mapbox tiles for better performance
-[[headers]]
-  for = "/*.pbf"
-  [headers.values]
-    Cache-Control = "public, max-age=3600"
 
 # Add S3 proxy function to handle images securely and bypass CORS
 [functions]
