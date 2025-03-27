@@ -885,12 +885,12 @@ const FlightDetails: React.FC = () => {
             {(booking.status === 'scheduled' || booking.status === 'pending') && (
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
                 <div className="flex space-x-3">
-                  <button className="flex-1 bg-red-50 py-2 px-4 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-100 flex items-center justify-center">
+                  {/* <button className="flex-1 bg-red-50 py-2 px-4 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-100 flex items-center justify-center">
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2 2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Cancel
-                  </button>
+                  </button> */}
                 </div>
               </div>
             )}
