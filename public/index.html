@@ -24,6 +24,7 @@
       work correctly both with client-side routing and a non-root public URL.
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com wss://*.amazonaws.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://*.mapbox.com; worker-src 'self' blob:; img-src 'self' data: https://*.mapbox.com https://*.amazonaws.com; style-src 'self' 'unsafe-inline' https://*.mapbox.com;">
     <title>React App</title>
   </head>
   <body>
