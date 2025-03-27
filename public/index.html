@@ -6,30 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
     
-    <!-- Add the Content Security Policy meta tag directly in the HTML -->
+    <!-- Update the Content Security Policy to specifically include the Formspree endpoint -->
     <meta http-equiv="Content-Security-Policy" 
-      content="default-src 'self'; connect-src 'self' data: blob: https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com wss://*.amazonaws.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://*.mapbox.com; worker-src 'self' blob:; img-src 'self' data: blob: https://*.mapbox.com https://*.amazonaws.com; style-src 'self' 'unsafe-inline' https://*.mapbox.com; font-src 'self' data:;">
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.mapbox.com https://*.amazonaws.com; connect-src 'self' data: blob: https://*.mapbox.com https://api.mapbox.com https://api.mapbox.com/geocoding/ https://*.amazonaws.com wss://*.amazonaws.com https://formspree.io https://formspree.io/f/mvgkqjvr; worker-src 'self' blob:;">
     
     <meta
       name="description"
-      content="PilotForce - Drone Operations Management"
+      content="PilotForce - Drone operations management platform"
     />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
-
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+    <title>PilotForce</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

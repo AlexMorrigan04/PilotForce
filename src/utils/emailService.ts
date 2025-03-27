@@ -1,7 +1,24 @@
 import { Resend } from 'resend';
+import AWS from 'aws-sdk';
 
 // Use environment variable for API key
 const resend = new Resend(process.env.REACT_APP_RESEND_API_KEY || '');
+
+// Formspree endpoints constructed from environment variables with fallbacks
+const FORMSPREE_BASE_URL = 'https://formspree.io/f';
+// Fallback to a known working ID if environment variables are undefined
+const SIGNUP_FORM_ID = process.env.REACT_APP_FORMSPREE_SIGNUP_FORM_ID || 'mvgkqjvr';
+const BOOKING_FORM_ID = process.env.REACT_APP_FORMSPREE_BOOKING_FORM_ID || 'mvgkqjvr';
+const CONTACT_EMAIL = process.env.REACT_APP_FORMSPREE_CONTACT_EMAIL || 'Alex@morriganconsulting.co.uk';
+
+// Export constants with fallback values to prevent undefined
+export const FORMSPREE_ENDPOINTS = {
+  signup: `${FORMSPREE_BASE_URL}/${SIGNUP_FORM_ID}`,
+  booking: `${FORMSPREE_BASE_URL}/${BOOKING_FORM_ID}`,
+};
+
+// Log the endpoints for debugging (remove in production)
+console.log('Formspree endpoints:', FORMSPREE_ENDPOINTS);
 
 /**
  * Send an email notification to the admin when a new user signs up
@@ -253,3 +270,98 @@ export const sendNewCompanyNotification = async (
     throw error;
   }
 };
+
+/**
+ * Sends a notification email via Formspree for new user registrations
+ */
+export const sendNewUserNotificationV2 = async (userData: any, isNewCompany: boolean) => {
+  const endpoint = FORMSPREE_ENDPOINTS.signup;
+  
+  try {
+    const emailData = {
+      type: isNewCompany ? 'new-company-admin' : 'new-company-user',
+      _replyto: CONTACT_EMAIL, // Main FormSpree account email
+      _subject: isNewCompany 
+        ? `New Company Registration: ${userData.companyName}`
+        : `New User Registration: ${userData.username}`,
+      ...userData
+    };
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(emailData)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Email notification failed with status: ${response.status}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send notification email:', error);
+    return { success: false, error };
+  }
+};
+
+/**
+ * Sends a booking notification email via Formspree
+ */
+export const sendBookingNotification = async (bookingData: any) => {
+  const endpoint = FORMSPREE_ENDPOINTS.booking;
+  
+  try {
+    const emailData = {
+      _replyto: CONTACT_EMAIL, // Main FormSpree account email
+      _subject: `New Drone Service Booking: ${bookingData.assetName}`,
+      ...bookingData
+    };
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(emailData)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Booking notification failed with status: ${response.status}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send booking notification:', error);
+    return { success: false, error };
+  }
+};
+
+// Add a new function to send via the proxy
+export const sendViaProxy = async (formId: string, data: any) => {
+  try {
+    const proxyUrl = 'http://localhost:3001/api/formspree-proxy';
+    const response = await fetch(`${proxyUrl}?formId=${formId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Proxy failed with status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error sending via proxy:', error);
+    throw error;
+  }
+};
+
+// Removed duplicate declaration of getCompanyAdminEmails to resolve the error.

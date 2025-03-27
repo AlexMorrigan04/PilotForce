@@ -5,6 +5,7 @@ import loginImage from '../images/login-image.avif';
 import { v4 as uuidv4 } from 'uuid';
 import AWS from 'aws-sdk';
 import { sendNewUserNotification, getCompanyAdminEmails } from '../utils/emailService';
+import { FORMSPREE_ENDPOINTS } from '../utils/emailService';
 
 // Setup AWS
 const awsRegion = process.env.REACT_APP_AWS_REGION;
@@ -125,7 +126,7 @@ const Signup: React.FC = () => {
           // If it's a new company, notify the system admin
           console.log("New company created, sending notification to system admin");
           
-          await fetch('https://formspree.io/f/xnnppgya', {
+          await fetch(FORMSPREE_ENDPOINTS.signup, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -192,7 +193,7 @@ const Signup: React.FC = () => {
               subject: `New User Registration: ${username}`
             });
             
-            const response = await fetch('https://formspree.io/f/xnnppgya', {
+            const response = await fetch(FORMSPREE_ENDPOINTS.signup, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -221,7 +222,7 @@ const Signup: React.FC = () => {
               emailDomain: emailDomain
             };
             
-            await fetch('https://formspree.io/f/xnnppgya', {
+            await fetch(FORMSPREE_ENDPOINTS.signup, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',

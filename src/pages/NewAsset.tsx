@@ -73,6 +73,11 @@ const NewAsset: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingPostcode, setIsLoadingPostcode] = useState(false);
   const [geocodeError, setGeocodeError] = useState<string | null>(null);
+  const [postcodeError, setPostcodeError] = useState<string | null>(null);
+  
+  // Add the missing state variables
+  const [geocodingLoading, setGeocodingLoading] = useState(false);
+  const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -296,49 +301,52 @@ const NewAsset: React.FC = () => {
     navigate('/assets');
   };
 
-  // Geocode the postcode using Google Maps API
+  // Replace the Google Maps geocoding function with Mapbox geocoding
   const handleGeocodePostcode = async () => {
-    if (!postcode.trim()) {
-      setError('Please enter a postcode first');
+    if (!postcode) {
+      setPostcodeError('Please enter a postcode');
       return;
     }
-
-    // Clear previous errors
-    setGeocodeError(null);
-    setError(null);
-    setIsLoadingPostcode(true);
-
+  
     try {
-      // Use Google Maps Geocoding API
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-          postcode
-        )},UK&key=${process.env.REACT_APP_GOOGLE_MAPS_API_KEY}`
-      );
-
-      const data = await response.json();
-
-      if (data.status === 'OK' && data.results && data.results.length > 0) {
-        const { lat, lng } = data.results[0].geometry.location;
-        
-        // Update the map view to center on the geocoded location
-        setViewState({
-          ...viewState,
-          latitude: lat,
-          longitude: lng,
-          zoom: 16 // Zoom in to a reasonable level for property visibility
-        });
-
-        console.log(`Postcode geocoded. Lat: ${lat}, Lng: ${lng}`);
-      } else {
-        setGeocodeError(`Could not find location for postcode: ${data.status}`);
-        console.error('Geocoding error:', data);
+      setGeocodingLoading(true);
+      const mapboxToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
+      
+      // Use Mapbox geocoding API instead of Google
+      const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(postcode)}.json?country=gb&types=postcode&access_token=${mapboxToken}`;
+      
+      const response = await fetch(geocodeUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Geocoding failed with status: ${response.status}`);
       }
-    } catch (err) {
-      console.error('Error geocoding postcode:', err);
-      setGeocodeError('Failed to geocode postcode. Please try again.');
+      
+      const data = await response.json();
+      
+      // Mapbox returns coordinates as [longitude, latitude]
+      if (data.features && data.features.length > 0) {
+        const [longitude, latitude] = data.features[0].center;
+        
+        console.log(`Geocoded coordinates: ${latitude}, ${longitude}`);
+        
+        // Update the map view
+        setViewState({
+          latitude,
+          longitude,
+          zoom: 16
+        });
+        
+        // Set coordinates for the new asset
+        setCoordinates([longitude, latitude]);
+        setPostcodeError('');
+      } else {
+        setPostcodeError('Postcode not found');
+      }
+    } catch (error) {
+      console.error('Error geocoding postcode:', error);
+      setPostcodeError('Failed to geocode postcode. Please try again.');
     } finally {
-      setIsLoadingPostcode(false);
+      setGeocodingLoading(false);
     }
   };
 

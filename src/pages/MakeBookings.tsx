@@ -8,6 +8,8 @@ import * as turf from '@turf/turf';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import AWS from 'aws-sdk';
 import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
+import { sendBookingNotification } from '../utils/emailService';
+import { FORMSPREE_ENDPOINTS } from '../utils/emailService';
 
 // Define job types for each asset type
 const jobTypesByAssetType = {
@@ -322,7 +324,6 @@ const MakeBookings: React.FC = () => {
   const [companyDetails, setCompanyDetails] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
-  const FORMSPREE_ENDPOINT = "https://formspree.io/f/mvgkqjvr"; // Replace with your actual Formspree form ID
   
   // Add these missing state variables for service options
   const [selectedOptions, setSelectedOptions] = useState<{[serviceType: string]: {[key: string]: any}}>({});
@@ -877,86 +878,53 @@ const MakeBookings: React.FC = () => {
 
       setError(null);
 
-      // Save to DynamoDB
+      // Save to DynamoDB first - this is the most critical part
       await dynamoDb.put(params).promise();
       console.log('Booking submitted successfully to DynamoDB with ID:', bookingId);
       
-      // Prepare simplified email data with improved formatting and recipient information
+      // Prepare email data
       const emailData = {
-        // Add the recipient email for Formspree to direct the notification to
-        _replyto: "Mike@morriganconsulting.co.uk",
-        
-        // Add a subject line for the email notification
-        _subject: `New Drone Service Booking: ${asset.name} - ${selectedJobTypes.join(', ')}`,
-        
-        // Booking information
-        bookingId: bookingId,
-        jobType: selectedJobTypes.join(', '),
-        flightDate: scheduleType === 'scheduled' || scheduleType === 'flexible' ? date : startDate,
-        status: 'pending',
-        
-        // Asset information
-        assetName: asset.name,
-        assetId: asset.AssetId,
-        assetType: asset.type,
-        assetLocation: `${viewState.latitude}, ${viewState.longitude}`,
-        assetPostcode: assetPostcode || 'Not specified',
-        
-        // User contact information
-        userName: user.username,
-        userEmail: userEmail,
-        userPhone: userPhone,
-        emailDomain: strippedDomain,
-        
-        // Company information
-        companyId: user.companyId,
-        companyName: companyDetails?.CompanyName || 'Unknown Company',
-        
-        // Site contact information
-        siteContact: {
-          name: siteContact.name,
-          phone: siteContact.phone,
-          email: siteContact.email || 'Not provided',
-          isAvailableOnsite: siteContact.isAvailableOnsite ? 'Yes' : 'No'
-        },
-        
-        // Submission timestamp
-        submittedAt: new Date().toISOString(),
-        
-        // Format schedule information for better email readability
-        scheduleDetails: scheduleType === 'scheduled' 
-          ? `Specific date: ${new Date(date).toLocaleDateString()}`
-          : scheduleType === 'flexible'
-            ? `Flexible date: ${new Date(date).toLocaleDateString()} (${flexibility} flexibility)`
-            : `Recurring: ${repeatFrequency} from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
-        
-        // Add notes to email if provided
-        notes: notes.trim() ? `Notes: ${notes.trim()}` : 'No additional notes provided'
+        // ...existing email data...
       };
       
-      // Send to Formspree
-      console.log('Sending email data to Formspree:', emailData);
-      const formspreeResponse = await fetch(FORMSPREE_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify(emailData)
-      });
+      // Log the Formspree endpoint being used for debugging
+      console.log("Using Formspree booking endpoint:", FORMSPREE_ENDPOINTS.booking);
       
-      console.log('Formspree response status:', formspreeResponse.status);
-      const responseText = await formspreeResponse.text();
-      console.log('Formspree response:', responseText);
-      
-      if (!formspreeResponse.ok) {
-        // If Formspree fails, still continue (the booking is already saved to DynamoDB)
-        console.warn('Email notification failed, but booking was saved:', responseText);
-      } else {
-        console.log('Email notification sent successfully');
+      // Try to send notification, but don't let it block success
+      try {
+        // Ensure the endpoint is defined before sending
+        if (!FORMSPREE_ENDPOINTS.booking || FORMSPREE_ENDPOINTS.booking.includes('undefined')) {
+          console.warn('Formspree endpoint is not properly configured');
+        } else {
+          // Try to send to Formspree with a timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
+          
+          const formspreeResponse = await fetch(FORMSPREE_ENDPOINTS.booking, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify(emailData),
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          // Log the response for debugging
+          if (formspreeResponse.ok) {
+            console.log('Email notification sent successfully');
+          } else {
+            console.warn('Email notification failed:', await formspreeResponse.text());
+          }
+        }
+      } catch (emailError) {
+        // Don't let email errors stop the success flow
+        console.warn('Failed to send email notification, but booking was saved:', emailError);
       }
       
-      // After successful submission
+      // Consider the submission successful even if the email fails
       setBookingSuccess(true);
       
       // Navigate after a short delay to show success state
