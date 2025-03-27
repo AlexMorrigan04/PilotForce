@@ -1,73 +1,74 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
-type BreadcrumbItem = {
-  label: string;
+export interface BreadcrumbItem {
+  // Support both name and label properties for compatibility
+  name?: string;
+  label?: string;
+  href?: string;
   path?: string;
-  onClick?: () => void;
+  current?: boolean;
   isCurrent?: boolean;
-};
+  onClick?: () => void;
+}
 
 interface BreadcrumbsProps {
   items: BreadcrumbItem[];
+  className?: string;
 }
 
-const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items }) => {
-  const navigate = useNavigate();
-
-  // Handle clicking on a breadcrumb item
-  const handleClick = (item: BreadcrumbItem, e: React.MouseEvent) => {
-    e.preventDefault();
-    
-    if (item.onClick) {
-      item.onClick();
-    } else if (item.path) {
-      navigate(item.path);
-    }
-  };
-
+export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items, className = '' }) => {
   return (
-    <div className="bg-white border-b border-gray-200">
-      <div className="container mx-auto max-w-6xl px-4 py-2">
-        <nav className="flex" aria-label="Breadcrumb">
-          <ol className="inline-flex items-center space-x-1 md:space-x-3 flex-wrap">
-            {items.map((item, index) => (
-              <li 
-                key={index} 
-                className={`inline-flex items-center ${index > 0 ? 'ml-2' : ''}`}
-                aria-current={item.isCurrent ? 'page' : undefined}
-              >
-                {index > 0 && (
-                  <svg className="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                  </svg>
-                )}
-                
-                {item.isCurrent ? (
-                  <span className={`${index === 0 ? '' : 'ml-1'} text-sm font-medium text-gray-500 md:ml-2 truncate max-w-[150px] md:max-w-xs`}>
-                    {item.label}
-                  </span>
-                ) : (
-                  <a 
-                    href={item.path || '#'}
-                    onClick={(e) => handleClick(item, e)}
-                    className={`${index === 0 ? 'inline-flex items-center' : 'ml-1'} text-sm font-medium text-gray-600 hover:text-blue-600 md:ml-2`}
-                  >
-                    {index === 0 && (
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                      </svg>
-                    )}
-                    {item.label}
-                  </a>
-                )}
-              </li>
-            ))}
-          </ol>
-        </nav>
-      </div>
-    </div>
+    <nav className={`flex py-4 px-4 ${className}`} aria-label="Breadcrumb">
+      <ol className="flex items-center space-x-2">
+        <li className="flex items-center">
+          <Link to="/" className="text-gray-500 hover:text-gray-700">
+            <svg className="flex-shrink-0 h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fillRule="evenodd" d="M9.293 2.293a1 1 0 011.414 0l7 7A1 1 0 0117 11h-1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-3a1 1 0 00-1-1H9a1 1 0 00-1 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-6H3a1 1 0 01-.707-1.707l7-7z" clipRule="evenodd" />
+            </svg>
+            <span className="sr-only">Home</span>
+          </Link>
+        </li>
+
+        {items.map((item, index) => {
+          // Get item text from either name or label
+          const itemText = item.label || item.name || 'Unnamed';
+          // Get link path from either href or path
+          const itemPath = item.href || item.path || '#';
+          // Check if current from either current or isCurrent
+          const isCurrent = item.current || item.isCurrent;
+          
+          return (
+            <li key={itemText + index} className="flex items-center">
+              <svg className="flex-shrink-0 h-4 w-4 text-gray-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+              </svg>
+              {isCurrent ? (
+                <span className="ml-2 text-sm font-medium text-gray-700" aria-current="page">
+                  {itemText}
+                </span>
+              ) : item.onClick ? (
+                <button
+                  onClick={item.onClick}
+                  className="ml-2 text-sm font-medium text-gray-500 hover:text-gray-700"
+                >
+                  {itemText}
+                </button>
+              ) : (
+                <Link
+                  to={itemPath}
+                  className="ml-2 text-sm font-medium text-gray-500 hover:text-gray-700"
+                >
+                  {itemText}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 };
 
+// Add default export to support both named and default imports
 export default Breadcrumbs;

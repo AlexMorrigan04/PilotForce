@@ -10,6 +10,7 @@ import { Link, useNavigate } from 'react-router-dom'; // Import useNavigate
 import * as exifr from 'exifr'; // Import exifr
 import 'mapbox-gl/dist/mapbox-gl.css'; // Import MapBox CSS
 import { GeoTiffUploader } from '../components/bookings/GeoTiffUploader'; // Import GeoTiffUploader
+import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 
 // Add a Mapbox access token constant near the top of the file
 const MAPBOX_ACCESS_TOKEN = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
@@ -497,6 +498,12 @@ const MyBookings: React.FC = () => {
     });
   };
 
+  // Define breadcrumbs
+  const breadcrumbs: BreadcrumbItem[] = [
+    { name: 'Dashboard', href: '/dashboard', current: false },
+    { name: 'Flights', href: '/my-bookings', current: true }
+  ];
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar userInfo={userInfo} />
@@ -523,6 +530,9 @@ const MyBookings: React.FC = () => {
       </div>
 
       <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
+        {/* Add breadcrumbs component here */}
+        <Breadcrumbs items={breadcrumbs} className="mb-6" />
+        
         {loading ? (
           <div className="flex justify-center items-center h-64">
             <div className="flex flex-col items-center">

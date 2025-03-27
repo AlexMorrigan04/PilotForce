@@ -1,26 +1,17 @@
 [build]
-  command = "npm run build"
   publish = "build"
+  command = "npm run build"
 
 [build.environment]
   REACT_APP_MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
   GENERATE_SOURCEMAP = "false"
-  REACT_APP_AWS_REGION = "eu-north-1"
-  # DO NOT include actual AWS credentials here for security reasons
-  # Set these in Netlify's UI
-
-# Proxy API endpoints to serverless functions
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-# Allow proper loading of Mapbox and AWS resources with comprehensive security headers
+# Add security headers for all pages
 [[headers]]
   for = "/*"
   [headers.values]
@@ -28,28 +19,6 @@
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://api.mapbox.com; style-src 'self' 'unsafe-inline' https://api.mapbox.com; img-src 'self' data: blob: https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com; connect-src 'self' https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com wss://*.amazonaws.com; worker-src blob:; child-src blob:; frame-ancestors 'none';"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://api.mapbox.com; style-src 'self' 'unsafe-inline' https://api.mapbox.com; img-src 'self' data: blob: https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com; connect-src 'self' data: blob: https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com wss://*.amazonaws.com; worker-src blob:; child-src blob:; frame-ancestors 'none';"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
     Permissions-Policy = "geolocation=(self), camera=()"
-
-# Set up caching for images
-[[headers]]
-  for = "/*.jpg"
-  [headers.values]
-    Cache-Control = "public, max-age=86400"
-    
-[[headers]]
-  for = "/*.png"
-  [headers.values]
-    Cache-Control = "public, max-age=86400"
-
-# Cache Mapbox tiles for better performance
-[[headers]]
-  for = "/*.pbf"
-  [headers.values]
-    Cache-Control = "public, max-age=3600"
-
-# Add S3 proxy function to handle images securely and bypass CORS
-[functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"

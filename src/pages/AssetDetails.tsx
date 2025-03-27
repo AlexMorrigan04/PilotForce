@@ -7,7 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import AWS from 'aws-sdk';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import Breadcrumbs from '../components/Breadcrumbs';
+import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 
 // Define the asset type colors and icons for display
 const assetTypeDetails = {

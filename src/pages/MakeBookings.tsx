@@ -7,7 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import AWS from 'aws-sdk';
-import Breadcrumbs from '../components/Breadcrumbs';
+import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 
 // Define job types for each asset type
 const jobTypesByAssetType = {

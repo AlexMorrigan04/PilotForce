@@ -9,6 +9,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
 import MapboxLogger from '../utils/mapboxLogger';
+import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 
 const FlightDetails: React.FC = () => {
   const params = useParams();
@@ -689,6 +690,13 @@ const FlightDetails: React.FC = () => {
     };
   };
 
+  // Breadcrumbs configuration
+  const breadcrumbs: BreadcrumbItem[] = [
+    { name: 'Dashboard', href: '/dashboard', current: false },
+    { name: 'Flights', href: '/my-bookings', current: false },
+    { name: booking?.assetName || 'Flight Details', href: `/flight-details/${bookingId}`, current: true }
+  ];
+
   if (isLoading) {
     return (
       <div className="flex flex-col min-h-screen bg-gray-50">
@@ -809,6 +817,9 @@ const FlightDetails: React.FC = () => {
             Back to Flights
           </button>
         </div>
+
+        {/* Add breadcrumbs */}
+        <Breadcrumbs items={breadcrumbs} className="mb-6" />
         
         {/* Booking Overview Card - Moved to top for better hierarchy */}
         <div className="mb-6">

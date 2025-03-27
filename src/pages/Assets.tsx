@@ -9,7 +9,7 @@ import AWS from 'aws-sdk';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import { useNavigate } from 'react-router-dom';
-import Breadcrumbs from '../components/Breadcrumbs';
+import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 
 const Assets: React.FC = () => {
   const { user } = useContext(AuthContext);

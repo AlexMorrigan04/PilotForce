@@ -1,3 +1,4 @@
 /*
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com wss://*.amazonaws.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://*.mapbox.com; worker-src 'self' blob:; img-src 'self' data: blob: https://*.mapbox.com https://*.amazonaws.com; style-src 'self' 'unsafe-inline' https://*.mapbox.com; font-src 'self' data:;
+  Content-Security-Policy: default-src 'self'; connect-src 'self' data: blob: https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com wss://*.amazonaws.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://*.mapbox.com; worker-src 'self' blob:; img-src 'self' data: blob: https://*.mapbox.com https://*.amazonaws.com; style-src 'self' 'unsafe-inline' https://*.mapbox.com; font-src 'self' data:;
   Access-Control-Allow-Origin: *
+*/
