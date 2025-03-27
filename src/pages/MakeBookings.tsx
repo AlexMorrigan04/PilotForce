@@ -303,7 +303,7 @@ const MakeBookings: React.FC = () => {
   const { user } = useContext(AuthContext);
   const location = useLocation();
   const navigate = useNavigate();
-  const [jobType, setJobType] = useState('');
+  const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>([]);
   const [viewState, setViewState] = useState({
     longitude: -2.587910,
     latitude: 51.454514,
@@ -325,9 +325,10 @@ const MakeBookings: React.FC = () => {
   const FORMSPREE_ENDPOINT = "https://formspree.io/f/mvgkqjvr"; // Replace with your actual Formspree form ID
   
   // Add these missing state variables for service options
-  const [selectedOptions, setSelectedOptions] = useState<{[key: string]: any}>({});
+  const [selectedOptions, setSelectedOptions] = useState<{[serviceType: string]: {[key: string]: any}}>({});
   const [serviceInfo, setServiceInfo] = useState<any>(null);
   const [showInfoTooltip, setShowInfoTooltip] = useState<string | null>(null);
+  const [activeServiceConfig, setActiveServiceConfig] = useState<string | null>(null);
 
   // New state variables for site contact
   const [siteContact, setSiteContact] = useState<SiteContact>({
@@ -372,7 +373,7 @@ const MakeBookings: React.FC = () => {
         setViewState({
           longitude: center[0],
           latitude: center[1],
-          zoom: 19
+          zoom: 17
         });
       } catch (error) {
         console.warn('Error calculating center of asset:', error);
@@ -576,13 +577,25 @@ const MakeBookings: React.FC = () => {
     }
   };
 
-  const handleJobTypeChange = (type: string) => {
-    setJobType(type);
+  const toggleJobType = (type: string) => {
+    setSelectedJobTypes(prev => {
+      // If already selected, remove it
+      if (prev.includes(type)) {
+        return prev.filter(t => t !== type);
+      }
+      // Otherwise add it
+      return [...prev, type];
+    });
+    
+    // Set this type as the active one being configured
+    setActiveServiceConfig(type);
+    
+    // Initialize service info for this type
     const serviceDetail = serviceDetails[type as keyof typeof serviceDetails] || null;
     setServiceInfo(serviceDetail);
     
-    // Initialize options based on the job type
-    if (serviceDetail) {
+    // Initialize options for this service type if not already set
+    if (serviceDetail && !selectedOptions[type]) {
       const initialOptions: {[key: string]: any} = {};
       
       // Type guard to check if this service has options
@@ -599,30 +612,47 @@ const MakeBookings: React.FC = () => {
         });
       }
       
-      setSelectedOptions(initialOptions);
+      // Set initial options for this service type
+      setSelectedOptions(prev => ({
+        ...prev,
+        [type]: initialOptions
+      }));
     }
   };
 
   const handleOptionChange = (optionGroup: string, value: string, isMulti: boolean) => {
+    if (!activeServiceConfig) return;
+    
     if (isMulti) {
       setSelectedOptions(prev => {
-        const currentValues = prev[optionGroup] || [];
+        const serviceOptions = prev[activeServiceConfig] || {};
+        const currentValues = serviceOptions[optionGroup] || [];
+        
         if (currentValues.includes(value)) {
           return {
             ...prev,
-            [optionGroup]: currentValues.filter((v: string) => v !== value)
+            [activeServiceConfig]: {
+              ...serviceOptions,
+              [optionGroup]: currentValues.filter((v: string) => v !== value)
+            }
           };
         } else {
           return {
             ...prev,
-            [optionGroup]: [...currentValues, value]
+            [activeServiceConfig]: {
+              ...serviceOptions,
+              [optionGroup]: [...currentValues, value]
+            }
           };
         }
       });
     } else {
       setSelectedOptions(prev => ({
         ...prev,
-        [optionGroup]: value
+        [activeServiceConfig]: {
+          ...(prev[activeServiceConfig] || {}),
+          [optionGroup]: value
+        }
       }));
     }
   };
@@ -691,8 +721,21 @@ const MakeBookings: React.FC = () => {
     console.log("Current user details:", userDetails);
     console.log("Current company details:", companyDetails);
 
-    if (!jobType.trim() || !date.trim() || !asset) {
-      setError('Please fill in all required fields');
+    if (selectedJobTypes.length === 0 || !asset) {
+      setError('Please select at least one service type and an asset');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Validate schedule information based on the selected schedule type
+    if ((scheduleType === 'scheduled' || scheduleType === 'flexible') && !date) {
+      setError('Please select a date for the service');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (scheduleType === 'repeat' && (!startDate || !endDate)) {
+      setError('Please provide both start and end dates for recurring service');
       setIsSubmitting(false);
       return;
     }
@@ -765,6 +808,21 @@ const MakeBookings: React.FC = () => {
         }
       }
       
+      // Prepare scheduling information based on the selected schedule type
+      const schedulingInfo = {
+        scheduleType,
+        // For scheduled and flexible, include the date
+        ...(scheduleType === 'scheduled' || scheduleType === 'flexible' ? { date } : {}),
+        // For flexible, include flexibility
+        ...(scheduleType === 'flexible' ? { flexibility } : {}),
+        // For recurring, include start date, end date, and frequency
+        ...(scheduleType === 'repeat' ? { 
+          startDate, 
+          endDate, 
+          repeatFrequency 
+        } : {})
+      };
+      
       // Add site contact to booking object
       const newBooking = {
         CompanyId: user.companyId, // Use CompanyId as the partition key
@@ -772,19 +830,30 @@ const MakeBookings: React.FC = () => {
         assetId: asset.AssetId,
         assetName: asset.name,
         createdAt: new Date().toISOString(),
-        flightDate: date,
-        jobType,
+        flightDate: scheduleType === 'scheduled' || scheduleType === 'flexible' ? date : startDate,
+        // Change from jobType to jobTypes array
+        jobTypes: selectedJobTypes,
         location: `${viewState.latitude}, ${viewState.longitude}`,
         status: 'pending',
         userName: user.username || 'Unknown User',
+        
+        // Add scheduling information
+        scheduling: schedulingInfo,
+        
+        // Add service options if available - now for multiple services
+        serviceOptions: Object.keys(selectedOptions).length > 0 ? selectedOptions : null,
+        
         // Add the postcode from the asset
         postcode: assetPostcode,
+        
         // Add user contact information
         userEmail: userEmail, // Add the email from userDetails
         userPhone: userPhone, // Add the phone number from userDetails
         emailDomain: strippedDomain, // Use the stripped domain name
+        
         // Ensure there are some minimal company details
         companyName: companyDetails?.CompanyName || 'Unknown Company',
+        
         // Add site contact information to booking
         siteContact: {
           id: contactId,
@@ -793,6 +862,7 @@ const MakeBookings: React.FC = () => {
           email: siteContact.email,
           isAvailableOnsite: siteContact.isAvailableOnsite
         },
+        
         // Add notes if provided
         notes: notes.trim() || null
       };
@@ -817,12 +887,12 @@ const MakeBookings: React.FC = () => {
         _replyto: "Mike@morriganconsulting.co.uk",
         
         // Add a subject line for the email notification
-        _subject: `New Drone Service Booking: ${asset.name} - ${jobType}`,
+        _subject: `New Drone Service Booking: ${asset.name} - ${selectedJobTypes.join(', ')}`,
         
         // Booking information
         bookingId: bookingId,
-        jobType: jobType,
-        flightDate: date,
+        jobType: selectedJobTypes.join(', '),
+        flightDate: scheduleType === 'scheduled' || scheduleType === 'flexible' ? date : startDate,
         status: 'pending',
         
         // Asset information
@@ -939,7 +1009,7 @@ const MakeBookings: React.FC = () => {
       <Navbar />
       
       {/* Hero section with gradient background */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-6 px-4 shadow-md">
         <div className="container mx-auto max-w-6xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
             <div className="mb-4 md:mb-0">
@@ -1016,598 +1086,280 @@ const MakeBookings: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left Column - Booking Form */}
-            <div className="space-y-6">
-              {/* Progress Steps */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                <div className="flex items-center mb-4">
-                  <div className={`flex items-center justify-center w-8 h-8 rounded-full ${jobType ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'} mr-2`}>
-                    <span className="text-sm font-semibold">1</span>
-                  </div>
-                  <div className="h-0.5 flex-1 bg-gray-200">
-                    <div className={`h-full ${jobType && date ? 'bg-green-500' : 'bg-gray-200'} transition-all duration-300`} style={{ width: jobType ? '100%' : '0%' }}></div>
-                  </div>
-                  <div className={`flex items-center justify-center w-8 h-8 rounded-full ${date ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'} mx-2`}>
-                    <span className="text-sm font-semibold">2</span>
-                  </div>
-                  <div className="h-0.5 flex-1 bg-gray-200">
-                    <div className={`h-full ${date ? 'bg-green-500' : 'bg-gray-200'} transition-all duration-300`} style={{ width: date ? '100%' : '0%' }}></div>
-                  </div>
-                  <div className={`flex items-center justify-center w-8 h-8 rounded-full ${isSubmitting ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'} ml-2`}>
-                    <span className="text-sm font-semibold">3</span>
-                  </div>
+          <div>
+            {/* Improved Progress Steps - Now at the top level */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+              <div className="flex items-center mb-4">
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full ${selectedJobTypes.length > 0 ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'} mr-2`}>
+                  <span className="text-sm font-semibold">1</span>
                 </div>
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span>Select Service</span>
-                  <span>Choose Schedule</span>
-                  <span>Confirm</span>
+                <div className="h-1 flex-1 bg-gray-200">
+                  <div className={`h-full ${selectedJobTypes.length > 0 ? 'bg-green-500' : 'bg-gray-200'} transition-all duration-300`} style={{ width: selectedJobTypes.length > 0 ? '100%' : '0%' }}></div>
+                </div>
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full ${selectedJobTypes.length > 0 && date ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'} mx-2`}>
+                  <span className="text-sm font-semibold">2</span>
+                </div>
+                <div className="h-1 flex-1 bg-gray-200">
+                  <div className={`h-full ${date && isContactFormValid() ? 'bg-green-500' : 'bg-gray-200'} transition-all duration-300`} style={{ width: date && isContactFormValid() ? '100%' : '0%' }}></div>
+                </div>
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full ${isSubmitting ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'} ml-2`}>
+                  <span className="text-sm font-semibold">3</span>
                 </div>
               </div>
-              
-              {/* Asset Details Card */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center">
-                  <div className="h-10 w-10 rounded-md flex items-center justify-center" style={{
-                    backgroundColor: getAssetTypeInfo(asset.type).color,
-                    color: 'white'
-                  }}>
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={getAssetTypeInfo(asset.type).icon} />
-                    </svg>
-                  </div>
-                  <div className="ml-3">
-                    <h2 className="text-lg font-semibold text-gray-900">Asset Information</h2>
-                  </div>
-                </div>
-                <div className="p-6">
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">Asset Name</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{asset.name}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">Asset Type</dt>
-                      <dd className="mt-1 text-sm text-gray-900">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {getAssetTypeInfo(asset.type).title}
-                        </span>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">Area Size</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{asset.area ? asset.area.toLocaleString() : '0'} m²</dd>
-                    </div>
-                    <div>
-                      <dt className="text-sm font-medium text-gray-500">Postcode</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{asset.postcode || "Not specified"}</dd>
-                    </div>
-                  </dl>
-                </div>
+              <div className="flex justify-between text-xs text-gray-500 font-medium">
+                <span>Select Service</span>
+                <span>Contact & Schedule</span>
+                <span>Confirm</span>
               </div>
-              
-              {/* Service Selection */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Select Service</h2>
-                </div>
-                <div className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Choose the type of service you need for this asset:
-                  </p>
-                  
-                  <div className="space-y-3">
-                    {getJobTypes().map((type, index) => (
-                      <div 
-                        key={index}
-                        onClick={() => handleJobTypeChange(type)}
-                        className={`flex items-center p-4 border rounded-lg cursor-pointer transition-all duration-200
-                          ${jobType === type 
-                            ? 'border-blue-500 bg-blue-50 shadow-sm' 
-                            : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
-                      >
-                        <input
-                          type="radio"
-                          id={`job-type-${index}`}
-                          name="jobType"
-                          value={type}
-                          checked={jobType === type}
-                          onChange={() => handleJobTypeChange(type)}
-                          className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                        />
-                        <div className="ml-3 flex-1">
-                          <label htmlFor={`job-type-${index}`} className="block text-sm font-medium text-gray-700">
-                            {type}
-                          </label>
-                          {serviceDetails[type as keyof typeof serviceDetails]?.description && (
-                            <p className="mt-1 text-xs text-gray-500">
-                              {serviceDetails[type as keyof typeof serviceDetails].description}
-                            </p>
-                          )}
-                        </div>
-                        {jobType === type && (
-                          <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
-                        )}
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column - Asset Info & Service Selection */}
+              <div className="lg:col-span-1 space-y-6">
+                {/* Asset Details Card */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-6 py-4 border-b border-gray-200 flex items-center">
+                    <div className="h-10 w-10 rounded-md flex items-center justify-center" style={{
+                      backgroundColor: getAssetTypeInfo(asset.type).color,
+                      color: 'white'
+                    }}>
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={getAssetTypeInfo(asset.type).icon} />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <h2 className="text-lg font-semibold text-gray-900">Asset Information</h2>
+                    </div>
+                  </div>
+                  <div className="p-5">
+                    <div className="mb-4">
+                      <h3 className="text-lg font-medium text-gray-900">{asset.name}</h3>
+                      <span className="inline-flex items-center px-2.5 py-0.5 mt-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {getAssetTypeInfo(asset.type).title}
+                      </span>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                      <div>
+                        <dt className="text-gray-500 font-medium">Area Size</dt>
+                        <dd className="text-gray-900">{asset.area ? asset.area.toLocaleString() : '0'} m²</dd>
                       </div>
-                    ))}
+                      <div>
+                        <dt className="text-gray-500 font-medium">Postcode</dt>
+                        <dd className="text-gray-900">{asset.postcode || "Not specified"}</dd>
+                      </div>
+                    </dl>
                   </div>
-                  
-                  {/* Service options */}
-                  {jobType && serviceInfo && (
-                    <div className="mt-6 border-t border-gray-200 pt-6">
-                      <h3 className="text-md font-medium text-gray-900 mb-3">Service Options</h3>
-                      
-                      {/* Render options based on selected service */}
-                      {'options' in serviceInfo && serviceInfo.options && Object.keys(serviceInfo.options).map((optKey) => {
-                        const option = serviceInfo.options[optKey];
-                        const isMulti = option.type === 'multiSelect';
-                        
-                        return (
-                          <div key={optKey} className="mb-5">
-                            <div className="flex items-center mb-2">
-                              <h4 className="text-sm font-medium text-gray-700">{option.label}</h4>
-                              {option.info && typeof option.info === 'string' && (
-                                <div className="relative ml-2">
-                                  <button 
-                                    type="button" 
-                                    className="text-gray-400 hover:text-gray-500"
-                                    onMouseEnter={() => setShowInfoTooltip(optKey)}
-                                    onMouseLeave={() => setShowInfoTooltip(null)}
-                                  >
-                                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                                    </svg>
-                                  </button>
-                                  {showInfoTooltip === optKey && (
-                                    <div className="absolute z-10 w-64 px-4 py-2 mt-1 text-sm text-left bg-white rounded-lg shadow-lg border border-gray-200">
-                                      {option.info}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                            
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                              {option.choices.map((choice: string) => {
-                                const isSelected = isMulti 
-                                  ? (selectedOptions[optKey] || []).includes(choice)
-                                  : selectedOptions[optKey] === choice;
-                                
-                                return (
-                                  <div 
-                                    key={choice}
-                                    onClick={() => handleOptionChange(optKey, choice, isMulti)}
-                                    className={`px-4 py-3 border rounded-md cursor-pointer transition-all duration-150 
-                                      ${isSelected
-                                        ? 'border-blue-500 bg-blue-50'
-                                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                                      }`}
-                                  >
-                                    <div className="flex items-center">
-                                      {isMulti ? (
-                                        <input
-                                          type="checkbox"
-                                          checked={isSelected}
-                                          onChange={() => handleOptionChange(optKey, choice, isMulti)}
-                                          className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                        />
-                                      ) : (
-                                        <input
-                                          type="radio"
-                                          checked={isSelected}
-                                          onChange={() => handleOptionChange(optKey, choice, isMulti)}
-                                          className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                                        />
-                                      )}
-                                      <label className="ml-2 block text-sm font-medium text-gray-700">
-                                        {choice}
-                                      </label>
-                                    </div>
-                                    
-                                    {/* Show detail-specific info for single select options */}
-                                    {!isMulti && typeof option.info === 'object' && option.info[choice] && isSelected && (
-                                      <p className="mt-1 pl-6 text-xs text-gray-500">
-                                        {option.info[choice]}
-                                      </p>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      
-                      {/* For Media Pack, show what's included */}
-                      {jobType === "Media Pack" && 'included' in serviceInfo && (
-                        <div className="mt-4 bg-gray-50 rounded-lg p-4 border border-gray-200">
-                          <h4 className="text-sm font-medium text-gray-700 mb-2">What's Included:</h4>
-                          <ul className="list-disc pl-5 space-y-1">
-                            {serviceInfo.included.map((item: string, idx: number) => (
-                              <li key={idx} className="text-sm text-gray-600">{item}</li>
-                            ))}
-                          </ul>
-                        </div>
+                </div>
+                
+                {/* Map */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Service Location</h2>
+                  </div>
+                  <div className="h-[280px]">
+                    <Map
+                      {...viewState}
+                      onMove={(evt: any) => setViewState(evt.viewState)}
+                      style={{ width: '100%', height: '100%' }}
+                      mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
+                      mapboxAccessToken="pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
+                      onLoad={() => setMapLoaded(true)}
+                      reuseMaps={false}
+                      ref={mapRef}
+                      key={`map-${asset?.AssetId || 'default'}`}
+                    >
+                      {mapLoaded && asset && asset.coordinates && (
+                        <Source
+                          id="asset-polygon"
+                          type="geojson"
+                          data={{
+                            type: 'Feature',
+                            properties: {},
+                            geometry: {
+                              type: 'Polygon',
+                              coordinates: asset.coordinates,
+                            },
+                          }}
+                        >
+                          <Layer
+                            id="asset-polygon-fill"
+                            type="fill"
+                            paint={{
+                              'fill-color': getAssetTypeInfo(asset.type).color,
+                              'fill-opacity': 0.4,
+                            }}
+                          />
+                          <Layer
+                            id="asset-polygon-outline"
+                            type="line"
+                            paint={{
+                              'line-color': getAssetTypeInfo(asset.type).strokeColor,
+                              'line-width': 2,
+                            }}
+                          />
+                        </Source>
                       )}
-                    </div>
-                  )}
+                      {/* <NavigationControl position="top-right" /> */}
+                    </Map>
+                  </div>
                 </div>
-              </div>
-              
-              {/* New Site Contact Card - Insert this before scheduling options */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Site Contact</h2>
-                </div>
-                <div className="p-6">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Please provide a site contact who will be available on the day of service:
-                  </p>
-                  
-                  {previousContacts.length > 0 && (
-                    <div className="mb-6">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Select a previous contact:
-                      </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {previousContacts.map((contact) => (
-                          <div 
-                            key={contact.id}
-                            onClick={() => handleSelectPreviousContact(contact.id || '')}
-                            className={`flex items-center p-3 border rounded-lg cursor-pointer transition-all duration-200
-                              ${selectedPreviousContact === contact.id 
-                                ? 'border-blue-500 bg-blue-50 shadow-sm' 
-                                : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
-                          >
-                            <input
-                              type="radio"
-                              id={`contact-${contact.id}`}
-                              name="previousContact"
-                              checked={selectedPreviousContact === contact.id}
-                              onChange={() => handleSelectPreviousContact(contact.id || '')}
-                              className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                            />
-                            <div className="ml-3 flex-1">
-                              <p className="text-sm font-medium text-gray-800">{contact.name}</p>
-                              <p className="text-xs text-gray-500">{contact.phone}</p>
+                
+                {/* Booking Summary - Shows dynamically as user completes form */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden sticky top-4">
+                  <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-white">Booking Summary</h2>
+                  </div>
+                  <div className="p-5">
+                    {!selectedJobTypes.length && !date && !siteContact.name && (
+                      <div className="text-center py-6">
+                        <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
+                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        <p className="mt-2 text-sm text-gray-500">Your booking details will appear here as you complete the form.</p>
+                      </div>
+                    )}
+                    
+                    {selectedJobTypes.length > 0 && (
+                      <div className="mb-4 pb-4 border-b border-gray-100">
+                        <p className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-1">Selected Services</p>
+                        
+                        {/* Display multiple selected services */}
+                        {selectedJobTypes.map((jobType, index) => (
+                          <div key={index} className="flex items-center mt-2 first:mt-0">
+                            <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                              </svg>
+                            </div>
+                            <div className="ml-3">
+                              <p className="text-sm font-medium text-gray-900">{jobType}</p>
+                              <p className="text-xs text-gray-500">For {getAssetTypeInfo(asset.type).title}</p>
                             </div>
                           </div>
                         ))}
                         
-                        <div 
-                          onClick={handleNewContact}
-                          className={`flex items-center p-3 border border-dashed rounded-lg cursor-pointer transition-all duration-200
-                            ${showContactForm && !selectedPreviousContact 
-                              ? 'border-blue-500 bg-blue-50 shadow-sm' 
-                              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
-                        >
-                          <div className="flex items-center justify-center h-4 w-4 rounded-full border border-gray-300 text-gray-500">
-                            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        {/* Show selected options for each service */}
+                        {Object.entries(selectedOptions).map(([serviceType, options]) => {
+                          // Only show if this service is selected
+                          if (!selectedJobTypes.includes(serviceType)) return null;
+                          
+                          return (
+                            <div key={serviceType} className="ml-11 mt-2 border-l-2 border-blue-100 pl-3">
+                              <p className="text-xs font-medium text-gray-700">{serviceType} options:</p>
+                              
+                              {Object.entries(options).map(([optKey, optValue]) => {
+                                // Get service info to display proper labels
+                                const serviceDetail = serviceDetails[serviceType as keyof typeof serviceDetails];
+                                if (!serviceDetail || !('options' in serviceDetail)) return null;
+                                
+                                const option = serviceDetail.options[optKey];
+                                if (!option) return null;
+                                
+                                // Display option values
+                                if (Array.isArray(optValue) && optValue.length > 0) {
+                                  return (
+                                    <div key={optKey} className="mt-1 text-xs text-gray-600">
+                                      <span className="font-medium">{option.label}:</span> {optValue.join(', ')}
+                                    </div>
+                                  );
+                                } else if (typeof optValue === 'string') {
+                                  return (
+                                    <div key={optKey} className="mt-1 text-xs text-gray-600">
+                                      <span className="font-medium">{option.label}:</span> {optValue}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    
+                    {(date || startDate) && (
+                      <div className="mb-4 pb-4 border-b border-gray-100">
+                        <p className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-1">Schedule</p>
+                        <div className="flex items-center">
+                          <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                            <svg className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
                           </div>
-                          <p className="ml-3 text-sm text-gray-700">Add a new contact</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Contact Form (shown when adding new contact or initially if no previous contacts) */}
-                  {(showContactForm || previousContacts.length === 0) && (
-                    <div className="space-y-3">
-                      <div>
-                        <label htmlFor="contact-name" className="block text-sm font-medium text-gray-700">
-                          Contact Name<span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          id="contact-name"
-                          name="name"
-                          value={siteContact.name}
-                          onChange={handleContactChange}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          placeholder="Full name"
-                          required
-                        />
-                      </div>
-                      
-                      <div>
-                        <label htmlFor="contact-phone" className="block text-sm font-medium text-gray-700">
-                          Phone Number<span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="tel"
-                          id="contact-phone"
-                          name="phone"
-                          value={siteContact.phone}
-                          onChange={handleContactChange}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          placeholder="Mobile number for day of service"
-                          required
-                        />
-                      </div>
-                      
-                      <div>
-                        <label htmlFor="contact-email" className="block text-sm font-medium text-gray-700">
-                          Email Address
-                        </label>
-                        <input
-                          type="email"
-                          id="contact-email"
-                          name="email"
-                          value={siteContact.email}
-                          onChange={handleContactChange}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          placeholder="Email (optional)"
-                        />
-                      </div>
-                      
-                      <div className="flex items-center mt-2">
-                        <input
-                          type="checkbox"
-                          id="available-onsite"
-                          name="isAvailableOnsite"
-                          checked={siteContact.isAvailableOnsite}
-                          onChange={handleContactChange}
-                          className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                        <label htmlFor="available-onsite" className="ml-2 block text-sm text-gray-700">
-                          This contact will be available on-site during the drone service
-                        </label>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Show selected contact details when a previous contact is selected */}
-                  {selectedPreviousContact && !showContactForm && (
-                    <div className="mt-4 bg-blue-50 rounded-lg p-4 border border-blue-100">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="text-sm font-semibold text-gray-900">Selected Contact</h4>
-                          <p className="text-sm text-gray-700 mt-1">{siteContact.name}</p>
-                          <p className="text-sm text-gray-700">{siteContact.phone}</p>
-                          {siteContact.email && <p className="text-sm text-gray-700">{siteContact.email}</p>}
-                          
-                          {siteContact.isAvailableOnsite && (
-                            <p className="text-xs text-green-600 mt-2 flex items-center">
-                              <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              Will be available on-site
-                            </p>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleNewContact}
-                          className="text-blue-600 hover:text-blue-800 text-sm"
-                        >
-                          Change
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {/* Additional Notes Section */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Additional Notes</h2>
-                </div>
-                <div className="p-6">
-                  <label htmlFor="booking-notes" className="block text-sm text-gray-700 mb-2">
-                    Provide any additional information that might be helpful for this service:
-                  </label>
-                  <textarea
-                    id="booking-notes"
-                    name="notes"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    rows={4}
-                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="Enter any special requirements, access instructions, or other details..."
-                  ></textarea>
-                  <p className="mt-2 text-xs text-gray-500">
-                    Max 500 characters. {notes.length}/500
-                  </p>
-                </div>
-              </div>
-              
-              {/* Scheduling Options */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Schedule Service</h2>
-                </div>
-                <div className="p-6">
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div 
-                        onClick={() => setScheduleType('scheduled')}
-                        className={`p-4 border rounded-lg cursor-pointer transition ${
-                          scheduleType === 'scheduled' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-center">
-                          <input
-                            type="radio"
-                            id="scheduled"
-                            name="scheduleType"
-                            checked={scheduleType === 'scheduled'}
-                            onChange={() => setScheduleType('scheduled')}
-                            className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                          />
-                          <label htmlFor="scheduled" className="ml-2 block text-sm font-medium text-gray-700">
-                            Specific Date
-                          </label>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        onClick={() => setScheduleType('flexible')}
-                        className={`p-4 border rounded-lg cursor-pointer transition ${
-                          scheduleType === 'flexible' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-center">
-                          <input
-                            type="radio"
-                            id="flexible"
-                            name="scheduleType"
-                            checked={scheduleType === 'flexible'}
-                            onChange={() => setScheduleType('flexible')}
-                            className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                          />
-                          <label htmlFor="flexible" className="ml-2 block text-sm font-medium text-gray-700">
-                            Flexible Date
-                          </label>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        onClick={() => setScheduleType('repeat')}
-                        className={`p-4 border rounded-lg cursor-pointer transition ${
-                          scheduleType === 'repeat' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-center">
-                          <input
-                            type="radio"
-                            id="repeat"
-                            name="scheduleType"
-                            checked={scheduleType === 'repeat'}
-                            onChange={() => setScheduleType('repeat')}
-                            className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                          />
-                          <label htmlFor="repeat" className="ml-2 block text-sm font-medium text-gray-700">
-                            Recurring
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                      {scheduleType === 'scheduled' && (
-                        <>
-                          <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-2">
-                            Select a specific date for the service:
-                          </label>
-                          <input
-                            type="date"
-                            id="date"
-                            value={date}
-                            onChange={(e) => setDate(e.target.value)}
-                            min={new Date().toISOString().split('T')[0]}
-                            className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          />
-                        </>
-                      )}
-                      
-                      {scheduleType === 'flexible' && (
-                        <>
-                          <p className="text-sm text-gray-600 mb-3">
-                            Select a preferred date with flexibility:
-                          </p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <label htmlFor="flexible-date" className="block text-sm font-medium text-gray-700 mb-1">
-                                Preferred Date
-                              </label>
-                              <input
-                                type="date"
-                                id="flexible-date"
-                                value={date}
-                                min={new Date().toISOString().split('T')[0]}
-                                onChange={(e) => setDate(e.target.value)}
-                                className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label htmlFor="flexibility" className="block text-sm font-medium text-gray-700 mb-1">
-                                Flexibility
-                              </label>
-                              <select
-                                id="flexibility"
-                                value={flexibility}
-                                onChange={(e) => setFlexibility(e.target.value)}
-                                className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                              >
-                                <option value="exact">Exact Date</option>
-                                <option value="1-day">±1 Day</option>
-                                <option value="3-days">±3 Days</option>
-                                <option value="1-week">±1 Week</option>
-                              </select>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                      
-                      {scheduleType === 'repeat' && (
-                        <>
-                          <p className="text-sm text-gray-600 mb-3">
-                            Schedule a recurring service:
-                          </p>
-                          <div className="grid grid-cols-1 gap-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="ml-3">
+                            {scheduleType === 'scheduled' && date && (
+                              <p className="text-sm font-medium text-gray-900">
+                                {new Date(date).toLocaleDateString('en-GB', { 
+                                  weekday: 'long',
+                                  year: 'numeric', 
+                                  month: 'long', 
+                                  day: 'numeric' 
+                                })}
+                              </p>
+                            )}
+                            
+                            {scheduleType === 'flexible' && date && (
                               <div>
-                                <label htmlFor="start-date" className="block text-sm font-medium text-gray-700 mb-1">
-                                  Start Date
-                                </label>
-                                <input
-                                  type="date"
-                                  id="start-date"
-                                  value={startDate}
-                                  min={new Date().toISOString().split('T')[0]}
-                                  onChange={(e) => setStartDate(e.target.value)}
-                                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                />
+                                <p className="text-sm font-medium text-gray-900">
+                                  {new Date(date).toLocaleDateString('en-GB', { 
+                                    weekday: 'long',
+                                    year: 'numeric', 
+                                    month: 'long', 
+                                    day: 'numeric' 
+                                  })}
+                                </p>
+                                <p className="text-xs text-gray-500">With {flexibility} flexibility</p>
                               </div>
+                            )}
+                            
+                            {scheduleType === 'repeat' && startDate && endDate && (
                               <div>
-                                <label htmlFor="end-date" className="block text-sm font-medium text-gray-700 mb-1">
-                                  End Date
-                                </label>
-                                <input
-                                  type="date"
-                                  id="end-date"
-                                  value={endDate}
-                                  min={startDate || new Date().toISOString().split('T')[0]}
-                                  onChange={(e) => setEndDate(e.target.value)}
-                                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                />
+                                <p className="text-sm font-medium text-gray-900">
+                                  {repeatFrequency.charAt(0).toUpperCase() + repeatFrequency.slice(1)} service
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  From {new Date(startDate).toLocaleDateString()} 
+                                  to {new Date(endDate).toLocaleDateString()}
+                                </p>
                               </div>
-                            </div>
-                            <div>
-                              <label htmlFor="repeat-frequency" className="block text-sm font-medium text-gray-700 mb-1">
-                                Repeat Frequency
-                              </label>
-                              <select
-                                id="repeat-frequency"
-                                value={repeatFrequency}
-                                onChange={(e) => setRepeatFrequency(e.target.value)}
-                                className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                              >
-                                <option value="daily">Daily</option>
-                                <option value="weekly">Weekly</option>
-                                <option value="bi-weekly">Bi-Weekly</option>
-                                <option value="monthly">Monthly</option>
-                                <option value="quarterly">Quarterly</option>
-                              </select>
-                            </div>
+                            )}
                           </div>
-                        </>
-                      )}
-                    </div>
+                        </div>
+                      </div>
+                    )}
                     
+                    {siteContact.name && (
+                      <div className="mb-4">
+                        <p className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-1">Site Contact</p>
+                        <div className="flex items-start">
+                          <div className="h-8 w-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                            <svg className="h-4 w-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                          </div>
+                          <div className="ml-3">
+                            <p className="text-sm font-medium text-gray-900">{siteContact.name}</p>
+                            <p className="text-xs text-gray-600">{siteContact.phone}</p>
+                            {siteContact.isAvailableOnsite && (
+                              <div className="mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                Available on-site
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Submit button moved to summary card for better UX */}
                     <button
                       onClick={handleSubmit}
-                      disabled={isSubmitting || !jobType || !isContactFormValid() || 
+                      disabled={isSubmitting || !selectedJobTypes.length || !isContactFormValid() || 
                         (scheduleType === 'scheduled' && !date) || 
                         (scheduleType === 'flexible' && !date) || 
                         (scheduleType === 'repeat' && (!startDate || !endDate))}
-                      className={`w-full mt-4 inline-flex justify-center items-center px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                        isSubmitting || !jobType || !isContactFormValid() || 
+                      className={`w-full mt-4 inline-flex justify-center items-center px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                        isSubmitting || !selectedJobTypes.length || !isContactFormValid() || 
                         (scheduleType === 'scheduled' && !date) || 
                         (scheduleType === 'flexible' && !date) || 
                         (scheduleType === 'repeat' && (!startDate || !endDate))
@@ -1624,224 +1376,602 @@ const MakeBookings: React.FC = () => {
                           Submitting...
                         </>
                       ) : (
-                        <>Book Service</>
+                        <>Complete Booking</>
                       )}
                     </button>
                   </div>
                 </div>
               </div>
-            </div>
-            
-            {/* Right Column - Map & Visualization */}
-            <div className="space-y-6">
-              {/* Map */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Service Location</h2>
-                </div>
-                <div className="h-[400px]">
-                  <Map
-                    {...viewState}
-                    onMove={(evt: any) => setViewState(evt.viewState)}
-                    style={{ width: '100%', height: '100%' }}
-                    mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
-                    mapboxAccessToken="pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
-                    onLoad={() => setMapLoaded(true)}
-                    reuseMaps={false}
-                    ref={mapRef}
-                    key={`map-${asset?.AssetId || 'default'}`} // Add key to force re-render with new asset
-                  >
-                    {mapLoaded && asset && asset.coordinates && (
-                      <Source
-                        id="asset-polygon"
-                        type="geojson"
-                        data={{
-                          type: 'Feature',
-                          properties: {},
-                          geometry: {
-                            type: 'Polygon',
-                            coordinates: asset.coordinates,
-                          },
-                        }}
-                      >
-                        <Layer
-                          id="asset-polygon-fill"
-                          type="fill"
-                          paint={{
-                            'fill-color': getAssetTypeInfo(asset.type).color,
-                            'fill-opacity': 0.4,
-                          }}
-                        />
-                        <Layer
-                          id="asset-polygon-outline"
-                          type="line"
-                          paint={{
-                            'line-color': getAssetTypeInfo(asset.type).strokeColor,
-                            'line-width': 2,
-                          }}
-                        />
-                      </Source>
-                    )}
-                  </Map>
-                </div>
-              </div>
               
-              {/* Service Information */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Service Information</h2>
-                </div>
-                <div className="p-6">
-                  {jobType && (
-                    <div className="border-t border-gray-200 pt-4">
-                      <h3 className="text-sm font-medium text-gray-900 mb-2">Selected Service:</h3>
-                      <div className="bg-gray-100 rounded-lg p-3 flex items-center">
-                        <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                          <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                          </svg>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-sm font-medium text-gray-900">{jobType}</p>
-                          <p className="text-xs text-gray-500">For {getAssetTypeInfo(asset.type).title}</p>
-                          
-                          {/* Show selected options */}
-                          {jobType && Object.keys(selectedOptions).length > 0 && (
-                            <div className="mt-2 text-xs text-gray-600">
-                              {Object.keys(selectedOptions).map(optKey => {
-                                // Check if serviceInfo exists and has options property
-                                const option = serviceInfo && 'options' in serviceInfo ? 
-                                  serviceInfo.options?.[optKey] : undefined;
-                                  
-                                if (!option) return null;
-                                
-                                const value = selectedOptions[optKey];
-                                if (Array.isArray(value) && value.length > 0) {
-                                  return (
-                                    <div key={optKey} className="mt-1">
-                                      <span className="font-medium">{option.label}:</span> {value.join(', ')}
-                                    </div>
-                                  );
-                                } else if (typeof value === 'string') {
-                                  return (
-                                    <div key={optKey} className="mt-1">
-                                      <span className="font-medium">{option.label}:</span> {value}
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              })}
-                            </div>
-                          )}
-                          
-                          {/* For Media Pack show included items */}
-                          {jobType === "Media Pack" && serviceInfo && 'included' in serviceInfo && (
-                            <div className="mt-2 text-xs text-gray-600">
-                              <span className="font-medium">Includes:</span> Stills, Videos & Birds Eye View
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {(date || startDate) && (
-                    <div className="border-t border-gray-200 pt-4 mt-4">
-                      <h3 className="text-sm font-medium text-gray-900 mb-2">Schedule Details:</h3>
-                      <div className="bg-gray-100 rounded-lg p-3 flex items-center">
-                        <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                          <svg className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                        </div>
-                        <div className="ml-3">
-                          {scheduleType === 'scheduled' && date && (
-                            <p className="text-sm font-medium text-gray-900">
-                              {new Date(date).toLocaleDateString('en-GB', { 
-                                weekday: 'long',
-                                year: 'numeric', 
-                                month: 'long', 
-                                day: 'numeric' 
-                              })}
-                            </p>
-                          )}
-                          
-                          {scheduleType === 'flexible' && date && (
-                            <div>
-                              <p className="text-sm font-medium text-gray-900">
-                                {new Date(date).toLocaleDateString('en-GB', { 
-                                  weekday: 'long',
-                                  year: 'numeric', 
-                                  month: 'long', 
-                                  day: 'numeric' 
-                                })}
-                              </p>
-                              <p className="text-xs text-gray-500">With {flexibility} flexibility</p>
-                            </div>
-                          )}
-                          
-                          {scheduleType === 'repeat' && startDate && endDate && (
-                            <div>
-                              <p className="text-sm font-medium text-gray-900">
-                                {repeatFrequency.charAt(0).toUpperCase() + repeatFrequency.slice(1)} service
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                From {new Date(startDate).toLocaleDateString()} 
-                                to {new Date(endDate).toLocaleDateString()}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {/* Add site contact summary to the service information section */}
-              {siteContact.name && (
+              {/* Middle & Right Column - Booking Form */}
+              <div className="lg:col-span-2 space-y-6">
+                {/* Service Selection - Now with more visual appeal */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                  <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                    <h2 className="text-lg font-semibold text-gray-900">Site Contact Information</h2>
+                  <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Select Services</h2>
                   </div>
                   <div className="p-6">
-                    <div className="flex items-start">
-                      <div className="bg-blue-50 p-3 rounded-full">
-                        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                      </div>
-                      <div className="ml-4">
-                        <h3 className="text-lg font-medium text-gray-900">{siteContact.name}</h3>
-                        <p className="text-gray-600">{siteContact.phone}</p>
-                        {siteContact.email && <p className="text-gray-600">{siteContact.email}</p>}
-                        {siteContact.isAvailableOnsite && (
-                          <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            Available on-site
+                    <p className="text-sm text-gray-600 mb-4">
+                      Choose the type of drone services you need for this {getAssetTypeInfo(asset.type).title.toLowerCase()}:
+                      <span className="text-blue-600 ml-1 font-medium">(Select one or more)</span>
+                    </p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+                      {getJobTypes().map((type, index) => (
+                        <div 
+                          key={index}
+                          onClick={() => toggleJobType(type)}
+                          className={`flex items-center p-4 border rounded-lg cursor-pointer transition-all duration-200
+                            ${selectedJobTypes.includes(type) 
+                              ? 'border-blue-500 bg-blue-50 shadow-sm' 
+                              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            id={`job-type-${index}`}
+                            name="jobType"
+                            checked={selectedJobTypes.includes(type)}
+                            onChange={() => toggleJobType(type)}
+                            className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          />
+                          <div className="ml-3 flex-1">
+                            <label htmlFor={`job-type-${index}`} className="block text-sm font-medium text-gray-700">
+                              {type}
+                            </label>
+                            {serviceDetails[type as keyof typeof serviceDetails]?.description && (
+                              <p className="mt-1 text-xs text-gray-500">
+                                {serviceDetails[type as keyof typeof serviceDetails].description}
+                              </p>
+                            )}
                           </div>
+                          {selectedJobTypes.includes(type) && (
+                            <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Service configuration section */}
+                    {selectedJobTypes.length > 0 && (
+                      <div className="mt-6 border-t border-gray-200 pt-6">
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-md font-medium text-gray-900">Configure Service Options</h3>
+                          
+                          {/* Service selector tabs */}
+                          {selectedJobTypes.length > 1 && (
+                            <div className="flex flex-wrap gap-2">
+                              {selectedJobTypes.map(type => (
+                                <button
+                                  key={type}
+                                  onClick={() => setActiveServiceConfig(type)}
+                                  className={`px-3 py-1 text-sm rounded-full transition
+                                    ${activeServiceConfig === type 
+                                      ? 'bg-blue-100 text-blue-800 font-medium' 
+                                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                                >
+                                  {type}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Show service configuration for active service */}
+                        {activeServiceConfig && selectedJobTypes.includes(activeServiceConfig) && (
+                          <div className="animate-fadeIn">
+                            <div className="mb-3 pb-3 border-b border-gray-100">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-blue-100 text-blue-800">
+                                Configuring: {activeServiceConfig}
+                              </span>
+                            </div>
+                            
+                            {/* Render options based on selected service */}
+                            {(() => {
+                              const serviceDetail = serviceDetails[activeServiceConfig as keyof typeof serviceDetails];
+                              
+                              if (!serviceDetail) return (
+                                <p className="text-sm text-gray-500 italic">No configuration options available for this service.</p>
+                              );
+                              
+                              if ('options' in serviceDetail && serviceDetail.options) {
+                                return Object.keys(serviceDetail.options).map((optKey) => {
+                                  const option = serviceDetail.options[optKey];
+                                  const isMulti = option.type === 'multiSelect';
+                                  const currentOptions = selectedOptions[activeServiceConfig] || {};
+                                  
+                                  return (
+                                    <div key={optKey} className="mb-5">
+                                      <div className="flex items-center mb-2">
+                                        <h4 className="text-sm font-medium text-gray-700">{option.label}</h4>
+                                        {option.info && typeof option.info === 'string' && (
+                                          <div className="relative ml-2">
+                                            <button 
+                                              type="button" 
+                                              className="text-gray-400 hover:text-gray-500"
+                                              onMouseEnter={() => setShowInfoTooltip(optKey)}
+                                              onMouseLeave={() => setShowInfoTooltip(null)}
+                                            >
+                                              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                              </svg>
+                                            </button>
+                                            {showInfoTooltip === optKey && (
+                                              <div className="absolute z-10 w-64 px-4 py-2 mt-1 text-sm text-left bg-white rounded-lg shadow-lg border border-gray-200">
+                                                {option.info}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                      
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                                        {option.choices.map((choice: string) => {
+                                          const isSelected = isMulti 
+                                            ? (currentOptions[optKey] || []).includes(choice)
+                                            : currentOptions[optKey] === choice;
+                                          
+                                          return (
+                                            <div 
+                                              key={choice}
+                                              onClick={() => handleOptionChange(optKey, choice, isMulti)}
+                                              className={`px-4 py-3 border rounded-md cursor-pointer transition-all duration-150 
+                                                ${isSelected
+                                                  ? 'border-blue-500 bg-blue-50'
+                                                  : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                                                }`}
+                                            >
+                                              <div className="flex items-center">
+                                                {isMulti ? (
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => handleOptionChange(optKey, choice, isMulti)}
+                                                    className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                                  />
+                                                ) : (
+                                                  <input
+                                                    type="radio"
+                                                    checked={isSelected}
+                                                    onChange={() => handleOptionChange(optKey, choice, isMulti)}
+                                                    className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                                  />
+                                                )}
+                                                <label className="ml-2 block text-sm font-medium text-gray-700">
+                                                  {choice}
+                                                </label>
+                                              </div>
+                                              
+                                              {/* Show detail-specific info for single select options */}
+                                              {!isMulti && typeof option.info === 'object' && option.info[choice] && isSelected && (
+                                                <p className="mt-1 pl-6 text-xs text-gray-500">
+                                                  {option.info[choice]}
+                                                </p>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                              }
+                              
+                              if ('included' in serviceDetail) {
+                                return (
+                                  <div className="mt-2 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                    <h4 className="text-sm font-medium text-gray-700 mb-2">What's Included:</h4>
+                                    <ul className="list-disc pl-5 space-y-1">
+                                      {serviceDetail.included.map((item: string, idx: number) => (
+                                        <li key={idx} className="text-sm text-gray-600">{item}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                );
+                              }
+                              
+                              return null;
+                            })()}
+                          </div>
+                        )}
+                        
+                        {/* Instructions when multiple services are selected */}
+                        {selectedJobTypes.length > 1 && !activeServiceConfig && (
+                          <div className="bg-blue-50 p-4 rounded-lg">
+                            <p className="text-sm text-blue-800">
+                              You've selected multiple services. Click on a service tab above to configure its options.
+                            </p>
+                          </div>
+                        )}
+                        
+                        {/* Message when no service is being configured */}
+                        {selectedJobTypes.length > 0 && !activeServiceConfig && (
+                          <div className="text-center py-4">
+                            <p className="text-sm text-gray-500">
+                              {selectedJobTypes.length === 1 
+                                ? "Click on your selected service above to configure its options."
+                                : "Select a service from the tabs above to configure its options."}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* New Site Contact Card - More spacious and user-friendly */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-gradient-to-r from-purple-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Site Contact</h2>
+                  </div>
+                  <div className="p-6">
+                    <p className="text-sm text-gray-600 mb-4">
+                      Please provide a site contact who will be available on the day of service:
+                    </p>
+                    
+                    {previousContacts.length > 0 && (
+                      <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Select a previous contact:
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {previousContacts.map((contact) => (
+                            <div 
+                              key={contact.id}
+                              onClick={() => handleSelectPreviousContact(contact.id || '')}
+                              className={`flex items-center p-3 border rounded-lg cursor-pointer transition-all duration-200
+                                ${selectedPreviousContact === contact.id 
+                                  ? 'border-purple-500 bg-purple-50 shadow-sm' 
+                                  : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
+                            >
+                              <input
+                                type="radio"
+                                id={`contact-${contact.id}`}
+                                name="previousContact"
+                                checked={selectedPreviousContact === contact.id}
+                                onChange={() => handleSelectPreviousContact(contact.id || '')}
+                                className="h-4 w-4 text-purple-600 border-gray-300 focus:ring-purple-500"
+                              />
+                              <div className="ml-3 flex-1">
+                                <p className="text-sm font-medium text-gray-800">{contact.name}</p>
+                                <p className="text-xs text-gray-500">{contact.phone}</p>
+                              </div>
+                            </div>
+                          ))}
+                          
+                          <div 
+                            onClick={handleNewContact}
+                            className={`flex items-center p-3 border border-dashed rounded-lg cursor-pointer transition-all duration-200
+                              ${showContactForm && !selectedPreviousContact 
+                                ? 'border-purple-500 bg-purple-50 shadow-sm' 
+                                : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
+                          >
+                            <div className="flex items-center justify-center h-4 w-4 rounded-full border border-gray-300 text-gray-500">
+                              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                              </svg>
+                            </div>
+                            <p className="ml-3 text-sm text-gray-700">Add a new contact</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Contact Form (shown when adding new contact or initially if no previous contacts) */}
+                    {(showContactForm || previousContacts.length === 0) && (
+                      <div className="space-y-4">
+                        <div>
+                          <label htmlFor="contact-name" className="block text-sm font-medium text-gray-700">
+                            Contact Name<span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            id="contact-name"
+                            name="name"
+                            value={siteContact.name}
+                            onChange={handleContactChange}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                            placeholder="Full name"
+                            required
+                          />
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="contact-phone" className="block text-sm font-medium text-gray-700">
+                            Phone Number<span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="tel"
+                            id="contact-phone"
+                            name="phone"
+                            value={siteContact.phone}
+                            onChange={handleContactChange}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                            placeholder="Mobile number for day of service"
+                            required
+                          />
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="contact-email" className="block text-sm font-medium text-gray-700">
+                            Email Address
+                          </label>
+                          <input
+                            type="email"
+                            id="contact-email"
+                            name="email"
+                            value={siteContact.email}
+                            onChange={handleContactChange}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                            placeholder="Email (optional)"
+                          />
+                        </div>
+                        
+                        <div className="flex items-center mt-2">
+                          <input
+                            type="checkbox"
+                            id="available-onsite"
+                            name="isAvailableOnsite"
+                            checked={siteContact.isAvailableOnsite}
+                            onChange={handleContactChange}
+                            className="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                          />
+                          <label htmlFor="available-onsite" className="ml-2 block text-sm text-gray-700">
+                            This contact will be available on-site during the drone service
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Show selected contact details when a previous contact is selected */}
+                    {selectedPreviousContact && !showContactForm && (
+                      <div className="mt-4 bg-purple-50 rounded-lg p-4 border border-purple-100">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="text-sm font-semibold text-gray-900">Selected Contact</h4>
+                            <p className="text-sm text-gray-700 mt-1">{siteContact.name}</p>
+                            <p className="text-sm text-gray-700">{siteContact.phone}</p>
+                            {siteContact.email && <p className="text-sm text-gray-700">{siteContact.email}</p>}
+                            
+                            {siteContact.isAvailableOnsite && (
+                              <p className="text-xs text-green-600 mt-2 flex items-center">
+                                <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Will be available on-site
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleNewContact}
+                            className="text-purple-600 hover:text-purple-800 text-sm"
+                          >
+                            Change
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Additional Notes Section - Now with better design */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Additional Notes</h2>
+                  </div>
+                  <div className="p-6">
+                    <label htmlFor="booking-notes" className="block text-sm text-gray-700 mb-2">
+                      Provide any additional information that might be helpful for this service:
+                    </label>
+                    <textarea
+                      id="booking-notes"
+                      name="notes"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      rows={4}
+                      className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                      placeholder="Enter any special requirements, access instructions, or other details..."
+                      maxLength={500}
+                    ></textarea>
+                    <p className="mt-2 text-xs text-gray-500 flex justify-between">
+                      <span>Optional - Add any special requirements or access information</span>
+                      <span className={notes.length > 400 ? "text-orange-500" : ""}>{notes.length}/500</span>
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Scheduling Options - Enhanced with better UI */}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-gradient-to-r from-green-50 to-blue-50 px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Schedule Service</h2>
+                  </div>
+                  <div className="p-6">
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div 
+                          onClick={() => setScheduleType('scheduled')}
+                          className={`p-4 border rounded-lg cursor-pointer transition ${
+                            scheduleType === 'scheduled' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center mb-2">
+                            <input
+                              type="radio"
+                              id="scheduled"
+                              name="scheduleType"
+                              checked={scheduleType === 'scheduled'}
+                              onChange={() => setScheduleType('scheduled')}
+                              className="h-4 w-4 text-green-600 border-gray-300 focus:ring-green-500"
+                            />
+                            <label htmlFor="scheduled" className="ml-2 block text-sm font-medium text-gray-700">
+                              Specific Date
+                            </label>
+                          </div>
+                          <p className="text-xs text-gray-500 ml-6">Choose an exact date for the drone service</p>
+                        </div>
+                        
+                        <div 
+                          onClick={() => setScheduleType('flexible')}
+                          className={`p-4 border rounded-lg cursor-pointer transition ${
+                            scheduleType === 'flexible' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center mb-2">
+                            <input
+                              type="radio"
+                              id="flexible"
+                              name="scheduleType"
+                              checked={scheduleType === 'flexible'}
+                              onChange={() => setScheduleType('flexible')}
+                              className="h-4 w-4 text-green-600 border-gray-300 focus:ring-green-500"
+                            />
+                            <label htmlFor="flexible" className="ml-2 block text-sm font-medium text-gray-700">
+                              Flexible Date
+                            </label>
+                          </div>
+                          <p className="text-xs text-gray-500 ml-6">Prefer a date but allow flexibility</p>
+                        </div>
+                        
+                        <div 
+                          onClick={() => setScheduleType('repeat')}
+                          className={`p-4 border rounded-lg cursor-pointer transition ${
+                            scheduleType === 'repeat' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center mb-2">
+                            <input
+                              type="radio"
+                              id="repeat"
+                              name="scheduleType"
+                              checked={scheduleType === 'repeat'}
+                              onChange={() => setScheduleType('repeat')}
+                              className="h-4 w-4 text-green-600 border-gray-300 focus:ring-green-500"
+                            />
+                            <label htmlFor="repeat" className="ml-2 block text-sm font-medium text-gray-700">
+                              Recurring
+                            </label>
+                          </div>
+                          <p className="text-xs text-gray-500 ml-6">Schedule repeated services over time</p>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-4 bg-gray-50 p-5 rounded-lg border border-gray-200">
+                        {scheduleType === 'scheduled' && (
+                          <>
+                            <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-2">
+                              Select a specific date for the service:
+                            </label>
+                            <input
+                              type="date"
+                              id="date"
+                              value={date}
+                              onChange={(e) => setDate(e.target.value)}
+                              min={new Date().toISOString().split('T')[0]}
+                              className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                            />
+                          </>
+                        )}
+                        
+                        {scheduleType === 'flexible' && (
+                          <>
+                            <p className="text-sm text-gray-600 mb-3">
+                              Select a preferred date with flexibility:
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label htmlFor="flexible-date" className="block text-sm font-medium text-gray-700 mb-1">
+                                  Preferred Date
+                                </label>
+                                <input
+                                  type="date"
+                                  id="flexible-date"
+                                  value={date}
+                                  min={new Date().toISOString().split('T')[0]}
+                                  onChange={(e) => setDate(e.target.value)}
+                                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label htmlFor="flexibility" className="block text-sm font-medium text-gray-700 mb-1">
+                                  Flexibility
+                                </label>
+                                <select
+                                  id="flexibility"
+                                  value={flexibility}
+                                  onChange={(e) => setFlexibility(e.target.value)}
+                                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                >
+                                  <option value="exact">Exact Date</option>
+                                  <option value="1-day">±1 Day</option>
+                                  <option value="3-days">±3 Days</option>
+                                  <option value="1-week">±1 Week</option>
+                                </select>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        
+                        {scheduleType === 'repeat' && (
+                          <>
+                            <p className="text-sm text-gray-600 mb-3">
+                              Schedule a recurring service:
+                            </p>
+                            <div className="grid grid-cols-1 gap-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label htmlFor="start-date" className="block text-sm font-medium text-gray-700 mb-1">
+                                    Start Date
+                                  </label>
+                                  <input
+                                    type="date"
+                                    id="start-date"
+                                    value={startDate}
+                                    min={new Date().toISOString().split('T')[0]}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label htmlFor="end-date" className="block text-sm font-medium text-gray-700 mb-1">
+                                    End Date
+                                  </label>
+                                  <input
+                                    type="date"
+                                    id="end-date"
+                                    value={endDate}
+                                    min={startDate || new Date().toISOString().split('T')[0]}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label htmlFor="repeat-frequency" className="block text-sm font-medium text-gray-700 mb-1">
+                                  Repeat Frequency
+                                </label>
+                                <select
+                                  id="repeat-frequency"
+                                  value={repeatFrequency}
+                                  onChange={(e) => setRepeatFrequency(e.target.value)}
+                                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                >
+                                  <option value="daily">Daily</option>
+                                  <option value="weekly">Weekly</option>
+                                  <option value="bi-weekly">Bi-Weekly</option>
+                                  <option value="monthly">Monthly</option>
+                                  <option value="quarterly">Quarterly</option>
+                                </select>
+                              </div>
+                            </div>
+                          </>
                         )}
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
-              
-              {/* Notes summary - only show if notes are provided */}
-              {notes.trim() && (
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                  <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                    <h2 className="text-lg font-semibold text-gray-900">Additional Notes</h2>
-                  </div>
-                  <div className="p-6">
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{notes}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
           </div>
         )}

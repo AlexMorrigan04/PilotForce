@@ -623,6 +623,72 @@ const FlightDetails: React.FC = () => {
     });
   };
 
+  // Add a function to format scheduling information
+  const formatSchedulingInfo = (booking: any) => {
+    // If no scheduling info is available, use the flightDate
+    if (!booking.scheduling) {
+      return {
+        label: "Scheduled Date",
+        value: new Date(booking.flightDate).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })
+      };
+    }
+  
+    const { scheduleType } = booking.scheduling;
+  
+    // Handle different schedule types
+    if (scheduleType === 'scheduled') {
+      return {
+        label: "Scheduled Date",
+        value: new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })
+      };
+    } else if (scheduleType === 'flexible') {
+      return {
+        label: "Flexible Date",
+        value: `${new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })} (±${booking.scheduling.flexibility.replace('day', 'day').replace('week', 'week')})`,
+        subtext: "Based on your flexibility preferences"
+      };
+    } else if (scheduleType === 'repeat') {
+      const frequency = booking.scheduling.repeatFrequency.charAt(0).toUpperCase() + 
+                        booking.scheduling.repeatFrequency.slice(1);
+      
+      return {
+        label: "Recurring Schedule",
+        value: `${frequency}`,
+        subtext: `From ${new Date(booking.scheduling.startDate).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })} to ${new Date(booking.scheduling.endDate).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        })}`
+      };
+    }
+  
+    // Fallback to flight date if schedule type is not recognized
+    return {
+      label: "Scheduled Date",
+      value: new Date(booking.flightDate).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      })
+    };
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col min-h-screen bg-gray-50">
@@ -774,13 +840,17 @@ const FlightDetails: React.FC = () => {
             </div>
             
             <div className="grid grid-cols-3 border-t border-gray-200">
+              {/* Replace original fixed scheduled date cell with dynamic scheduling info */}
               <div className="px-6 py-4 border-r border-gray-200">
-                <p className="text-xs text-gray-500 uppercase font-medium">Scheduled Date</p>
-                <p className="mt-1 text-sm font-medium">{new Date(booking.flightDate).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric'
-                })}</p>
+                {booking && (
+                  <>
+                    <p className="text-xs text-gray-500 uppercase font-medium">{formatSchedulingInfo(booking).label}</p>
+                    <p className="mt-1 text-sm font-medium">{formatSchedulingInfo(booking).value}</p>
+                    {formatSchedulingInfo(booking).subtext && (
+                      <p className="text-xs text-gray-500">{formatSchedulingInfo(booking).subtext}</p>
+                    )}
+                  </>
+                )}
               </div>
               
               <div className="px-6 py-4 border-r border-gray-200">
@@ -944,6 +1014,90 @@ const FlightDetails: React.FC = () => {
                     </div>
                   )}
                 </div>
+                
+                {/* Add Schedule Details Section - New section to display detailed scheduling info */}
+                {booking && booking.scheduling && (
+                  <div className="px-6 py-4">
+                    <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
+                      <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Schedule Details
+                    </h4>
+                    
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-start">
+                        <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                          <svg className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div className="ml-3">
+                          <p className="text-sm font-medium text-gray-900">
+                            {booking.scheduling.scheduleType === 'scheduled' && 'Specific Date'}
+                            {booking.scheduling.scheduleType === 'flexible' && 'Flexible Date'}
+                            {booking.scheduling.scheduleType === 'repeat' && 'Recurring Schedule'}
+                          </p>
+                          
+                          {booking.scheduling.scheduleType === 'scheduled' && (
+                            <p className="text-sm text-gray-600 mt-1">
+                              Scheduled for {new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
+                                weekday: 'long',
+                                day: 'numeric',
+                                month: 'long',
+                                year: 'numeric'
+                              })}
+                            </p>
+                          )}
+                          
+                          {booking.scheduling.scheduleType === 'flexible' && (
+                            <>
+                              <p className="text-sm text-gray-600 mt-1">
+                                Preferred date: {new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
+                                  weekday: 'long',
+                                  day: 'numeric',
+                                  month: 'long',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                Flexibility: {booking.scheduling.flexibility === 'exact' ? 'Exact date' : 
+                                  booking.scheduling.flexibility === '1-day' ? '±1 Day' :
+                                  booking.scheduling.flexibility === '3-days' ? '±3 Days' :
+                                  booking.scheduling.flexibility === '1-week' ? '±1 Week' : 
+                                  booking.scheduling.flexibility}
+                              </p>
+                            </>
+                          )}
+                          
+                          {booking.scheduling.scheduleType === 'repeat' && (
+                            <>
+                              <p className="text-sm text-gray-600 mt-1">
+                                Frequency: {booking.scheduling.repeatFrequency.charAt(0).toUpperCase() + booking.scheduling.repeatFrequency.slice(1)}
+                              </p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                Start date: {new Date(booking.scheduling.startDate).toLocaleDateString('en-GB', {
+                                  weekday: 'long',
+                                  day: 'numeric',
+                                  month: 'long',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                End date: {new Date(booking.scheduling.endDate).toLocaleDateString('en-GB', {
+                                  weekday: 'long',
+                                  day: 'numeric',
+                                  month: 'long',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Notes - Only show section if notes exist */}
                 {booking.notes ? (
