@@ -2,9 +2,10 @@
   command = "npm run build"
   publish = "build"
 
-[context.production.environment]
-  REACT_APP_AWS_REGION = "eu-north-1"
+[build.environment]
   REACT_APP_MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
+  GENERATE_SOURCEMAP = "false"
+  REACT_APP_AWS_REGION = "eu-north-1"
   # DO NOT include actual AWS credentials here for security reasons
   # Set these in Netlify's UI
 
@@ -19,15 +20,17 @@
   to = "/index.html"
   status = 200
 
-# Allow cross-origin image loading 
+# Allow proper loading of Mapbox and AWS resources with comprehensive security headers
 [[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
     X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    # Allow AWS domains for images
-    Content-Security-Policy = "default-src 'self'; img-src 'self' data: blob: https://*.amazonaws.com; connect-src 'self' https://*.amazonaws.com https://*.mapbox.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://api.mapbox.com; style-src 'self' 'unsafe-inline' https://api.mapbox.com; img-src 'self' data: blob: https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com; connect-src 'self' https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com wss://*.amazonaws.com; worker-src blob:; child-src blob:; frame-ancestors 'none';"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+    Permissions-Policy = "geolocation=(self), camera=()"
 
 # Set up caching for images
 [[headers]]
@@ -39,6 +42,12 @@
   for = "/*.png"
   [headers.values]
     Cache-Control = "public, max-age=86400"
+
+# Cache Mapbox tiles for better performance
+[[headers]]
+  for = "/*.pbf"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
 
 # Add S3 proxy function to handle images securely and bypass CORS
 [functions]
