@@ -2,6 +2,10 @@
   publish = "build"
   command = "npm run build"
 
+[build.environment]
+  REACT_APP_MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
+  GENERATE_SOURCEMAP = "false"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
