@@ -4,7 +4,7 @@
 
 [context.production.environment]
   REACT_APP_AWS_REGION = "eu-north-1"
-  REACT_APP_MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
+  REACT_APP_MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoieW91ci1tYXBib3gtdXNlcm5hbWUiLCJhIjoieW91ci1tYXBib3gtdG9rZW4ifQ.your-mapbox-key-part"
   # DO NOT include actual AWS credentials here for security reasons
   # Set these in Netlify's UI
 
