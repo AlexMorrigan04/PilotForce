@@ -174,7 +174,7 @@ export const ConfirmationStep: React.FC<ConfirmationStepProps> = ({
             hover:bg-gray-50 transition-colors focus:outline-none
             focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
         >
-          View My Bookings
+          View My Flights
         </button>
         <button
           onClick={() => navigate('/')}

@@ -39,6 +39,7 @@ const FlightDetails: React.FC = () => {
   const [geoTiffError, setGeoTiffError] = useState<string | null>(null);
   const assetMapRef = useRef<any>(null);
   const imageMapRef = useRef<any>(null);
+  const flightDataRef = useRef<HTMLDivElement>(null);
 
   // AWS configuration
   const awsRegion = process.env.REACT_APP_AWS_REGION;
@@ -605,6 +606,23 @@ const FlightDetails: React.FC = () => {
     }
   };
 
+  // New function to check if flight has images/data
+  const hasFlightData = () => {
+    return images.length > 0 || geoTiffUrl !== null;
+  };
+
+  // New function to check booking status
+  const isBookingActive = () => {
+    return booking?.status === 'in-progress' || booking?.status === 'completed';
+  };
+
+  const scrollToFlightData = () => {
+    flightDataRef.current?.scrollIntoView({ 
+      behavior: 'smooth',
+      block: 'start'
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col min-h-screen bg-gray-50">
@@ -619,7 +637,7 @@ const FlightDetails: React.FC = () => {
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-              Back to Bookings
+              Back to Flights
             </button>
           </div>
             <div className="flex justify-center items-center p-12">
@@ -649,7 +667,7 @@ const FlightDetails: React.FC = () => {
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-              Back to Bookings
+              Back to Flights
             </button>
           </div>
           <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg shadow-sm">
@@ -688,7 +706,7 @@ const FlightDetails: React.FC = () => {
               <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-              Back to Bookings
+              Back to Flights
             </button>
           </div>
           <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-6 py-4 rounded-lg shadow-sm">
@@ -709,6 +727,7 @@ const FlightDetails: React.FC = () => {
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar />
       <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
+        {/* Header with Back Button */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Flight Details</h1>
@@ -718,149 +737,45 @@ const FlightDetails: React.FC = () => {
             onClick={() => navigate('/my-bookings')}
             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
           >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Back to Bookings
+            Back to Flights
           </button>
         </div>
         
-        {/* Images and Maps Section - Now at the top and larger */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
-          <div className="border-b border-gray-200">
-            <div className="px-6 py-4 flex justify-between items-center">
-              <div className="flex space-x-8">
-                <button
-                  onClick={() => setActiveTab('imageMap')}
-                  className={`py-3 px-2 font-medium text-base ${activeTab === 'imageMap' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  Image Map
-                </button>
-                <button
-                  onClick={() => setActiveTab('images')}
-                  className={`py-3 px-2 font-medium text-base relative ${activeTab === 'images' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  Flight Images
-                  {images.length > 0 && (
-                    <span className="ml-2 bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                      {images.length}
-                    </span>
-                  )}
-                </button>
-              </div>
-              
-              <button
-                onClick={downloadAllFiles}
-                disabled={isDownloading || images.length === 0}
-                className="inline-flex items-center px-4 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isDownloading ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    {downloadProgress}%
-                  </>
-                ) : (
-                  <>
-                    <svg className="-ml-0.5 mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Download All Files
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-          
-          <div className="p-0">
-            {activeTab === 'imageMap' && (
-              <div className="h-[600px]"> {/* Larger map height */}
-                <ImageMap 
-                  imageLocations={imageLocations} 
-                  bookingId={booking.id || booking.BookingId}
-                  mapboxAccessToken={MAPBOX_ACCESS_TOKEN || ''}
-                  geoTiffFilename={geoTiffFilename}
-                  geoTiffUrl={geoTiffUrl}
-                  onMapLoad={handleImageMapLoad}
-                  mapRef={imageMapRef}
-                />
-                {imageLocations.length === 0 && (
-                  <div className="bg-yellow-50 p-4 rounded-md m-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm text-yellow-700">
-                          No image locations available.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {activeTab === 'images' && (
-              <div className="p-6">
-                {imageError ? (
-                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative" role="alert">
-                    <strong className="font-bold">Error: </strong>
-                    <span className="block sm:inline">{imageError}</span>
-                    <button 
-                      onClick={() => setImageError(null)}
-                      className="mt-2 bg-red-100 text-red-800 px-3 py-1 rounded text-sm"
-                    >
-                      Try Again
-                    </button>
-                  </div>
-                ) : (
-                  <div className="max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                    <BookingImageGallery 
-                      images={images} 
-                      isLoading={isLoadingImages} 
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* Booking Overview - New section for key information */}
+        {/* Booking Overview Card - Moved to top for better hierarchy */}
         <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">Flight Overview</h2>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="px-6 py-4 flex items-center justify-between">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-5 flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div className="bg-blue-50 p-3 rounded-full">
-                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                   </svg>
                 </div>
                 <div>
-                  <h3 className="font-medium text-gray-900">{booking.jobName || booking.assetName || "Flight Booking"}</h3>
-                  <p className="text-sm text-gray-500">{booking.serviceType || booking.jobType}</p>
+                  <h2 className="text-xl font-semibold text-gray-900">{booking.assetName || "Flight Booking"}</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {Array.isArray(booking.jobTypes) && booking.jobTypes.length > 0
+                      ? booking.jobTypes.join(', ') 
+                      : booking.jobType || booking.serviceType || 'Not specified'}
+                  </p>
                 </div>
               </div>
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                booking.status === 'scheduled' ? 'bg-yellow-100 text-yellow-800' : 
-                booking.status === 'in-progress' ? 'bg-blue-100 text-blue-800' : 
-                booking.status === 'completed' ? 'bg-green-100 text-green-800' : 
-                booking.status === 'cancelled' ? 'bg-red-100 text-red-800' : 
-                'bg-gray-100 text-gray-800'
-              }`}>
-                {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-              </span>
+              <div className="flex flex-col items-end">
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
+                  {getStatusText(booking.status)}
+                </span>
+                {booking.status === 'pending' && (
+                  <p className="text-xs text-gray-500 mt-1">Awaiting confirmation</p>
+                )}
+              </div>
             </div>
             
             <div className="grid grid-cols-3 border-t border-gray-200">
               <div className="px-6 py-4 border-r border-gray-200">
-                <p className="text-xs text-gray-500">SCHEDULED DATE</p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Scheduled Date</p>
                 <p className="mt-1 text-sm font-medium">{new Date(booking.flightDate).toLocaleDateString('en-GB', {
                   day: 'numeric',
                   month: 'short',
@@ -869,12 +784,14 @@ const FlightDetails: React.FC = () => {
               </div>
               
               <div className="px-6 py-4 border-r border-gray-200">
-                <p className="text-xs text-gray-500">SITE CONTACT</p>
-                <p className="mt-1 text-sm font-medium">{booking.contactPerson || booking.siteContact || "Not specified"}</p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Site Contact</p>
+                <p className="mt-1 text-sm font-medium">
+                  {booking.siteContact?.name || booking.contactPerson || "Not specified"}
+                </p>
               </div>
               
               <div className="px-6 py-4">
-                <p className="text-xs text-gray-500">REQUEST DATE</p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Request Date</p>
                 <p className="mt-1 text-sm font-medium">{booking.createdAt ? new Date(booking.createdAt).toLocaleDateString('en-GB', {
                   day: 'numeric',
                   month: 'short',
@@ -882,152 +799,229 @@ const FlightDetails: React.FC = () => {
                 }) : "Unknown"}</p>
               </div>
             </div>
+            
+            {/* Action Buttons - Moved here from bottom of details section */}
+            {(booking.status === 'scheduled' || booking.status === 'pending') && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                <div className="flex space-x-3">
+                  <button className="flex-1 bg-red-50 py-2 px-4 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-100 flex items-center justify-center">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2 2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {booking.status === 'completed' && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                <button 
+                  onClick={scrollToFlightData}
+                  className="w-full bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  View Data
+                </button>
+              </div>
+            )}
+            {booking.status === 'in-progress' && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                <button 
+                  onClick={scrollToFlightData}
+                  className="w-full bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  Track Progress
+                </button>
+              </div>
+            )}
           </div>
         </div>
         
-        {/* Two-column layout for more details and map */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Details Section - Left Column (2/3 width) */}
+        {/* Two-column layout for flight details and map */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          {/* Left Column (2/3 width) - Detailed Info */}
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Flight Details</h3>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden h-full">
+              <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-800">Flight Details</h3>
+              </div>
               
-              <div className="space-y-6">
-                {/* Contact Information */}
-                {(booking.contactPerson || booking.siteContact || booking.contactPhone || booking.siteContactNumber) && (
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
-                      <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                      Contact Information
-                    </h4>
-                    <div className="bg-gray-50 rounded-lg p-4">
+              <div className="divide-y divide-gray-200">
+                {/* Service Details - Now supports multiple services */}
+                <div className="px-6 py-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
+                    <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Services Booked
+                  </h4>
+                  {/* Display multiple job types */}
+                  {Array.isArray(booking.jobTypes) && booking.jobTypes.length > 0 ? (
+                    <div className="space-y-3">
+                      {booking.jobTypes.map((jobType: string, index: number) => (
+                        <div key={index} className={index !== booking.jobTypes.length - 1 ? "pb-3 border-b border-gray-100" : ""}>
+                          <div className="flex items-center">
+                            <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                              </svg>
+                            </div>
+                            <p className="ml-3 text-sm font-medium text-gray-700">{jobType}</p>
+                          </div>
+                          
+                          {/* Show service options if available */}
+                          {booking.serviceOptions && booking.serviceOptions[jobType] && (
+                            <div className="mt-2 ml-8 pl-3 border-l-2 border-blue-100">
+                              {Object.entries(booking.serviceOptions[jobType]).map(([optKey, optValue]) => (
+                                <div key={optKey} className="text-xs text-gray-600 mt-1">
+                                  <span className="font-medium">{optKey.charAt(0).toUpperCase() + optKey.slice(1)}:</span>{' '}
+                                  {Array.isArray(optValue) 
+                                    ? (optValue as string[]).join(', ') 
+                                    : optValue as string}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 rounded p-3 text-sm text-gray-500 italic">
+                      No detailed service information available
+                    </div>
+                  )}
+                </div>
+                
+                {/* Contact Information - Now uses siteContact properly */}
+                <div className="px-6 py-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
+                    <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    Contact Information
+                  </h4>
+                  {(booking.siteContact || booking.contactPerson || booking.contactPhone || booking.siteContactNumber) ? (
+                    <div className="bg-white rounded-lg">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <p className="text-xs text-gray-500">Contact Person</p>
-                          <p className="text-sm font-medium">{booking.contactPerson || booking.siteContact || "Not specified"}</p>
+                          <p className="text-sm font-medium">
+                            {booking.siteContact?.name || booking.contactPerson || "Not specified"}
+                          </p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500">Phone</p>
-                          <p className="text-sm font-medium">{booking.contactPhone || booking.siteContactNumber || "Not specified"}</p>
+                          <p className="text-sm font-medium">
+                            {booking.siteContact?.phone || booking.contactPhone || booking.siteContactNumber || "Not specified"}
+                          </p>
                         </div>
-                        {booking.contactEmail && (
+                        {(booking.siteContact?.email || booking.contactEmail) && (
                           <div className="col-span-2">
                             <p className="text-xs text-gray-500">Email</p>
-                            <p className="text-sm font-medium">{booking.contactEmail}</p>
+                            <p className="text-sm font-medium">{booking.siteContact?.email || booking.contactEmail}</p>
+                          </div>
+                        )}
+                        {booking.siteContact?.isAvailableOnsite && (
+                          <div className="col-span-2 mt-1">
+                            <p className="text-xs flex items-center text-green-600">
+                              <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Contact will be available on-site
+                            </p>
                           </div>
                         )}
                       </div>
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="bg-gray-50 rounded p-3 text-sm text-gray-500 italic">
+                      No contact information provided
+                    </div>
+                  )}
+                </div>
                 
-                {/* Notes */}
-                {booking.notes && (
-                  <div>
+                {/* Notes - Only show section if notes exist */}
+                {booking.notes ? (
+                  <div className="px-6 py-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
                       <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      Flight Notes
+                      Additional Notes
                     </h4>
-                    <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="bg-gray-50 rounded-lg p-3">
                       <p className="text-sm whitespace-pre-line">{booking.notes}</p>
                     </div>
                   </div>
-                )}
+                ) : null}
                 
                 {/* Asset Information (if available) */}
                 {asset && (
-                  <div>
+                  <div className="px-6 py-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
                       <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                       </svg>
                       Asset Information
                     </h4>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-xs text-gray-500">Name</p>
-                          <p className="text-sm font-medium">{asset.name || asset.Name || "Unnamed Asset"}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Type</p>
-                          <p className="text-sm font-medium capitalize">{asset.type || asset.AssetType || "Unknown"}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Area</p>
-                          <p className="text-sm font-medium">{asset.area || asset.Area || "Unknown"} m²</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Status</p>
-                          <p className="text-sm font-medium">{asset.status || "Active"}</p>
-                        </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                      <div>
+                        <p className="text-xs text-gray-500">Name</p>
+                        <p className="text-sm font-medium">{asset.name || asset.Name || "Unnamed Asset"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Type</p>
+                        <p className="text-sm font-medium capitalize">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {asset.type || asset.AssetType || "Unknown"}
+                          </span>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Area</p>
+                        <p className="text-sm font-medium">{asset.area || asset.Area || "Unknown"} m²</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Status</p>
+                        <p className="text-sm font-medium">{asset.status || "Active"}</p>
                       </div>
                     </div>
                   </div>
                 )}
               </div>
-              
-              {/* Action Buttons */}
-              <div className="mt-6 flex space-x-3">
-                {booking.status === 'scheduled' && (
-                  <>
-                    <button className="flex-1 bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center justify-center">
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      Reschedule
-                    </button>
-                    <button className="flex-1 bg-red-50 py-2 px-4 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-100 flex items-center justify-center">
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Cancel
-                    </button>
-                  </>
-                )}
-                {booking.status === 'completed' && (
-                  <button className="flex-1 bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center">
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    View Report
-                  </button>
-                )}
-                {booking.status === 'in-progress' && (
-                  <button className="flex-1 bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center">
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                    </svg>
-                    Track Progress
-                  </button>
-                )}
-              </div>
             </div>
           </div>
           
-          {/* Map Section - Right Column (1/3 width) */}
-          <div>
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          {/* Right Column (1/3 width) - Map - Modified to be full height */}
+          <div className="h-full flex flex-col">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
               <div className="px-6 py-4 border-b border-gray-200">
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                  <svg className="w-5 h-5 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <svg className="w-5 h-5 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   Location
                 </h3>
-                <p className="text-sm text-gray-600">Flight location map</p>
               </div>
               
-              <div className="relative h-[300px]">
+              {/* Map container that fills available space */}
+              <div className="flex-grow relative min-h-[400px]">
                 <Map
                   {...viewState}
                   onMove={(evt: any) => setViewState(evt.viewState)}
-                  style={{ width: '100%', height: '100%' }}
+                  style={{ 
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    right: 0
+                  }}
                   mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
                   mapboxAccessToken={MAPBOX_ACCESS_TOKEN}
                   attributionControl={false}
@@ -1079,15 +1073,192 @@ const FlightDetails: React.FC = () => {
                       </div>
                     </Marker>
                   )}
+
+                  {/* Add navigation controls */}
+                  {/* <NavigationControl position="top-right" /> */}
                 </Map>
               </div>
               
-              <div className="px-4 py-3 text-center bg-gray-50 text-xs text-gray-500">
+              <div className="px-4 py-3 text-center bg-gray-50 text-xs text-gray-500 border-t border-gray-200">
                 {asset 
                   ? `${asset.name || asset.Name || "Asset"} location` 
                   : "Approximate flight location"}
               </div>
             </div>
+          </div>
+        </div>
+        
+        {/* Images and Maps Section - Modified height for better image display */}
+        <div 
+          ref={flightDataRef} 
+          className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6"
+        >
+          <div className="border-b border-gray-200">
+            <div className="px-6 py-4 flex justify-between items-center">
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-800">Flight Data</h3>
+                <p className="text-sm text-gray-500 mt-1">View captured images and flight path</p>
+              </div>
+              
+              {isBookingActive() && (
+                <div className="flex space-x-8">
+                  <button
+                    onClick={() => setActiveTab('imageMap')}
+                    className={`py-3 px-2 font-medium text-base ${activeTab === 'imageMap' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Image Map
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('images')}
+                    className={`py-3 px-2 font-medium text-base relative ${activeTab === 'images' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Image Gallery
+                    {images.length > 0 && (
+                      <span className="ml-2 bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                        {images.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
+              
+              {isBookingActive() && images.length > 0 && (
+                <button
+                  onClick={downloadAllFiles}
+                  disabled={isDownloading || images.length === 0}
+                  className="inline-flex items-center px-4 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isDownloading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-700" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      {downloadProgress}%
+                    </>
+                  ) : (
+                    <>
+                      <svg className="-ml-0.5 mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Download All Files
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+          
+          <div className="p-0">
+            {/* Status-based content */}
+            {!isBookingActive() ? (
+              // For pending or scheduled bookings
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                <div className="bg-blue-50 rounded-full p-4 mb-4">
+                  <svg className="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-medium text-gray-900 mb-2">Flight Not Yet Completed</h3>
+                <p className="text-base text-gray-600 max-w-md">
+                  {booking.status === 'pending' 
+                    ? "This booking is awaiting confirmation. Once confirmed, we'll schedule the flight date."
+                    : `This flight is scheduled for ${new Date(booking.flightDate).toLocaleDateString()}. Images and data will be available after the flight is completed.`
+                  }
+                </p>
+                <div className="mt-6">
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(booking.status)}`}>
+                    {getStatusText(booking.status)}
+                  </span>
+                </div>
+              </div>
+            ) : hasFlightData() ? (
+              // For completed bookings with data
+              <>
+                {activeTab === 'imageMap' && (
+                  <div className="h-[700px]">
+                    <ImageMap 
+                      imageLocations={imageLocations} 
+                      bookingId={booking.id || booking.BookingId}
+                      mapboxAccessToken={MAPBOX_ACCESS_TOKEN || ''}
+                      geoTiffFilename={geoTiffFilename}
+                      geoTiffUrl={geoTiffUrl}
+                      onMapLoad={handleImageMapLoad}
+                      mapRef={imageMapRef}
+                    />
+                    {imageLocations.length === 0 && !geoTiffUrl && (
+                      <div className="bg-yellow-50 p-4 rounded-md m-4">
+                        <div className="flex">
+                          <div className="flex-shrink-0">
+                            <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                          <div className="ml-3">
+                            <p className="text-sm text-yellow-700">
+                              No geotagged images available for map display.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {activeTab === 'images' && (
+                  <div className="p-6">
+                    {imageError ? (
+                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative" role="alert">
+                        <strong className="font-bold">Error: </strong>
+                        <span className="block sm:inline">{imageError}</span>
+                        <button 
+                          onClick={() => setImageError(null)}
+                          className="mt-2 bg-red-100 text-red-800 px-3 py-1 rounded text-sm"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {images.length > 0 ? (
+                          <div className="max-h-[700px] overflow-y-auto custom-scrollbar pr-2">
+                            <BookingImageGallery 
+                              images={images} 
+                              isLoading={isLoadingImages} 
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+                            <svg className="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <h3 className="text-lg font-medium text-gray-900 mb-1">No Images Available</h3>
+                            <p className="text-gray-500">No images have been uploaded for this flight yet.</p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              // For completed bookings without data
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <h3 className="text-xl font-medium text-gray-900 mb-2">No Flight Data Available</h3>
+                <p className="text-base text-gray-600 max-w-md mb-6">
+                  {booking.status === 'completed' 
+                    ? "This flight has been completed, but no images or data have been uploaded yet."
+                    : "Images and data will be available after the flight is completed and processed."
+                  }
+                </p>
+                <div className="p-2 bg-blue-50 rounded-lg text-sm text-blue-800">
+                  <span className="font-medium">Status:</span> {getStatusText(booking.status)}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -1119,7 +1290,7 @@ function fitMapToAsset(target: any, asset: any) {
     // Fit the map to the bounds with some padding
     target.fitBounds(bounds, {
       padding: 50,
-      maxZoom: 18
+      maxZoom: 20
     });
 
   } catch (error) {

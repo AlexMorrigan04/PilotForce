@@ -9,6 +9,7 @@ import AWS from 'aws-sdk';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import { useNavigate } from 'react-router-dom';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 const Assets: React.FC = () => {
   const { user } = useContext(AuthContext);
@@ -23,6 +24,7 @@ const Assets: React.FC = () => {
   const [selectedAsset, setSelectedAsset] = useState<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
   const drawRef = useRef<MapboxDraw | null>(null);
   const [roundedArea, setRoundedArea] = useState<number | undefined>(undefined);
   const markersRef = useRef<{ [key: string]: mapboxgl.Marker }>({});
@@ -166,8 +168,8 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
       // Store map reference
       mapRef.current = map as mapboxgl.Map;
 
-      // Add navigation control after map loads
       map.on('load', () => {
+        setMapLoaded(true);
         map.addControl(new mapboxgl.NavigationControl());
         
         // Load assets on map if we have any
@@ -711,29 +713,115 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
 
   // Handle asset selection from the list
   const handleAssetSelect = (asset: any) => {
-    try {
-      // Toggle selection if already selected
-      if (asset === selectedAsset) {
-        setSelectedAsset(null);
-      } else {
-        setSelectedAsset(asset);
+    console.log(`Asset selected: ${asset.name}`);
+  
+    // Set the selected asset state
+    setSelectedAsset(asset);
+  
+    // Now use the exact same zoom behavior as the handleViewAsset function
+    // This will make clicking the asset in the list work the same as clicking the eye icon
+    if (mapRef.current && mapLoaded) {
+      // First check if the asset has a valid centerPoint to focus on
+      if (asset.centerPoint && 
+          Array.isArray(asset.centerPoint) && 
+          asset.centerPoint.length === 2 &&
+          typeof asset.centerPoint[0] === 'number' &&
+          typeof asset.centerPoint[1] === 'number') {
         
-        // Focus on the selected asset in the map with more reasonable zoom
-        if (mapRef.current && asset.coordinates && asset.coordinates.length > 0) {
-          // Calculate bounds for the asset
-          const bounds = calculateBounds([asset.coordinates]);
-          // Fly to the asset with animation
+        console.log(`Zooming to asset centerPoint: [${asset.centerPoint[0]}, ${asset.centerPoint[1]}]`);
+        
+        // Use the same flyTo animation as handleViewAsset - consistent zooming experience
+        mapRef.current.flyTo({
+          center: [asset.centerPoint[0], asset.centerPoint[1]],
+          zoom: 18,
+          duration: 1000
+        });
+      } else if (asset.coordinates && asset.coordinates.length > 0) {
+        // Fallback to bounds calculation if no centerPoint
+        const bounds = calculateBounds([asset.coordinates]);
+        
+        if (bounds && 
+            bounds[0][0] !== undefined && 
+            bounds[1][0] !== undefined &&
+            !isNaN(bounds[0][0]) && 
+            !isNaN(bounds[0][1]) && 
+            !isNaN(bounds[1][0]) && 
+            !isNaN(bounds[1][1])) {
+          
+          console.log(`Zooming to asset bounds:`, bounds);
+          
           mapRef.current.fitBounds(bounds as [[number, number], [number, number]], {
-            padding: 40,
-            maxZoom: 18, // Reduced from 20
-            duration: 1000 // Animation duration in milliseconds
+            padding: 80,
+            maxZoom: 18,
+            duration: 1000
           });
         }
+      } else {
+        console.warn(`Cannot zoom to asset ${asset.name}: No valid coordinates`);
       }
-    } catch (error) {
-      console.error('Error selecting asset:', error);
+    } else {
+      console.log('Map not ready, will zoom when map loads');
     }
   };
+
+  // Add this new helper function to extract the zooming logic
+  const zoomToAsset = (asset: any) => {
+    if (!mapRef.current || !asset) return;
+  
+    try {
+      // Use identical logic to handleAssetSelect for consistency
+      if (asset.centerPoint && 
+          Array.isArray(asset.centerPoint) && 
+          asset.centerPoint.length === 2 &&
+          typeof asset.centerPoint[0] === 'number' &&
+          typeof asset.centerPoint[1] === 'number') {
+        
+        console.log(`Zooming to asset centerPoint: [${asset.centerPoint[0]}, ${asset.centerPoint[1]}]`);
+        
+        mapRef.current.flyTo({
+          center: [asset.centerPoint[0], asset.centerPoint[1]],
+          zoom: 18,
+          duration: 1000
+        });
+      } else if (asset.coordinates && asset.coordinates.length > 0) {
+        const bounds = calculateBounds([asset.coordinates]);
+        
+        if (bounds && 
+            bounds[0][0] !== undefined && 
+            bounds[1][0] !== undefined &&
+            !isNaN(bounds[0][0]) && 
+            !isNaN(bounds[0][1]) && 
+            !isNaN(bounds[1][0]) && 
+            !isNaN(bounds[1][1])) {
+          
+          console.log(`Zooming to asset bounds:`, bounds);
+          
+          mapRef.current.fitBounds(bounds as [[number, number], [number, number]], {
+            padding: 80,
+            maxZoom: 18,
+            duration: 1000
+          });
+        }
+      } else {
+        console.warn(`Cannot zoom to asset ${asset.name}: No valid coordinates`);
+      }
+    } catch (error) {
+      console.error('Error zooming to asset:', error);
+    }
+  };
+
+  // Add a new useEffect to handle asset selection after map loads
+  useEffect(() => {
+    // Only run this effect when the map becomes loaded and we have a selected asset
+    if (mapLoaded && selectedAsset && mapRef.current) {
+      console.log(`Map is now loaded, zooming to selected asset: ${selectedAsset.name}`);
+      
+      // Wait a short moment to ensure the map is fully ready
+      setTimeout(() => {
+        zoomToAsset(selectedAsset);
+      }, 100);
+    }
+  }, [mapLoaded, selectedAsset?.AssetId]); // Only rerun when map loads or selected asset changes
 
   // Update map when selectedAsset changes
   useEffect(() => {
@@ -935,6 +1023,13 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
           </div>
         </div>
       </div>
+
+      <Breadcrumbs 
+        items={[
+          { label: 'Dashboard', path: '/dashboard' },
+          { label: 'Assets', isCurrent: true }
+        ]} 
+      />
 
       <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
         {loading ? (
@@ -1142,7 +1237,7 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
                   </div>
                 )}
               </div>
-              
+
               {/* Map container with improved styling */}
               <div className="lg:w-2/3 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
                 <div className="h-full w-full relative">
@@ -1152,19 +1247,39 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
                       scrollZoom={true}
                       initialViewState={viewState}
                       onLoad={(event: any) => {
+                        console.log('Map onLoad triggered');
                         try {
+                          // Store the map reference
                           mapRef.current = event.target;
-                          if (assets.length > 0 && !loading) {
-                            if (mapRef.current) {
+                          // Add navigation control
+                          if (mapRef.current) {
+                            mapRef.current.addControl(new mapboxgl.NavigationControl() as mapboxgl.IControl);
+                          }
+                          
+                          console.log('Map initialized, setting mapLoaded state to true');
+                          // Set map as loaded - important to do this BEFORE loading assets
+                          setMapLoaded(true);
+                          
+                          // Wait a moment to ensure map is fully ready before loading assets
+                          setTimeout(() => {
+                            console.log('Loading assets on map after brief delay');
+                            if (assets.length > 0 && !loading && mapRef.current) {
                               loadAssetsOnMap(mapRef.current);
                             }
-                          }
+                            // If we have a selected asset already, zoom to it
+                            if (selectedAsset && mapRef.current) {
+                              console.log('Zooming to initially selected asset:', selectedAsset.name);
+                              zoomToAsset(selectedAsset);
+                            }
+                          }, 300);
                         } catch (err) {
-                          console.warn('Error in map onLoad:', err);
+                          console.error('Error in map onLoad:', err);
                         }
                       }}
                       onRemove={() => {
+                        console.log('Map removed');
                         mapRef.current = null;
+                        setMapLoaded(false);
                       }}
                       onMove={(evt: any) => setViewState(evt.viewState)}
                       style={{ width: '100%', height: '100%' }}
@@ -1295,11 +1410,12 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
                                 closeOnClick={false}
                                 onClose={() => setShowPopup({...showPopup, [asset.AssetId]: false})}
                                 anchor="bottom"
-                                className="z-10"
                               >
                                 <div className="p-2">
                                   <h3 className="font-bold text-gray-900">{asset.name}</h3>
-                                  <p className="text-sm text-gray-700">Area: {Math.round(turf.area(turf.polygon(asset.coordinates)) * 100) / 100} m²</p>
+                                  <p className="text-sm text-gray-700">
+                                    Area: {Math.round(turf.area(turf.polygon(asset.coordinates)) * 100) / 100} m²
+                                  </p>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1324,7 +1440,6 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
                       </div>
                     </div>
                   )}
-                  
                   {/* Map overlay with asset info when selected */}
                   {selectedAsset && (
                     <div className="absolute bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-64 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
@@ -1373,7 +1488,7 @@ const calculateCenterPoint = (coordinates: [number, number][][]): [number, numbe
           </div>
         )}
       </main>
-      
+
       <footer className="bg-white border-t border-gray-200 py-4 px-8 mt-auto">
         <div className="container mx-auto text-center text-gray-500 text-sm">
           &copy; {new Date().getFullYear()} PilotForce. All rights reserved.

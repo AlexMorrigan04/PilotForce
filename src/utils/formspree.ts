@@ -3,7 +3,7 @@
  */
 
 // Formspree endpoint
-const FORMSPREE_ENDPOINT = "https://formspree.io/f/xnnppgya"; // Replace with your actual token
+const FORMSPREE_ENDPOINT = "https://formspree.io/f/mvgkqjvr"; // Replace with your actual token
 
 /**
  * Define types for email notifications
@@ -71,12 +71,12 @@ export const sendSignupNotification = async (data: any) => {
     
     if (isNewCompanyAdmin) {
       // For new companies, send to system admin
-      recipients = 'admin@pilotforceapp.com';
+      recipients = 'Mike@morriganconsulting.co.uk';
     } else if (Array.isArray(data.adminEmails) && data.adminEmails.length > 0) {
       // For existing companies with admins, send to all admins
       recipients = data.adminEmails.join(',');
       // Always CC the system admin
-      ccRecipients = ['admin@pilotforceapp.com'];
+      ccRecipients = ['Mike@morriganconsulting.co.uk'];
     } else if (typeof data.to === 'string' && data.to.length > 0) {
       // Alternative way to specify recipients directly
       recipients = data.to;
@@ -85,11 +85,11 @@ export const sendSignupNotification = async (data: any) => {
         ccRecipients = typeof data.cc === 'string' ? [data.cc] : data.cc;
       } else {
         // Always CC the system admin
-        ccRecipients = ['admin@pilotforceapp.com'];
+        ccRecipients = ['Mike@morriganconsulting.co.uk'];
       }
     } else {
       // Fallback to system admin
-      recipients = 'admin@pilotforceapp.com';
+      recipients = 'Mike@morriganconsulting.co.uk';
     }
     
     console.log(`Sending notification to recipients: ${recipients}`);

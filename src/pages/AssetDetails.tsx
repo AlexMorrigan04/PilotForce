@@ -7,6 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import AWS from 'aws-sdk';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 // Define the asset type colors and icons for display
 const assetTypeDetails = {
@@ -66,7 +67,7 @@ const AssetDetails: React.FC = () => {
   const [viewState, setViewState] = useState({
     longitude: -2.587910,
     latitude: 51.454514,
-    zoom: 13
+    zoom: 16 // Increased from 13 to 16 for a more zoomed in initial view
   });
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -107,12 +108,12 @@ const AssetDetails: React.FC = () => {
       setAsset(location.state.asset);
       setLoading(false);
       
-      // Update view state to focus on asset
+      // Update view state to focus on asset with higher zoom level
       if (location.state.asset.centerPoint) {
         setViewState({
           longitude: location.state.asset.centerPoint[0],
           latitude: location.state.asset.centerPoint[1],
-          zoom: 16
+          zoom: 18 // Increased from 16 to 18 for a more zoomed in view
         });
       }
     } else if (assetId && user) {
@@ -151,12 +152,12 @@ const AssetDetails: React.FC = () => {
         setAsset(data.Item);
         setLoading(false);
 
-        // Update map viewport to center on asset
+        // Update map viewport to center on asset with higher zoom
         if (data.Item.centerPoint) {
           setViewState({
             longitude: data.Item.centerPoint[0],
             latitude: data.Item.centerPoint[1],
-            zoom: 16
+            zoom: 18 // Increased from 16 to 18
           });
         } else if (data.Item.coordinates && data.Item.coordinates.length > 0) {
           // Calculate center from coordinates if centerPoint not available
@@ -168,7 +169,7 @@ const AssetDetails: React.FC = () => {
             setViewState({
               longitude: centerPoint[0],
               latitude: centerPoint[1],
-              zoom: 16
+              zoom: 18 // Increased from 16 to 18
             });
           } catch (error) {
             console.error('Error calculating center point:', error);
@@ -328,6 +329,35 @@ const AssetDetails: React.FC = () => {
     }, 100);
   }, [asset, navigate, mapRef]);
 
+  function calculateAssetBounds(coordinates: any): [mapboxgl.LngLatLike, mapboxgl.LngLatLike] {
+      if (!coordinates || coordinates.length === 0) {
+        throw new Error('Invalid coordinates provided.');
+      }
+  
+      // Flatten the coordinates array to extract all points
+      const allPoints = coordinates.flat(1);
+  
+      // Calculate the bounding box
+      const bounds = allPoints.reduce(
+        (acc: [number, number, number, number], point: [number, number]) => {
+          const [minLng, minLat, maxLng, maxLat] = acc;
+          const [lng, lat] = point;
+          return [
+            Math.min(minLng, lng),
+            Math.min(minLat, lat),
+            Math.max(maxLng, lng),
+            Math.max(maxLat, lat),
+          ];
+        },
+        [Infinity, Infinity, -Infinity, -Infinity]
+      );
+  
+      // Return bounds as a tuple of LngLatLike
+      return [
+        [bounds[0], bounds[1]], // Southwest corner
+        [bounds[2], bounds[3]], // Northeast corner
+      ];
+    }
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar userInfo={userInfo} />
@@ -371,13 +401,27 @@ const AssetDetails: React.FC = () => {
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  Book Services
+                  Book a Flight
                 </button>
               )}
             </div>
           </div>
         </div>
       </div>
+
+      <Breadcrumbs 
+        items={[
+          { label: 'Dashboard', path: '/dashboard' },
+          { 
+            label: 'Assets', 
+            onClick: handleBackToList 
+          },
+          { 
+            label: asset?.name || 'Asset Details', 
+            isCurrent: true 
+          }
+        ]} 
+      />
 
       <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
         {loading ? (
@@ -483,9 +527,8 @@ const AssetDetails: React.FC = () => {
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    Book Services
+                    Book a Flight
                   </button>
-                  
                   {/* <button
                     className="w-full inline-flex justify-center items-center px-4 py-2.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150"
                     onClick={() => navigate(`/edit-asset/${asset.AssetId}`, { state: { asset } })}
@@ -495,7 +538,6 @@ const AssetDetails: React.FC = () => {
                     </svg>
                     Edit Asset
                   </button> */}
-                  
                   <button
                     className="w-full inline-flex justify-center items-center px-4 py-2.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-red-600 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition duration-150"
                     onClick={() => {
@@ -513,7 +555,7 @@ const AssetDetails: React.FC = () => {
                 </div>
               </div>
             </div>
-            
+
             {/* Right Panel - Map */}
             <div className="lg:col-span-2">
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -543,6 +585,24 @@ const AssetDetails: React.FC = () => {
                         console.log("Map loaded");
                         mapRef.current = event.target;
                         setMapLoaded(true);
+                        
+                        // If we have an asset already, ensure proper zoom after map load
+                        if (asset && asset.coordinates) {
+                          setTimeout(() => {
+                            try {
+                              const bounds = calculateAssetBounds(asset.coordinates);
+                              if (bounds) {
+                                mapRef.current?.fitBounds(bounds, {
+                                  padding: 80, // Add padding to ensure asset is well framed
+                                  maxZoom: 19,
+                                  duration: 800
+                                });
+                              }
+                            } catch (e) {
+                              console.warn('Error zooming to asset after map load:', e);
+                            }
+                          }, 200); // Short delay to ensure map is ready
+                        }
                       }}
                     >
                       {/* <NavigationControl position="top-right" /> */}
@@ -583,81 +643,6 @@ const AssetDetails: React.FC = () => {
                   )}
                 </div>
               </div>
-              
-              {/* Asset Features & Services Card */}
-              <div className="mt-6 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Available Services</h2>
-                </div>
-                <div className="p-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {asset.type === 'buildings' && (
-                      <>
-                        <div className="flex items-start p-4 border border-gray-200 rounded-lg">
-                          <div className="flex-shrink-0 bg-blue-100 rounded-md p-2">
-                            <svg className="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                            </svg>
-                          </div>
-                          <div className="ml-4">
-                            <h3 className="text-sm font-medium text-gray-900">Roof Inspection</h3>
-                            <p className="mt-1 text-xs text-gray-600">Detailed assessment of roof conditions</p>
-                          </div>
-                        </div>
-                        <div className="flex items-start p-4 border border-gray-200 rounded-lg">
-                          <div className="flex-shrink-0 bg-green-100 rounded-md p-2">
-                            <svg className="h-5 w-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                            </svg>
-                          </div>
-                          <div className="ml-4">
-                            <h3 className="text-sm font-medium text-gray-900">Thermal Imaging</h3>
-                            <p className="mt-1 text-xs text-gray-600">Detect heat loss and insulation issues</p>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    
-                    {asset.type === 'construction' && (
-                      <>
-                        <div className="flex items-start p-4 border border-gray-200 rounded-lg">
-                          <div className="flex-shrink-0 bg-orange-100 rounded-md p-2">
-                            <svg className="h-5 w-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                            </svg>
-                          </div>
-                          <div className="ml-4">
-                            <h3 className="text-sm font-medium text-gray-900">Progress Monitoring</h3>
-                            <p className="mt-1 text-xs text-gray-600">Regular aerial surveys to track progress</p>
-                          </div>
-                        </div>
-                        <div className="flex items-start p-4 border border-gray-200 rounded-lg">
-                          <div className="flex-shrink-0 bg-indigo-100 rounded-md p-2">
-                            <svg className="h-5 w-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                          </div>
-                          <div className="ml-4">
-                            <h3 className="text-sm font-medium text-gray-900">Orthomosaic Mapping</h3>
-                            <p className="mt-1 text-xs text-gray-600">Highly detailed site maps for planning</p>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    
-                    {/* Service buttons for other asset types would go here */}
-                    
-                    {/* <div className="sm:col-span-2 mt-2">
-                      <button
-                        onClick={handleOpenBookingModal}
-                        className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      >
-                        View All Available Services
-                      </button>
-                    </div> */}
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         ) : (
@@ -676,7 +661,7 @@ const AssetDetails: React.FC = () => {
           </div>
         )}
       </main>
-      
+
       {/* Booking Modal */}
       {bookingModalOpen && (
         <div className="fixed z-10 inset-0 overflow-y-auto">
@@ -694,7 +679,7 @@ const AssetDetails: React.FC = () => {
                     </svg>
                   </div>
                   <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                    <h3 className="text-lg leading-6 font-medium text-gray-900">Book Services</h3>
+                    <h3 className="text-lg leading-6 font-medium text-gray-900">Book a Flight</h3>
                     <div className="mt-2">
                       <p className="text-sm text-gray-500">
                         Services booking is not yet available in this demo version.

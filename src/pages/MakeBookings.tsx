@@ -7,6 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import AWS from 'aws-sdk';
+import Breadcrumbs from '../components/Breadcrumbs';
 
 // Define job types for each asset type
 const jobTypesByAssetType = {
@@ -100,6 +101,204 @@ const formatDate = (dateString: string) => {
   }
 };
 
+// Add proper type checking for service details
+
+// First define a proper type for service details to fix the type error
+type ServiceOptionChoice = {
+  [key: string]: string;
+};
+
+type ServiceOption = {
+  label: string;
+  type: 'singleSelect' | 'multiSelect';
+  choices: string[];
+  info: string | ServiceOptionChoice;
+};
+
+type ServiceOptions = {
+  [key: string]: ServiceOption;
+};
+
+// Define the different service detail types
+type ServiceWithOptions = {
+  description: string;
+  options: ServiceOptions;
+};
+
+type ServiceWithIncluded = {
+  description: string;
+  included: string[];
+};
+
+// Union type to allow for different service detail structures
+type ServiceDetail = ServiceWithOptions | ServiceWithIncluded;
+
+// Update the serviceDetails object with proper type annotation
+const serviceDetails: Record<string, ServiceDetail> = {
+  "Measured Survey/3D Model": {
+    description: "Photogrammetry data capture and processing to produce point cloud and mesh model.",
+    options: {
+      coverage: {
+        label: "Options",
+        type: "multiSelect",
+        choices: ["Roofs", "Elevations"],
+        info: "Select areas to be included in the 3D model"
+      },
+      detail: {
+        label: "Level of Detail",
+        type: "singleSelect",
+        choices: ["Low", "Medium", "High"],
+        info: {
+          "Low": "Suitable for general volume calculations and basic visualization",
+          "Medium": "Higher resolution suitable for most architectural and planning purposes",
+          "High": "Highest resolution with fine detail suitable for detailed inspection and analysis"
+        }
+      }
+    }
+  },
+  "Visual Inspection": {
+    description: "Imagery (RGB) captured systematically of a specified area and provided as an image catalogue oriented to a map.",
+    options: {
+      coverage: {
+        label: "Options",
+        type: "multiSelect",
+        choices: ["Roofs", "Elevations"],
+        info: "Select areas to be included in the visual inspection"
+      },
+      detail: {
+        label: "Level of Detail",
+        type: "singleSelect",
+        choices: ["Overview", "Condition Survey", "Detailed Inspection"],
+        info: {
+          "Overview": "General view of conditions suitable for preliminary assessment",
+          "Condition Survey": "Systematic capture of all visible surfaces with moderate detail",
+          "Detailed Inspection": "Comprehensive high-resolution imagery suitable for detailed condition assessment"
+        }
+      }
+    }
+  },
+  "Thermal/Infrared Survey": {
+    description: "Infrared images captured systematically under suitable environmental conditions. Images are radiometric so can be 'tuned' for analysis by a thermographer. Images provided as an image catalogue oriented to a map. Does not include analysis or report writing.",
+    options: {
+      purpose: {
+        label: "Options",
+        type: "multiSelect",
+        choices: ["Heat/Energy Loss", "Hidden Defects"],
+        info: "Select the primary purpose of the thermal imaging survey"
+      }
+    }
+  },
+  "Media Pack": {
+    description: "Images (RGB >12MP) and Video (RGB >1080p) for promotional and marketing purposes, provided as a file repository.",
+    included: [
+      "Set of still images from N,E,S,W perspectives",
+      "Birds eye view from high altitude",
+      "'Point of Interest' video orbit at 45° angle",
+      "2× video traverses N-S,E-W at 45° angle"
+    ]
+  },
+  // New descriptions for Area/Estate services
+  "Site Map": {
+    description: "Nadir imagery to produce 2D orthomosaic with a Ground Sampling Distance (GSD) of 2cm as standard.",
+    options: {
+      resolution: {
+        label: "Resolution",
+        type: "singleSelect",
+        choices: ["Standard (2cm GSD)", "High (1cm GSD)", "Ultra-high (0.5cm GSD)"],
+        info: {
+          "Standard (2cm GSD)": "Suitable for general site planning and assessment",
+          "High (1cm GSD)": "Higher detail suitable for precise measurements and small feature identification",
+          "Ultra-high (0.5cm GSD)": "Maximum detail for critical applications requiring millimeter precision"
+        }
+      }
+    }
+  },
+  "3D Model": {
+    description: "Oblique imagery to produce photorealistic and point cloud 3D model.",
+    options: {
+      detail: {
+        label: "Level of Detail",
+        type: "singleSelect",
+        choices: ["Low", "Medium", "High"],
+        info: {
+          "Low": "Suitable for general volume calculations and basic visualization",
+          "Medium": "Higher resolution suitable for most planning and visualization purposes",
+          "High": "Highest resolution with fine detail suitable for detailed inspection and analysis"
+        }
+      }
+    }
+  },
+  // New descriptions for Construction Site services
+  "Inspection/Flyover": {
+    description: "Ad hoc site flyover or inspection of specific area of site.",
+    options: {
+      focus: {
+        label: "Focus Areas",
+        type: "multiSelect",
+        choices: ["Site Overview", "Specific Construction Element", "Access Routes", "Material Storage"],
+        info: "Select which areas of the site require inspection"
+      }
+    }
+  },
+  "Live Site Visit": {
+    description: "View live feed and instruct drone in real time. Link accessible to multiple stakeholders.",
+    options: {
+      participants: {
+        label: "Number of Stakeholders",
+        type: "singleSelect",
+        choices: ["Up to 5", "6-10", "11+"],
+        info: {
+          "Up to 5": "Suitable for small teams and focused inspections",
+          "6-10": "Ideal for medium-sized project teams",
+          "11+": "For large projects with multiple stakeholders and departments"
+        }
+      }
+    }
+  },
+  "Documentation": {
+    description: "Comprehensive documentation of construction site and surroundings.",
+    options: {
+      coverage: {
+        label: "Areas to Document",
+        type: "multiSelect",
+        choices: ["Site", "Surrounding Environment", "Building Envelope"],
+        info: "Select which areas need to be documented"
+      }
+    }
+  },
+  "Security Patrol": {
+    description: "Perimeter patrol with high resolution infrared sensor to detect intruders. Live feed can be viewed in real time. Patrols can be requested nightly up to a frequency of once per hour.",
+    options: {
+      frequency: {
+        label: "Patrol Frequency",
+        type: "singleSelect",
+        choices: ["Once nightly", "Twice nightly", "Every 2 hours", "Every hour"],
+        info: {
+          "Once nightly": "Single patrol during night hours",
+          "Twice nightly": "Two patrols scheduled during night hours",
+          "Every 2 hours": "Regular patrols every 2 hours throughout the night",
+          "Every hour": "Maximum security with hourly patrols throughout the night"
+        }
+      },
+      monitoring: {
+        label: "Monitoring Options",
+        type: "multiSelect",
+        choices: ["Live feed access", "Incident reporting", "Integration with on-site security"],
+        info: "Select how you want to monitor the security patrol results"
+      }
+    }
+  }
+};
+
+// New type for site contact
+type SiteContact = {
+  id?: string;
+  name: string;
+  phone: string;
+  email: string;
+  isAvailableOnsite: boolean;
+};
+
 const MakeBookings: React.FC = () => {
   const { user } = useContext(AuthContext);
   const location = useLocation();
@@ -108,7 +307,7 @@ const MakeBookings: React.FC = () => {
   const [viewState, setViewState] = useState({
     longitude: -2.587910,
     latitude: 51.454514,
-    zoom: 12
+    zoom: 16
   });
   const [mapLoaded, setMapLoaded] = useState(false);
   const [asset, setAsset] = useState<any>(null);
@@ -123,7 +322,23 @@ const MakeBookings: React.FC = () => {
   const [companyDetails, setCompanyDetails] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
-  const FORMSPREE_ENDPOINT = process.env.FORMSPREE_ENDPOINT || ''; // Replace with your actual token
+  const FORMSPREE_ENDPOINT = "https://formspree.io/f/mvgkqjvr"; // Replace with your actual Formspree form ID
+  
+  // Add these missing state variables for service options
+  const [selectedOptions, setSelectedOptions] = useState<{[key: string]: any}>({});
+  const [serviceInfo, setServiceInfo] = useState<any>(null);
+  const [showInfoTooltip, setShowInfoTooltip] = useState<string | null>(null);
+
+  // New state variables for site contact
+  const [siteContact, setSiteContact] = useState<SiteContact>({
+    name: '',
+    phone: '',
+    email: '',
+    isAvailableOnsite: false
+  });
+  const [previousContacts, setPreviousContacts] = useState<SiteContact[]>([]);
+  const [showContactForm, setShowContactForm] = useState(true);
+  const [selectedPreviousContact, setSelectedPreviousContact] = useState<string | null>(null);
 
   // Explicitly define AWS credentials and region
   const awsRegion = process.env.REACT_APP_AWS_REGION;
@@ -157,7 +372,7 @@ const MakeBookings: React.FC = () => {
         setViewState({
           longitude: center[0],
           latitude: center[1],
-          zoom: 16
+          zoom: 19
         });
       } catch (error) {
         console.warn('Error calculating center of asset:', error);
@@ -216,6 +431,13 @@ const MakeBookings: React.FC = () => {
   useEffect(() => {
     if (user && user.username) {
       fetchUserDetails(user.username);
+    }
+  }, [user]);
+
+  // Fetch previous contacts when component loads
+  useEffect(() => {
+    if (user && user.companyId) {
+      fetchPreviousContacts(user.companyId);
     }
   }, [user]);
 
@@ -326,9 +548,133 @@ const MakeBookings: React.FC = () => {
     }
   };
 
-  const handleJobTypeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setJobType(e.target.value);
+  // Function to fetch previous site contacts
+  const fetchPreviousContacts = async (companyId: string) => {
+    try {
+      console.log("Fetching previous site contacts for company:", companyId);
+      
+      const params = {
+        TableName: 'SiteContacts',
+        FilterExpression: 'CompanyId = :cid',
+        ExpressionAttributeValues: {
+          ':cid': companyId
+        }
+      };
+      
+      const result = await dynamoDb.scan(params).promise();
+      
+      if (result.Items && result.Items.length > 0) {
+        console.log("Found previous site contacts:", result.Items);
+        setPreviousContacts(result.Items as SiteContact[]);
+      } else {
+        console.log("No previous site contacts found");
+        setPreviousContacts([]);
+      }
+    } catch (error) {
+      console.error("Error fetching previous site contacts:", error);
+      setPreviousContacts([]);
+    }
   };
+
+  const handleJobTypeChange = (type: string) => {
+    setJobType(type);
+    const serviceDetail = serviceDetails[type as keyof typeof serviceDetails] || null;
+    setServiceInfo(serviceDetail);
+    
+    // Initialize options based on the job type
+    if (serviceDetail) {
+      const initialOptions: {[key: string]: any} = {};
+      
+      // Type guard to check if this service has options
+      if ('options' in serviceDetail) {
+        const serviceOpts = serviceDetail.options;
+        
+        Object.keys(serviceOpts).forEach(optKey => {
+          const opt = serviceOpts[optKey];
+          if (opt.type === 'singleSelect' && opt.choices.length > 0) {
+            initialOptions[optKey] = opt.choices[0];
+          } else if (opt.type === 'multiSelect') {
+            initialOptions[optKey] = [];
+          }
+        });
+      }
+      
+      setSelectedOptions(initialOptions);
+    }
+  };
+
+  const handleOptionChange = (optionGroup: string, value: string, isMulti: boolean) => {
+    if (isMulti) {
+      setSelectedOptions(prev => {
+        const currentValues = prev[optionGroup] || [];
+        if (currentValues.includes(value)) {
+          return {
+            ...prev,
+            [optionGroup]: currentValues.filter((v: string) => v !== value)
+          };
+        } else {
+          return {
+            ...prev,
+            [optionGroup]: [...currentValues, value]
+          };
+        }
+      });
+    } else {
+      setSelectedOptions(prev => ({
+        ...prev,
+        [optionGroup]: value
+      }));
+    }
+  };
+
+  // Handle site contact field changes
+  const handleContactChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    
+    // Handle checkbox differently
+    if (type === 'checkbox') {
+      const checked = (e.target as HTMLInputElement).checked;
+      setSiteContact(prev => ({
+        ...prev,
+        [name]: checked
+      }));
+    } else {
+      setSiteContact(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+  
+  // Handle selection of a previous contact
+  const handleSelectPreviousContact = (contactId: string) => {
+    const selected = previousContacts.find(contact => contact.id === contactId);
+    if (selected) {
+      setSiteContact(selected);
+      setSelectedPreviousContact(contactId);
+      setShowContactForm(false);
+    }
+  };
+  
+  // Clear contact form and show it for a new entry
+  const handleNewContact = () => {
+    setSiteContact({
+      name: '',
+      phone: '',
+      email: '',
+      isAvailableOnsite: false
+    });
+    setSelectedPreviousContact(null);
+    setShowContactForm(true);
+  };
+  
+  // Check if site contact form is valid
+  const isContactFormValid = () => {
+    return siteContact.name.trim() !== '' && siteContact.phone.trim() !== '';
+  };
+
+  // Add notes state variable
+  const [notes, setNotes] = useState<string>('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -347,6 +693,12 @@ const MakeBookings: React.FC = () => {
 
     if (!jobType.trim() || !date.trim() || !asset) {
       setError('Please fill in all required fields');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (!isContactFormValid()) {
+      setError('Please provide a site contact name and phone number');
       setIsSubmitting(false);
       return;
     }
@@ -385,7 +737,35 @@ const MakeBookings: React.FC = () => {
       
       const assetPostcode = asset.postcode || '';
       
-      // Create the booking object with the correct user contact information
+      // Save the site contact if it's new or modified
+      const contactId = selectedPreviousContact || `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      
+      // Only save new contacts to the database
+      if (!selectedPreviousContact) {
+        try {
+          // Add to SiteContacts table
+          await dynamoDb.put({
+            TableName: 'SiteContacts',
+            Item: {
+              id: contactId,
+              CompanyId: user.companyId,
+              name: siteContact.name,
+              phone: siteContact.phone,
+              email: siteContact.email,
+              isAvailableOnsite: siteContact.isAvailableOnsite,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }
+          }).promise();
+          
+          console.log("Saved new site contact:", contactId);
+        } catch (contactError) {
+          console.error("Error saving site contact, but continuing:", contactError);
+          // We'll continue with the booking even if contact saving fails
+        }
+      }
+      
+      // Add site contact to booking object
       const newBooking = {
         CompanyId: user.companyId, // Use CompanyId as the partition key
         BookingId: bookingId, // Use BookingId as the sort key
@@ -404,7 +784,17 @@ const MakeBookings: React.FC = () => {
         userPhone: userPhone, // Add the phone number from userDetails
         emailDomain: strippedDomain, // Use the stripped domain name
         // Ensure there are some minimal company details
-        companyName: companyDetails?.CompanyName || 'Unknown Company'
+        companyName: companyDetails?.CompanyName || 'Unknown Company',
+        // Add site contact information to booking
+        siteContact: {
+          id: contactId,
+          name: siteContact.name,
+          phone: siteContact.phone,
+          email: siteContact.email,
+          isAvailableOnsite: siteContact.isAvailableOnsite
+        },
+        // Add notes if provided
+        notes: notes.trim() || null
       };
 
       console.log('Final booking object to be saved:', newBooking);
@@ -421,8 +811,14 @@ const MakeBookings: React.FC = () => {
       await dynamoDb.put(params).promise();
       console.log('Booking submitted successfully to DynamoDB with ID:', bookingId);
       
-      // Prepare simplified email data - only include key information from the booking
+      // Prepare simplified email data with improved formatting and recipient information
       const emailData = {
+        // Add the recipient email for Formspree to direct the notification to
+        _replyto: "Mike@morriganconsulting.co.uk",
+        
+        // Add a subject line for the email notification
+        _subject: `New Drone Service Booking: ${asset.name} - ${jobType}`,
+        
         // Booking information
         bookingId: bookingId,
         jobType: jobType,
@@ -444,9 +840,28 @@ const MakeBookings: React.FC = () => {
         
         // Company information
         companyId: user.companyId,
+        companyName: companyDetails?.CompanyName || 'Unknown Company',
+        
+        // Site contact information
+        siteContact: {
+          name: siteContact.name,
+          phone: siteContact.phone,
+          email: siteContact.email || 'Not provided',
+          isAvailableOnsite: siteContact.isAvailableOnsite ? 'Yes' : 'No'
+        },
         
         // Submission timestamp
-        submittedAt: new Date().toISOString()
+        submittedAt: new Date().toISOString(),
+        
+        // Format schedule information for better email readability
+        scheduleDetails: scheduleType === 'scheduled' 
+          ? `Specific date: ${new Date(date).toLocaleDateString()}`
+          : scheduleType === 'flexible'
+            ? `Flexible date: ${new Date(date).toLocaleDateString()} (${flexibility} flexibility)`
+            : `Recurring: ${repeatFrequency} from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+        
+        // Add notes to email if provided
+        notes: notes.trim() ? `Notes: ${notes.trim()}` : 'No additional notes provided'
       };
       
       // Send to Formspree
@@ -551,6 +966,24 @@ const MakeBookings: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Add Breadcrumbs component here */}
+      <Breadcrumbs 
+        items={[
+          { label: 'Dashboard', path: '/dashboard' },
+          { label: 'Assets', path: '/assets' },
+          { 
+            label: asset?.name ? `${asset.name}` : 'Asset Details', 
+            path: asset ? `/asset/${asset.AssetId}` : '/assets',
+            onClick: () => {
+              if (asset) {
+                navigate(`/asset/${asset.AssetId}`, { state: { asset } });
+              }
+            }
+          },
+          { label: 'Book Service', isCurrent: true }
+        ]} 
+      />
       
       <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
         {error && (
@@ -558,7 +991,7 @@ const MakeBookings: React.FC = () => {
             <div className="flex">
               <div className="flex-shrink-0">
                 <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1.293-9.707a1 1 0 011.414 0L10 10.586l1.293-1.293a1 1 0 011.414 1.414L11.414 12l1.293 1.293a1 1 0 01-1.414 1.414L10 13.414l-1.293 1.293a1 1 0 01-1.414-1.414L8.586 12 7.293 10.707a1 1 0 010-1.414z" clipRule="evenodd" />
                 </svg>
               </div>
               <div className="ml-3">
@@ -667,7 +1100,7 @@ const MakeBookings: React.FC = () => {
                     {getJobTypes().map((type, index) => (
                       <div 
                         key={index}
-                        onClick={() => setJobType(type)}
+                        onClick={() => handleJobTypeChange(type)}
                         className={`flex items-center p-4 border rounded-lg cursor-pointer transition-all duration-200
                           ${jobType === type 
                             ? 'border-blue-500 bg-blue-50 shadow-sm' 
@@ -679,12 +1112,19 @@ const MakeBookings: React.FC = () => {
                           name="jobType"
                           value={type}
                           checked={jobType === type}
-                          onChange={() => setJobType(type)}
+                          onChange={() => handleJobTypeChange(type)}
                           className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
                         />
-                        <label htmlFor={`job-type-${index}`} className="ml-3 flex-1 block text-sm font-medium text-gray-700">
-                          {type}
-                        </label>
+                        <div className="ml-3 flex-1">
+                          <label htmlFor={`job-type-${index}`} className="block text-sm font-medium text-gray-700">
+                            {type}
+                          </label>
+                          {serviceDetails[type as keyof typeof serviceDetails]?.description && (
+                            <p className="mt-1 text-xs text-gray-500">
+                              {serviceDetails[type as keyof typeof serviceDetails].description}
+                            </p>
+                          )}
+                        </div>
                         {jobType === type && (
                           <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -693,6 +1133,286 @@ const MakeBookings: React.FC = () => {
                       </div>
                     ))}
                   </div>
+                  
+                  {/* Service options */}
+                  {jobType && serviceInfo && (
+                    <div className="mt-6 border-t border-gray-200 pt-6">
+                      <h3 className="text-md font-medium text-gray-900 mb-3">Service Options</h3>
+                      
+                      {/* Render options based on selected service */}
+                      {'options' in serviceInfo && serviceInfo.options && Object.keys(serviceInfo.options).map((optKey) => {
+                        const option = serviceInfo.options[optKey];
+                        const isMulti = option.type === 'multiSelect';
+                        
+                        return (
+                          <div key={optKey} className="mb-5">
+                            <div className="flex items-center mb-2">
+                              <h4 className="text-sm font-medium text-gray-700">{option.label}</h4>
+                              {option.info && typeof option.info === 'string' && (
+                                <div className="relative ml-2">
+                                  <button 
+                                    type="button" 
+                                    className="text-gray-400 hover:text-gray-500"
+                                    onMouseEnter={() => setShowInfoTooltip(optKey)}
+                                    onMouseLeave={() => setShowInfoTooltip(null)}
+                                  >
+                                    <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                    </svg>
+                                  </button>
+                                  {showInfoTooltip === optKey && (
+                                    <div className="absolute z-10 w-64 px-4 py-2 mt-1 text-sm text-left bg-white rounded-lg shadow-lg border border-gray-200">
+                                      {option.info}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                              {option.choices.map((choice: string) => {
+                                const isSelected = isMulti 
+                                  ? (selectedOptions[optKey] || []).includes(choice)
+                                  : selectedOptions[optKey] === choice;
+                                
+                                return (
+                                  <div 
+                                    key={choice}
+                                    onClick={() => handleOptionChange(optKey, choice, isMulti)}
+                                    className={`px-4 py-3 border rounded-md cursor-pointer transition-all duration-150 
+                                      ${isSelected
+                                        ? 'border-blue-500 bg-blue-50'
+                                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                                      }`}
+                                  >
+                                    <div className="flex items-center">
+                                      {isMulti ? (
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => handleOptionChange(optKey, choice, isMulti)}
+                                          className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        />
+                                      ) : (
+                                        <input
+                                          type="radio"
+                                          checked={isSelected}
+                                          onChange={() => handleOptionChange(optKey, choice, isMulti)}
+                                          className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                        />
+                                      )}
+                                      <label className="ml-2 block text-sm font-medium text-gray-700">
+                                        {choice}
+                                      </label>
+                                    </div>
+                                    
+                                    {/* Show detail-specific info for single select options */}
+                                    {!isMulti && typeof option.info === 'object' && option.info[choice] && isSelected && (
+                                      <p className="mt-1 pl-6 text-xs text-gray-500">
+                                        {option.info[choice]}
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      
+                      {/* For Media Pack, show what's included */}
+                      {jobType === "Media Pack" && 'included' in serviceInfo && (
+                        <div className="mt-4 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <h4 className="text-sm font-medium text-gray-700 mb-2">What's Included:</h4>
+                          <ul className="list-disc pl-5 space-y-1">
+                            {serviceInfo.included.map((item: string, idx: number) => (
+                              <li key={idx} className="text-sm text-gray-600">{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* New Site Contact Card - Insert this before scheduling options */}
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-900">Site Contact</h2>
+                </div>
+                <div className="p-6">
+                  <p className="text-sm text-gray-600 mb-4">
+                    Please provide a site contact who will be available on the day of service:
+                  </p>
+                  
+                  {previousContacts.length > 0 && (
+                    <div className="mb-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Select a previous contact:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {previousContacts.map((contact) => (
+                          <div 
+                            key={contact.id}
+                            onClick={() => handleSelectPreviousContact(contact.id || '')}
+                            className={`flex items-center p-3 border rounded-lg cursor-pointer transition-all duration-200
+                              ${selectedPreviousContact === contact.id 
+                                ? 'border-blue-500 bg-blue-50 shadow-sm' 
+                                : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
+                          >
+                            <input
+                              type="radio"
+                              id={`contact-${contact.id}`}
+                              name="previousContact"
+                              checked={selectedPreviousContact === contact.id}
+                              onChange={() => handleSelectPreviousContact(contact.id || '')}
+                              className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                            />
+                            <div className="ml-3 flex-1">
+                              <p className="text-sm font-medium text-gray-800">{contact.name}</p>
+                              <p className="text-xs text-gray-500">{contact.phone}</p>
+                            </div>
+                          </div>
+                        ))}
+                        
+                        <div 
+                          onClick={handleNewContact}
+                          className={`flex items-center p-3 border border-dashed rounded-lg cursor-pointer transition-all duration-200
+                            ${showContactForm && !selectedPreviousContact 
+                              ? 'border-blue-500 bg-blue-50 shadow-sm' 
+                              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
+                        >
+                          <div className="flex items-center justify-center h-4 w-4 rounded-full border border-gray-300 text-gray-500">
+                            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                          </div>
+                          <p className="ml-3 text-sm text-gray-700">Add a new contact</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Contact Form (shown when adding new contact or initially if no previous contacts) */}
+                  {(showContactForm || previousContacts.length === 0) && (
+                    <div className="space-y-3">
+                      <div>
+                        <label htmlFor="contact-name" className="block text-sm font-medium text-gray-700">
+                          Contact Name<span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          id="contact-name"
+                          name="name"
+                          value={siteContact.name}
+                          onChange={handleContactChange}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          placeholder="Full name"
+                          required
+                        />
+                      </div>
+                      
+                      <div>
+                        <label htmlFor="contact-phone" className="block text-sm font-medium text-gray-700">
+                          Phone Number<span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="tel"
+                          id="contact-phone"
+                          name="phone"
+                          value={siteContact.phone}
+                          onChange={handleContactChange}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          placeholder="Mobile number for day of service"
+                          required
+                        />
+                      </div>
+                      
+                      <div>
+                        <label htmlFor="contact-email" className="block text-sm font-medium text-gray-700">
+                          Email Address
+                        </label>
+                        <input
+                          type="email"
+                          id="contact-email"
+                          name="email"
+                          value={siteContact.email}
+                          onChange={handleContactChange}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          placeholder="Email (optional)"
+                        />
+                      </div>
+                      
+                      <div className="flex items-center mt-2">
+                        <input
+                          type="checkbox"
+                          id="available-onsite"
+                          name="isAvailableOnsite"
+                          checked={siteContact.isAvailableOnsite}
+                          onChange={handleContactChange}
+                          className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <label htmlFor="available-onsite" className="ml-2 block text-sm text-gray-700">
+                          This contact will be available on-site during the drone service
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Show selected contact details when a previous contact is selected */}
+                  {selectedPreviousContact && !showContactForm && (
+                    <div className="mt-4 bg-blue-50 rounded-lg p-4 border border-blue-100">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-900">Selected Contact</h4>
+                          <p className="text-sm text-gray-700 mt-1">{siteContact.name}</p>
+                          <p className="text-sm text-gray-700">{siteContact.phone}</p>
+                          {siteContact.email && <p className="text-sm text-gray-700">{siteContact.email}</p>}
+                          
+                          {siteContact.isAvailableOnsite && (
+                            <p className="text-xs text-green-600 mt-2 flex items-center">
+                              <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Will be available on-site
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleNewContact}
+                          className="text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Additional Notes Section */}
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-900">Additional Notes</h2>
+                </div>
+                <div className="p-6">
+                  <label htmlFor="booking-notes" className="block text-sm text-gray-700 mb-2">
+                    Provide any additional information that might be helpful for this service:
+                  </label>
+                  <textarea
+                    id="booking-notes"
+                    name="notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={4}
+                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    placeholder="Enter any special requirements, access instructions, or other details..."
+                  ></textarea>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Max 500 characters. {notes.length}/500
+                  </p>
                 </div>
               </div>
               
@@ -882,9 +1602,15 @@ const MakeBookings: React.FC = () => {
                     
                     <button
                       onClick={handleSubmit}
-                      disabled={isSubmitting || !jobType || (scheduleType === 'scheduled' && !date) || (scheduleType === 'flexible' && !date) || (scheduleType === 'repeat' && (!startDate || !endDate))}
+                      disabled={isSubmitting || !jobType || !isContactFormValid() || 
+                        (scheduleType === 'scheduled' && !date) || 
+                        (scheduleType === 'flexible' && !date) || 
+                        (scheduleType === 'repeat' && (!startDate || !endDate))}
                       className={`w-full mt-4 inline-flex justify-center items-center px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                        isSubmitting || !jobType || (scheduleType === 'scheduled' && !date) || (scheduleType === 'flexible' && !date) || (scheduleType === 'repeat' && (!startDate || !endDate))
+                        isSubmitting || !jobType || !isContactFormValid() || 
+                        (scheduleType === 'scheduled' && !date) || 
+                        (scheduleType === 'flexible' && !date) || 
+                        (scheduleType === 'repeat' && (!startDate || !endDate))
                           ? 'bg-blue-300 cursor-not-allowed' 
                           : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
                       }`}
@@ -925,8 +1651,6 @@ const MakeBookings: React.FC = () => {
                     ref={mapRef}
                     key={`map-${asset?.AssetId || 'default'}`} // Add key to force re-render with new asset
                   >
-                    {/* <NavigationControl position="top-right" /> */}
-                    
                     {mapLoaded && asset && asset.coordinates && (
                       <Source
                         id="asset-polygon"
@@ -968,18 +1692,6 @@ const MakeBookings: React.FC = () => {
                   <h2 className="text-lg font-semibold text-gray-900">Service Information</h2>
                 </div>
                 <div className="p-6">
-                  {/* <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 mb-4">
-                    <h3 className="text-md font-medium text-blue-900 mb-1 flex items-center">
-                      <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      About Drone Services
-                    </h3>
-                    <p className="text-sm text-blue-700">
-                      Our professional drone services are conducted by licensed drone pilots using enterprise-grade equipment. All services comply with local aviation regulations.
-                    </p>
-                  </div> */}
-                  
                   {jobType && (
                     <div className="border-t border-gray-200 pt-4">
                       <h3 className="text-sm font-medium text-gray-900 mb-2">Selected Service:</h3>
@@ -992,6 +1704,42 @@ const MakeBookings: React.FC = () => {
                         <div className="ml-3">
                           <p className="text-sm font-medium text-gray-900">{jobType}</p>
                           <p className="text-xs text-gray-500">For {getAssetTypeInfo(asset.type).title}</p>
+                          
+                          {/* Show selected options */}
+                          {jobType && Object.keys(selectedOptions).length > 0 && (
+                            <div className="mt-2 text-xs text-gray-600">
+                              {Object.keys(selectedOptions).map(optKey => {
+                                // Check if serviceInfo exists and has options property
+                                const option = serviceInfo && 'options' in serviceInfo ? 
+                                  serviceInfo.options?.[optKey] : undefined;
+                                  
+                                if (!option) return null;
+                                
+                                const value = selectedOptions[optKey];
+                                if (Array.isArray(value) && value.length > 0) {
+                                  return (
+                                    <div key={optKey} className="mt-1">
+                                      <span className="font-medium">{option.label}:</span> {value.join(', ')}
+                                    </div>
+                                  );
+                                } else if (typeof value === 'string') {
+                                  return (
+                                    <div key={optKey} className="mt-1">
+                                      <span className="font-medium">{option.label}:</span> {value}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })}
+                            </div>
+                          )}
+                          
+                          {/* For Media Pack show included items */}
+                          {jobType === "Media Pack" && serviceInfo && 'included' in serviceInfo && (
+                            <div className="mt-2 text-xs text-gray-600">
+                              <span className="font-medium">Includes:</span> Stills, Videos & Birds Eye View
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1049,6 +1797,51 @@ const MakeBookings: React.FC = () => {
                   )}
                 </div>
               </div>
+              
+              {/* Add site contact summary to the service information section */}
+              {siteContact.name && (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Site Contact Information</h2>
+                  </div>
+                  <div className="p-6">
+                    <div className="flex items-start">
+                      <div className="bg-blue-50 p-3 rounded-full">
+                        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                      <div className="ml-4">
+                        <h3 className="text-lg font-medium text-gray-900">{siteContact.name}</h3>
+                        <p className="text-gray-600">{siteContact.phone}</p>
+                        {siteContact.email && <p className="text-gray-600">{siteContact.email}</p>}
+                        {siteContact.isAvailableOnsite && (
+                          <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Available on-site
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Notes summary - only show if notes are provided */}
+              {notes.trim() && (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+                    <h2 className="text-lg font-semibold text-gray-900">Additional Notes</h2>
+                  </div>
+                  <div className="p-6">
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{notes}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

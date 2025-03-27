@@ -55,7 +55,7 @@ export const sendNewUserNotification = async (
     `;
 
     // If using Formspree instead of Resend
-    const formspreeResponse = await fetch('https://formspree.io/f/xnnppgya', {
+    const formspreeResponse = await fetch('https://formspree.io/f/mvgkqjvr', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -165,11 +165,11 @@ export const getCompanyAdminEmails = async (companyId: string, dynamoDb: AWS.Dyn
     
     console.log("No admin emails found for company, using system admin email");
     // Fallback to system admin email
-    return ['admin@pilotforceapp.com'];
+    return ['Mike@morriganconsulting.co.uk'];
   } catch (error) {
     console.error('Error getting company admin emails:', error);
     // Fallback to system admin email in case of error
-    return ['admin@pilotforceapp.com'];
+    return ['Mike@morriganconsulting.co.uk'];
   }
 };
 
@@ -227,13 +227,13 @@ export const sendNewCompanyNotification = async (
     `;
 
     // Send via Formspree
-    const formspreeResponse = await fetch('https://formspree.io/f/xnnppgya', {
+    const formspreeResponse = await fetch('https://formspree.io/f/mvgkqjvr', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        email: 'admin@pilotforceapp.com', // System admin email
+        email: 'Mike@morriganconsulting.co.uk', // System admin email
         subject: 'New Company Registration Requires Your Approval',
         message: html,
         replyTo: email,
