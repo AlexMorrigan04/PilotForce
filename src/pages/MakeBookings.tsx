@@ -1162,7 +1162,7 @@ const MakeBookings: React.FC = () => {
                       onMove={(evt: any) => setViewState(evt.viewState)}
                       style={{ width: '100%', height: '100%' }}
                       mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
-                      mapboxAccessToken="pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
+                      mapboxAccessToken={process.env.REACT_APP_MAPBOX_ACCESS_TOKEN}
                       onLoad={() => setMapLoaded(true)}
                       reuseMaps={false}
                       ref={mapRef}
