@@ -1,24 +1,46 @@
 [build]
-  publish = "build"
   command = "npm run build"
+  publish = "build"
 
-[build.environment]
+[context.production.environment]
+  REACT_APP_AWS_REGION = "eu-north-1"
   REACT_APP_MAPBOX_ACCESS_TOKEN = "pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
-  GENERATE_SOURCEMAP = "false"
+  # DO NOT include actual AWS credentials here for security reasons
+  # Set these in Netlify's UI
+
+# Proxy API endpoints to serverless functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-# Add security headers for all pages
+# Allow cross-origin image loading 
 [[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
     X-XSS-Protection = "1; mode=block"
-    X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://api.mapbox.com; style-src 'self' 'unsafe-inline' https://api.mapbox.com; img-src 'self' data: blob: https://*.mapbox.com https://api.mapbox.com; connect-src 'self' https://*.mapbox.com https://api.mapbox.com https://*.amazonaws.com wss://*.amazonaws.com; worker-src blob:; child-src blob:; frame-ancestors 'none';"
-    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
-    Permissions-Policy = "geolocation=(self), camera=()"
+    # Allow AWS domains for images
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data: blob: https://*.amazonaws.com; connect-src 'self' https://*.amazonaws.com https://*.mapbox.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+
+# Set up caching for images
+[[headers]]
+  for = "/*.jpg"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+    
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+# Add S3 proxy function to handle images securely and bypass CORS
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
