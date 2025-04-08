@@ -165,3 +165,182 @@ export const getCompanyMediaCount = async (companyUserIds: string[]): Promise<nu
   
   return totalMedia;
 };
+
+/**
+ * Fetches all users for a specific company
+ * @param companyId - The ID of the company to fetch users for
+ * @returns {Promise<Array>} Array of user objects
+ */
+export async function getUsersByCompany(companyId: string) {
+  try {
+    console.log(`Fetching users for company: ${companyId}`);
+    
+    // Get all available auth credentials - enhanced with token support
+    const username = localStorage.getItem('auth_username');
+    const password = localStorage.getItem('auth_password');
+    const idToken = localStorage.getItem('idToken');
+    const tokensStr = localStorage.getItem('tokens');
+    
+    let tokenToUse = idToken;
+    
+    // If we have a tokens object stored, try to get idToken from it
+    if (!tokenToUse && tokensStr) {
+      try {
+        const tokens = JSON.parse(tokensStr);
+        if (tokens && tokens.idToken) {
+          tokenToUse = tokens.idToken;
+        }
+      } catch (e) {
+        console.error('Error parsing tokens object:', e);
+      }
+    }
+    
+    console.log(`Auth credentials available: username=${!!username}, password=${!!password}, token=${!!tokenToUse}`);
+    
+    // Create headers with the best available authentication method
+    let headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    };
+    
+    let requestBody = null;
+    
+    if (tokenToUse) {
+      console.log('Using token authentication for company users fetch');
+      headers['Authorization'] = `Bearer ${tokenToUse}`;
+    } else if (username && password) {
+      console.log('Using username/password authentication for company users fetch');
+      // For API Gateway, we need to send credentials in the body for POST requests
+      requestBody = { username, password };
+    } else {
+      throw new Error('No authentication credentials available');
+    }
+    
+    // First try with GET request (token auth)
+    let response;
+    let method = 'GET';
+    
+    if (tokenToUse) {
+      console.log(`Making ${method} request to fetch company users`);
+      try {
+        response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`, {
+          method,
+          headers
+        });
+      } catch (networkError) {
+        console.error('Network error in first attempt:', networkError);
+        // Retry with alternative endpoint if available
+        response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/user?companyId=${companyId}`, {
+          method,
+          headers
+        });
+      }
+    } else {
+      // If no token but we have username/password, use POST instead
+      method = 'POST';
+      console.log(`Making ${method} request to fetch company users`);
+      try {
+        response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`, {
+          method,
+          headers,
+          body: JSON.stringify(requestBody)
+        });
+      } catch (networkError) {
+        console.error('Network error in first attempt:', networkError);
+        // Retry with alternative endpoint if available
+        response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/user`, {
+          method,
+          headers,
+          body: JSON.stringify({
+            ...requestBody,
+            companyId
+          })
+        });
+      }
+    }
+    
+    console.log(`Response status: ${response.status}`);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Failed company users fetch: ${response.status} - ${errorText}`);
+      throw new Error(`Failed to fetch company users: ${response.status}`);
+    }
+    
+    const responseText = await response.text();
+    console.log(`Response text length: ${responseText.length}`);
+    
+    // Try to parse the response as JSON
+    let responseData;
+    try {
+      responseData = JSON.parse(responseText);
+      console.log(`Parsed response data type: ${typeof responseData}`);
+      console.log(`Response data keys: ${Object.keys(responseData).join(', ')}`);
+    } catch (e) {
+      console.error('Error parsing response as JSON:', e);
+      console.log('Raw response:', responseText.substring(0, 200) + '...');
+      throw new Error('Error parsing server response');
+    }
+    
+    // Handle different response formats
+    let users = [];
+    
+    if (responseData.users) {
+      console.log(`Found users array directly in response (count: ${responseData.users.length})`);
+      users = responseData.users;
+    } else if (responseData.body) {
+      console.log('Found body property in response, attempting to parse...');
+      let parsedBody;
+      
+      try {
+        parsedBody = typeof responseData.body === 'string' 
+          ? JSON.parse(responseData.body) 
+          : responseData.body;
+      } catch (parseError) {
+        console.error('Error parsing body:', parseError);
+        parsedBody = responseData.body;
+      }
+      
+      console.log(`Parsed body type: ${typeof parsedBody}`);
+      if (parsedBody && typeof parsedBody === 'object') {
+        console.log(`Parsed body keys: ${Object.keys(parsedBody).join(', ')}`);
+      }
+        
+      if (parsedBody.users) {
+        console.log(`Found users array in parsed body (count: ${parsedBody.users.length})`);
+        users = parsedBody.users;
+      } else if (Array.isArray(parsedBody)) {
+        console.log(`Body is an array, assuming it's the users array (count: ${parsedBody.length})`);
+        users = parsedBody;
+      }
+    } else if (Array.isArray(responseData)) {
+      console.log(`Response is an array, assuming it's the users array (count: ${responseData.length})`);
+      users = responseData;
+    }
+    
+    // Filter out invalid user objects
+    // Define interface for user objects with various property naming conventions
+    interface UserObject {
+      // Required fields (at least one of these must exist)
+      UserId?: string;
+      userId?: string;
+      username?: string;
+      Username?: string;
+      
+      // Other possible fields (optional)
+      [key: string]: any;
+    }
+    
+    const validUsers: UserObject[] = users.filter((user: unknown): user is UserObject => 
+      user !== null && typeof user === 'object' && 
+      !!(user as UserObject).UserId || !!(user as UserObject).userId || 
+      !!(user as UserObject).username || !!(user as UserObject).Username
+    );
+    
+    console.log(`Final valid users array length: ${validUsers.length} (filtered from ${users.length})`);
+    return validUsers;
+  } catch (error) {
+    console.error('Error fetching company users:', error);
+    throw error;
+  }
+}

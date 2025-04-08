@@ -5,7 +5,7 @@ import loginImage from '../images/login-image.avif';
 
 const ConfirmSignup: React.FC = () => {
   const [confirmationCode, setConfirmationCode] = useState('');
-  const { confirmSignUp, error, loading } = useAuth(); // Updated to use useAuth
+  const { confirmSignUp, error, loading } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { username } = location.state as { username: string } || { username: '' };
@@ -41,7 +41,7 @@ const ConfirmSignup: React.FC = () => {
         <div className="w-full max-w-md">
           <h2 className="text-2xl font-bold mb-6 text-left">Confirm Your Account</h2>
           <p className="mb-4">Please enter the confirmation code sent to your email.</p>
-          {error && <p className="mb-4 text-red-500">{error.message}</p>}
+          {error && <p className="mb-4 text-red-500">{error?.message || "An error occurred"}</p>}
           <form onSubmit={handleConfirmSignup}>
             <div className="mb-6">
               <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="confirmation-code">

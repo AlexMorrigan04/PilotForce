@@ -1,476 +1,302 @@
-import React, { useState, useEffect } from 'react';
-import AWS from 'aws-sdk';
-import { useAuth } from '../../context/AuthContext';
-import { FaCheckCircle, FaTimesCircle, FaSpinner, FaUserClock } from 'react-icons/fa';
+import React, { useEffect, useState } from 'react';
+import { getUser } from '../../utils/localStorage';
 
 interface PendingUser {
-  UserId: string;      // Make sure these match your DynamoDB schema
+  UserId: string;
   Username: string;
   Email: string;
+  Name?: string;
   PhoneNumber?: string;
-  CompanyId: string;
   UserRole: string;
+  Status: string;
   CreatedAt: string;
+  CompanyId: string;
 }
 
 interface PendingUserRequestsProps {
   onRequestsCountChange?: (count: number) => void;
-  className?: string; // Add className prop to fix the TypeScript error
 }
 
-const PendingUserRequests: React.FC<PendingUserRequestsProps> = ({ onRequestsCountChange, className }) => {
-  const { user } = useAuth();
+const PendingUserRequests: React.FC<PendingUserRequestsProps> = ({ onRequestsCountChange }) => {
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processingUser, setProcessingUser] = useState<string | null>(null);
-  
-  // AWS configuration
-  const awsRegion = process.env.REACT_APP_AWS_REGION;
-  const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
-  const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
-
-  const dynamoDb = new AWS.DynamoDB.DocumentClient({ 
-    region: awsRegion,
-    accessKeyId: accessKey,
-    secretAccessKey: secretKey
-  });
-
-  useEffect(() => {
-    if (user?.companyId) {
-      fetchPendingUsers();
-    }
-  }, [user?.companyId]);
 
   const fetchPendingUsers = async () => {
-    if (!user?.companyId) {
-      setError('Cannot fetch pending users: No company ID available');
-      setLoading(false);
-      return;
-    }
-
     try {
-      setLoading(true);
-      console.log("Fetching pending users for company:", user.companyId);
-      
-      // Query the Users table by CompanyId and UserAccess=false
-      const params = {
-        TableName: 'Users',
-        FilterExpression: 'CompanyId = :companyId AND UserAccess = :userAccess',
-        ExpressionAttributeValues: {
-          ':companyId': user.companyId,
-          ':userAccess': false
-        }
-      };
+      setIsLoading(true);
+      setError(null);
 
-      const response = await dynamoDb.scan(params).promise();
+      const currentUser = getUser();
+      if (!currentUser || !currentUser.companyId) {
+        setError("Unable to determine company ID");
+        return;
+      }
+
+      const companyId = currentUser.companyId;
+      const username = localStorage.getItem('auth_username');
+      const password = localStorage.getItem('auth_password');
+
+      if (!username || !password) {
+        setError("Authentication credentials not found");
+        return;
+      }
+
+      // Fetch pending user requests for the company
+      const response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${btoa(`${username}:${password}`)}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch pending users: ${response.status}`);
+      }
+
+      const responseData = await response.json();
+
+      // Process the response data to extract pending users
+      let usersData: PendingUser[] = [];
+
+      if (responseData.users && Array.isArray(responseData.users)) {
+        usersData = responseData.users;
+      } else if (responseData.body) {
+        // Handle nested response format
+        const parsedBody = typeof responseData.body === 'string'
+          ? JSON.parse(responseData.body)
+          : responseData.body;
+
+        if (parsedBody.users && Array.isArray(parsedBody.users)) {
+          usersData = parsedBody.users;
+        }
+      }
+
+      // Filter only pending/unconfirmed users
+      const pendingUsersData = usersData.filter(user => 
+        user.Status.toLowerCase() === 'unconfirmed' || 
+        user.Status.toLowerCase() === 'pending'
+      );
+
+      setPendingUsers(pendingUsersData);
       
-      if (response.Items) {
-        // Log the full items for debugging
-        console.log("Pending users raw data:", JSON.stringify(response.Items, null, 2));
+      // Notify parent component of count change
+      if (onRequestsCountChange) {
+        onRequestsCountChange(pendingUsersData.length);
+      }
+    } catch (err: any) {
+      console.error('Error fetching pending users:', err);
+      setError(err.message || 'Failed to load pending user requests');
+      
+      // For development, set some mock data
+      if (process.env.NODE_ENV === 'development') {
+        const mockPendingUsers: PendingUser[] = [
+          {
+            UserId: 'pending1',
+            Username: 'new_user',
+            Email: 'new@example.com',
+            Name: 'New User',
+            UserRole: 'User',
+            Status: 'UNCONFIRMED',
+            CreatedAt: new Date().toISOString(),
+            CompanyId: 'company123'
+          },
+          {
+            UserId: 'pending2',
+            Username: 'pending_user',
+            Email: 'pending@example.com',
+            Name: 'Pending User',
+            UserRole: 'User',
+            Status: 'UNCONFIRMED',
+            CreatedAt: new Date().toISOString(),
+            CompanyId: 'company123'
+          }
+        ];
         
-        // Map DynamoDB items to our PendingUser interface
-        const pending = response.Items.map(item => ({
-          UserId: item.UserId,          // Use exact field names from your DynamoDB table
-          Username: item.Username,
-          Email: item.Email,
-          PhoneNumber: item.PhoneNumber,
-          CompanyId: item.CompanyId,
-          UserRole: item.UserRole || 'User',
-          CreatedAt: item.CreatedAt
-        }));
-        
-        setPendingUsers(pending);
+        setPendingUsers(mockPendingUsers);
+        if (onRequestsCountChange) {
+          onRequestsCountChange(mockPendingUsers.length);
+        }
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleApproveUser = async (userId: string) => {
+    try {
+      setProcessingUser(userId);
+      
+      const username = localStorage.getItem('auth_username');
+      const password = localStorage.getItem('auth_password');
+      
+      if (!username || !password) {
+        setError("Authentication credentials not found");
+        return;
+      }
+      
+      // This would be the actual API call to approve a user
+      console.log(`Approving user: ${userId}`);
+      
+      // For now, just update the local state
+      setPendingUsers(prevUsers => {
+        const updatedUsers = prevUsers.filter(user => user.UserId !== userId);
         
         // Notify parent component of count change
         if (onRequestsCountChange) {
-          onRequestsCountChange(pending.length);
-        }
-      } else {
-        setPendingUsers([]);
-        if (onRequestsCountChange) {
-          onRequestsCountChange(0);
-        }
-      }
-      
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching pending users:', err);
-      setError('Failed to load pending user requests. Please try again later.');
-      setPendingUsers([]);
-      if (onRequestsCountChange) {
-        onRequestsCountChange(0);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApproveUser = async (user: PendingUser) => {
-    if (!user?.CompanyId) return;
-    
-    setProcessingUser(user.Username);
-    setError(null);
-    
-    try {
-      console.log("Approving user:", user);
-      
-      // Instead of trying different key combinations, first query to find the actual item
-      // This will help us understand the table's key structure
-      try {
-        const queryParams = {
-          TableName: 'Users',
-          FilterExpression: 'Username = :username',
-          ExpressionAttributeValues: {
-            ':username': user.Username
-          }
-        };
-        
-        console.log("Querying user to determine key structure:", queryParams);
-        const queryResult = await dynamoDb.scan(queryParams).promise();
-        
-        if (queryResult.Items && queryResult.Items.length > 0) {
-          const actualUser = queryResult.Items[0];
-          console.log("Found user in database:", actualUser);
-          
-          // Extract the primary key information
-          // We'll inspect the actual item to determine what fields make up the primary key
-          // This should match the table's schema
-          const updateParams = {
-            TableName: 'Users',
-            Key: {},
-            UpdateExpression: 'set UserAccess = :access',
-            ExpressionAttributeValues: {
-              ':access': true
-            },
-            ReturnValues: 'ALL_NEW'
-          };
-          
-          // Try to determine the primary key from the actual item
-          if (actualUser.pk && actualUser.sk) {
-            // If the table uses pk/sk pattern
-            updateParams.Key = {
-              pk: actualUser.pk,
-              sk: actualUser.sk
-            };
-          } else if (actualUser.CompanyId && actualUser.Username) {
-            // If the table uses CompanyId + Username as composite key
-            updateParams.Key = {
-              CompanyId: actualUser.CompanyId,
-              Username: actualUser.Username
-            };
-          } else if (actualUser.EmailDomain && actualUser.Email) {
-            // If the table uses EmailDomain + Email as composite key
-            updateParams.Key = {
-              EmailDomain: actualUser.EmailDomain,
-              Email: actualUser.Email
-            };
-          } else if (actualUser.UserId) {
-            // If the table uses just UserId as the key
-            updateParams.Key = {
-              UserId: actualUser.UserId
-            };
-          } else {
-            // If we can't determine the key, try Username as a fallback
-            updateParams.Key = {
-              Username: actualUser.Username
-            };
-          }
-          
-          console.log("Determined update params based on actual item:", updateParams);
-          const result = await dynamoDb.update(updateParams).promise();
-          console.log("Update result:", result);
-          
-          // Success! Remove from pending users
-          setPendingUsers(pendingUsers.filter(u => u.Username !== user.Username));
-          
-          // Update the count
-          if (onRequestsCountChange) {
-            onRequestsCountChange(pendingUsers.length - 1);
-          }
-          
-          return;
-        } else {
-          console.error("Could not find user in database to determine key structure");
-          throw new Error("User not found in database");
-        }
-      } catch (error) {
-        console.error("Error determining key structure:", error);
-        
-        // If the query approach fails, try a simpler approach - update using a custom name-value pair
-        try {
-          // Use putItem instead of update to replace the entire item
-          const putParams = {
-            TableName: 'Users',
-            Item: {
-              ...user,  // Include all existing user fields
-              UserAccess: true  // Set UserAccess to true
-            },
-            ConditionExpression: 'attribute_exists(Username)'  // Make sure we don't create a new item
-          };
-          
-          console.log("Falling back to put operation:", putParams);
-          await dynamoDb.put(putParams).promise();
-          console.log("Put operation succeeded");
-          
-          // Success! Remove from pending users
-          setPendingUsers(pendingUsers.filter(u => u.Username !== user.Username));
-          
-          // Update the count
-          if (onRequestsCountChange) {
-            onRequestsCountChange(pendingUsers.length - 1);
-          }
-          
-          return;
-        } catch (putError) {
-          console.error("Put operation failed:", putError);
-          throw putError;
-        }
-      }
-    } catch (err) {
-      console.error('Error approving user:', err);
-      if (err instanceof Error) {
-        setError(`Failed to approve user: ${err.message}`);
-      } else {
-        setError('Failed to approve user: An unknown error occurred');
-      }
-    } finally {
-      setProcessingUser(null);
-    }
-  };
-
-  const handleRejectUser = async (user: PendingUser) => {
-    if (!user?.CompanyId) return;
-    
-    setProcessingUser(user.Username);
-    setError(null);
-    
-    try {
-      // Similar approach to handleApproveUser - first find the actual item to determine key structure
-      const queryParams = {
-        TableName: 'Users',
-        FilterExpression: 'Username = :username',
-        ExpressionAttributeValues: {
-          ':username': user.Username
-        }
-      };
-      
-      console.log("Querying user to determine key structure for deletion:", queryParams);
-      const queryResult = await dynamoDb.scan(queryParams).promise();
-      
-      if (queryResult.Items && queryResult.Items.length > 0) {
-        const actualUser = queryResult.Items[0];
-        console.log("Found user in database for deletion:", actualUser);
-        
-        // Extract the primary key information
-        const deleteParams = {
-          TableName: 'Users',
-          Key: {}
-        };
-        
-        // Try to determine the primary key from the actual item
-        if (actualUser.pk && actualUser.sk) {
-          deleteParams.Key = {
-            pk: actualUser.pk,
-            sk: actualUser.sk
-          };
-        } else if (actualUser.CompanyId && actualUser.Username) {
-          deleteParams.Key = {
-            CompanyId: actualUser.CompanyId,
-            Username: actualUser.Username
-          };
-        } else if (actualUser.EmailDomain && actualUser.Email) {
-          deleteParams.Key = {
-            EmailDomain: actualUser.EmailDomain,
-            Email: actualUser.Email
-          };
-        } else if (actualUser.UserId) {
-          deleteParams.Key = {
-            UserId: actualUser.UserId
-          };
-        } else {
-          deleteParams.Key = {
-            Username: actualUser.Username
-          };
+          onRequestsCountChange(updatedUsers.length);
         }
         
-        console.log("Determined delete params based on actual item:", deleteParams);
-        await dynamoDb.delete(deleteParams).promise();
-        console.log("Delete operation succeeded");
-        
-        // Remove from pending users
-        setPendingUsers(pendingUsers.filter(u => u.Username !== user.Username));
-        
-        // Update the count
-        if (onRequestsCountChange) {
-          onRequestsCountChange(pendingUsers.length - 1);
-        }
-      } else {
-        throw new Error("User not found in database");
-      }
-    } catch (err) {
-      console.error('Error rejecting user:', err);
-      setError('Failed to reject user request. Please try again.');
-    } finally {
-      setProcessingUser(null);
-    }
-  };
-
-  const formatDate = (dateString: string): string => {
-    if (!dateString) return 'Unknown';
-    
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return dateString;
-      
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+        return updatedUsers;
       });
-    } catch (error) {
-      return dateString;
+      
+    } catch (err: any) {
+      console.error('Error approving user:', err);
+      setError(err.message || 'Failed to approve user');
+    } finally {
+      setProcessingUser(null);
     }
   };
 
-  const calculateTimeAgo = (dateString: string): string => {
-    if (!dateString) return '';
-    
+  const handleRejectUser = async (userId: string) => {
     try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return '';
+      setProcessingUser(userId);
       
-      const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffSecs = Math.floor(diffMs / 1000);
-      const diffMins = Math.floor(diffSecs / 60);
-      const diffHours = Math.floor(diffMins / 60);
-      const diffDays = Math.floor(diffHours / 24);
+      const username = localStorage.getItem('auth_username');
+      const password = localStorage.getItem('auth_password');
       
-      if (diffDays > 0) {
-        return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-      } else if (diffHours > 0) {
-        return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-      } else if (diffMins > 0) {
-        return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-      } else {
-        return 'Just now';
+      if (!username || !password) {
+        setError("Authentication credentials not found");
+        return;
       }
-    } catch (error) {
-      return '';
+      
+      // This would be the actual API call to reject a user
+      console.log(`Rejecting user: ${userId}`);
+      
+      // For now, just update the local state
+      setPendingUsers(prevUsers => {
+        const updatedUsers = prevUsers.filter(user => user.UserId !== userId);
+        
+        // Notify parent component of count change
+        if (onRequestsCountChange) {
+          onRequestsCountChange(updatedUsers.length);
+        }
+        
+        return updatedUsers;
+      });
+      
+    } catch (err: any) {
+      console.error('Error rejecting user:', err);
+      setError(err.message || 'Failed to reject user');
+    } finally {
+      setProcessingUser(null);
     }
   };
 
-  if (loading) {
+  useEffect(() => {
+    fetchPendingUsers();
+  }, []);
+
+  if (isLoading) {
     return (
-      <div className={`flex justify-center items-center p-8 ${className || ''}`}>
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+      <div className="p-6 text-center">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-blue-600"></div>
+        <p className="mt-2 text-gray-600">Loading pending requests...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center">
+        <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (pendingUsers.length === 0) {
+    return (
+      <div className="p-6 text-center">
+        <p className="text-gray-500">No pending user requests at this time.</p>
       </div>
     );
   }
 
   return (
-    <div className={className}>
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4" role="alert">
-          <p>{error}</p>
-        </div>
-      )}
-      
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-medium text-gray-900">Pending User Requests</h3>
-        <button 
-          onClick={fetchPendingUsers}
-          className="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-        >
-          Refresh
-        </button>
-      </div>
-      
-      {pendingUsers.length > 0 ? (
-        <div className="overflow-hidden rounded-md border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Requested</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {pendingUsers.map(pendingUser => (
-                <tr key={pendingUser.UserId} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 h-10 w-10">
-                        <div className="bg-blue-100 text-blue-800 flex items-center justify-center h-10 w-10 rounded-full">
-                          <span className="font-medium text-sm">{pendingUser.Username.substring(0, 2).toUpperCase()}</span>
-                        </div>
-                      </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">{pendingUser.Username}</div>
-                      </div>
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              User
+            </th>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Email
+            </th>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Requested On
+            </th>
+            <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {pendingUsers.map(user => (
+            <tr key={user.UserId} className="hover:bg-gray-50">
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">
+                    {(user.Name || user.Username || 'U').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="ml-4">
+                    <div className="text-sm font-medium text-gray-900">
+                      {user.Name || user.Username}
                     </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{pendingUser.Email}</div>
-                    {pendingUser.PhoneNumber && (
-                      <div className="text-sm text-gray-500">{pendingUser.PhoneNumber}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      pendingUser.UserRole === 'Admin' || pendingUser.UserRole === 'AccountAdmin' ? 'bg-purple-100 text-purple-800' :
-                      pendingUser.UserRole === 'Manager' ? 'bg-blue-100 text-blue-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {pendingUser.UserRole}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <div>{formatDate(pendingUser.CreatedAt)}</div>
-                    <div className="text-xs italic">{calculateTimeAgo(pendingUser.CreatedAt)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-3">
-                      <button
-                        onClick={() => handleApproveUser(pendingUser)}
-                        disabled={processingUser === pendingUser.Username}
-                        className="text-green-600 hover:text-green-900"
-                        title="Approve user"
-                      >
-                        {processingUser === pendingUser.Username ? (
-                          <FaSpinner className="animate-spin h-5 w-5" />
-                        ) : (
-                          <FaCheckCircle className="h-5 w-5" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => handleRejectUser(pendingUser)}
-                        disabled={processingUser === pendingUser.Username}
-                        className="text-red-600 hover:text-red-900"
-                        title="Reject user"
-                      >
-                        <FaTimesCircle className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="bg-gray-50 py-12 text-center rounded-lg border border-gray-200">
-          <FaUserClock className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No pending requests</h3>
-          <p className="mt-1 text-sm text-gray-500">There are currently no pending user requests to approve.</p>
-        </div>
-      )}
+                  </div>
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="text-sm text-gray-500">
+                  {user.Email}
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                {new Date(user.CreatedAt).toLocaleDateString()}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <button 
+                  onClick={() => handleApproveUser(user.UserId)}
+                  disabled={processingUser === user.UserId}
+                  className={`text-green-600 hover:text-green-900 mr-3 ${processingUser === user.UserId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Approve
+                </button>
+                <button 
+                  onClick={() => handleRejectUser(user.UserId)}
+                  disabled={processingUser === user.UserId}
+                  className={`text-red-600 hover:text-red-900 ${processingUser === user.UserId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Reject
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 };

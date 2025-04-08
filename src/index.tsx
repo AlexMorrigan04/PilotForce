@@ -1,3 +1,42 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import './index.css';
+import App from './App';
+
+// Import Amplify
+import { Amplify } from 'aws-amplify';
+
+// Direct configuration of Amplify in index.tsx
+Amplify.configure({
+  // Auth configuration
+  Auth: {
+    Cognito: {
+      userPoolId: process.env.REACT_APP_USER_POOL_ID || '',
+      userPoolClientId: process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID || '',
+      loginWith: {
+        email: true,
+        username: true
+      }
+    }
+  },
+  // API configuration
+  API: {
+    REST: {
+      PilotForceAPI: {
+        endpoint: 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod',
+        region: 'eu-north-1'
+      }
+    }
+  },
+  // Storage configuration
+  Storage: {
+    S3: {
+      bucket: process.env.REACT_APP_S3_BUCKET_NAME || '',
+      region: process.env.REACT_APP_AWS_REGION || 'eu-north-1',
+    }
+  }
+});
+
 // Fix Content Security Policy at runtime to allow data: URLs in connect-src
 if (typeof document !== 'undefined') {
   // Get the current meta tag if it exists
@@ -24,12 +63,6 @@ if (typeof document !== 'undefined') {
   // Log that we've updated the CSP
   console.info('Updated Content Security Policy to allow data: URLs in connect-src');
 }
-
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import './index.css';
-// Explicitly import App as default
-import App from './App';
 
 // Get the root element
 const rootElement = document.getElementById('root');

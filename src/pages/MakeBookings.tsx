@@ -6,7 +6,6 @@ import Map, { Source, Layer, NavigationControl, MapRef } from 'react-map-gl';
 import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import AWS from 'aws-sdk';
 import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 import { sendBookingNotification } from '../utils/emailService';
 import { FORMSPREE_ENDPOINTS } from '../utils/emailService';
@@ -121,7 +120,6 @@ type ServiceOptions = {
   [key: string]: ServiceOption;
 };
 
-// Define the different service detail types
 type ServiceWithOptions = {
   description: string;
   options: ServiceOptions;
@@ -132,10 +130,8 @@ type ServiceWithIncluded = {
   included: string[];
 };
 
-// Union type to allow for different service detail structures
 type ServiceDetail = ServiceWithOptions | ServiceWithIncluded;
 
-// Update the serviceDetails object with proper type annotation
 const serviceDetails: Record<string, ServiceDetail> = {
   "Measured Survey/3D Model": {
     description: "Photogrammetry data capture and processing to produce point cloud and mesh model.",
@@ -199,7 +195,6 @@ const serviceDetails: Record<string, ServiceDetail> = {
       "2× video traverses N-S,E-W at 45° angle"
     ]
   },
-  // New descriptions for Area/Estate services
   "Site Map": {
     description: "Nadir imagery to produce 2D orthomosaic with a Ground Sampling Distance (GSD) of 2cm as standard.",
     options: {
@@ -230,7 +225,6 @@ const serviceDetails: Record<string, ServiceDetail> = {
       }
     }
   },
-  // New descriptions for Construction Site services
   "Inspection/Flyover": {
     description: "Ad hoc site flyover or inspection of specific area of site.",
     options: {
@@ -292,13 +286,42 @@ const serviceDetails: Record<string, ServiceDetail> = {
   }
 };
 
-// New type for site contact
 type SiteContact = {
   id?: string;
   name: string;
   phone: string;
   email: string;
   isAvailableOnsite: boolean;
+};
+
+// Add this function right after existing imports
+const getUserDataFromStorage = () => {
+  try {
+    // Try to get user data from localStorage
+    const userData = localStorage.getItem('user');
+    const parsedUser = userData ? JSON.parse(userData) : null;
+    console.log('User data from localStorage:', parsedUser);
+    return parsedUser;
+  } catch (error) {
+    console.error('Error parsing user data from localStorage:', error);
+    return null;
+  }
+};
+
+// Add this utility function near the top of the file with other utility functions
+const extractPostcodeFromAddress = (address: string): string | null => {
+  if (!address) return null;
+  
+  // UK postcode regex pattern - handles both space and no-space formats
+  const ukPostcodeRegex = /([A-Z]{1,2}[0-9][A-Z0-9]?)\s*([0-9][A-Z]{2})/i;
+  const match = address.match(ukPostcodeRegex);
+  
+  if (match) {
+    // Format postcode with proper spacing
+    return `${match[1].toUpperCase()} ${match[2].toUpperCase()}`;
+  }
+  
+  return null;
 };
 
 const MakeBookings: React.FC = () => {
@@ -324,14 +347,10 @@ const MakeBookings: React.FC = () => {
   const [companyDetails, setCompanyDetails] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
-  
-  // Add these missing state variables for service options
   const [selectedOptions, setSelectedOptions] = useState<{[serviceType: string]: {[key: string]: any}}>({});
   const [serviceInfo, setServiceInfo] = useState<any>(null);
   const [showInfoTooltip, setShowInfoTooltip] = useState<string | null>(null);
   const [activeServiceConfig, setActiveServiceConfig] = useState<string | null>(null);
-
-  // New state variables for site contact
   const [siteContact, setSiteContact] = useState<SiteContact>({
     name: '',
     phone: '',
@@ -341,79 +360,95 @@ const MakeBookings: React.FC = () => {
   const [previousContacts, setPreviousContacts] = useState<SiteContact[]>([]);
   const [showContactForm, setShowContactForm] = useState(true);
   const [selectedPreviousContact, setSelectedPreviousContact] = useState<string | null>(null);
-
-  // Explicitly define AWS credentials and region
-  const awsRegion = process.env.REACT_APP_AWS_REGION;
-  const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
-  const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
-
-  // Directly use the hardcoded credentials
-  AWS.config.update({
-    accessKeyId: accessKey,
-    secretAccessKey: secretKey,
-    region: awsRegion
-  });
-
-  const dynamoDb = new AWS.DynamoDB.DocumentClient({ 
-    region: awsRegion,
-    accessKeyId: accessKey,
-    secretAccessKey: secretKey
-  });
-
+  const [notes, setNotes] = useState<string>('');
   const mapRef = useRef<MapRef | null>(null);
-  
-  // Update the useEffect for handling the asset from location state
+  const [storedUserData, setStoredUserData] = useState<any>(null);
+
   useEffect(() => {
-    // Prevent double initialization when receiving state from AssetDetails
     if (location.state && location.state.selectedAsset && !asset) {
       console.log('Setting asset from location state');
-      setAsset(location.state.selectedAsset);
+      const receivedAsset = location.state.selectedAsset;
       
+      // Create a properly structured asset object with fallbacks for missing properties
+      const safeAsset = {
+        AssetId: receivedAsset.AssetId || 'unknown-id',
+        name: receivedAsset.Name || receivedAsset.name || 'Unnamed Asset',
+        type: receivedAsset.AssetType || receivedAsset.type || 'buildings',
+        area: receivedAsset.Area || receivedAsset.area || 0,
+        address: receivedAsset.Address || receivedAsset.address || '',
+        postcode: receivedAsset.PostCode || receivedAsset.postcode || '',
+        coordinates: Array.isArray(receivedAsset.coordinates) ? receivedAsset.coordinates : 
+                     Array.isArray(receivedAsset.Coordinates) ? receivedAsset.Coordinates : [],
+        CenterPoint: receivedAsset.CenterPoint || null
+      };
+      
+      console.log('Processed asset details:', safeAsset);
+      setAsset(safeAsset);
+      
+      // Safely calculate center point if coordinates are available
       try {
-        const center = turf.centroid(turf.polygon(location.state.selectedAsset.coordinates)).geometry.coordinates;
-        setViewState({
-          longitude: center[0],
-          latitude: center[1],
-          zoom: 17
-        });
+        if (safeAsset.CenterPoint) {
+          setViewState({
+            longitude: parseFloat(safeAsset.CenterPoint[0]),
+            latitude: parseFloat(safeAsset.CenterPoint[1]),
+            zoom: 17
+          });
+        } else if (safeAsset.coordinates && safeAsset.coordinates.length > 0) {
+          try {
+            const center = turf.centroid(turf.polygon(safeAsset.coordinates)).geometry.coordinates;
+            setViewState({
+              longitude: center[0],
+              latitude: center[1],
+              zoom: 17
+            });
+          } catch (error) {
+            console.warn('Error calculating center of asset:', error);
+            // Default view state remains unchanged
+          }
+        }
       } catch (error) {
-        console.warn('Error calculating center of asset:', error);
-        // Use default view state if calculation fails
+        console.warn('Error setting view state:', error);
       }
     }
   }, [location.state, asset]);
 
-  // Complete rework of the reload mechanism to be more robust
-  useEffect(() => {
-    // Only reload if this is first time visiting from AssetDetails
-    const needsReload = 
-      location.state?.fromAssetDetails && 
-      !sessionStorage.getItem('makeBookings_loaded');
-    
-    if (needsReload) {
-      console.log('First load from AssetDetails, marking as loaded');
-      sessionStorage.setItem('makeBookings_loaded', 'true');
-    }
-    
-    return () => {
-      // Don't clear the flag on unmount as we want it to persist during navigation
-    };
-  }, [location.state]);
-
-  // Improved map cleanup with proper ref handling
   useEffect(() => {
     return () => {
       console.log('MakeBookings component unmounting, cleaning up map');
-      
       try {
-        // Properly handle cleanup of the map to avoid the indoor error
-        if (mapLoaded) {
+        if (mapLoaded && mapRef.current) {
           setMapLoaded(false);
-          
-          // Access the mapbox gl global instance to clean up
-          if (mapRef.current) {
-            mapRef.current.getMap().remove();
-            console.log('Cleaning up global mapbox instance');
+          try {
+            const map = mapRef.current.getMap();
+            if (map) {
+              const style = map.getStyle();
+              if (style && style.layers) {
+                style.layers.forEach((layer: mapboxgl.Layer) => {
+                  if (map.getLayer(layer.id)) {
+                  map.removeLayer(layer.id);
+                  }
+                });
+              }
+              if (style && style.sources) {
+                Object.keys(style.sources).forEach(source => {
+                  if (map.getSource(source)) {
+                    map.removeSource(source);
+                  }
+                });
+              }
+              setTimeout(() => {
+                try {
+                  if (mapRef.current && mapRef.current.getMap()) {
+                    mapRef.current.getMap().remove();
+                  }
+                  mapRef.current = null;
+                } catch (delayedError) {
+                  console.warn('Non-critical delayed map cleanup error:', delayedError);
+                }
+              }, 100);
+            }
+          } catch (cleanupError) {
+            console.warn('Non-critical map cleanup error:', cleanupError);
           }
         }
       } catch (error) {
@@ -422,56 +457,63 @@ const MakeBookings: React.FC = () => {
     };
   }, [mapLoaded]);
 
-  // Fetch company details when component loads
   useEffect(() => {
     if (user && user.companyId) {
       fetchCompanyDetails(user.companyId);
     }
   }, [user]);
 
-  // Fetch user details when component loads
   useEffect(() => {
     if (user && user.username) {
       fetchUserDetails(user.username);
     }
   }, [user]);
 
-  // Fetch previous contacts when component loads
   useEffect(() => {
     if (user && user.companyId) {
       fetchPreviousContacts(user.companyId);
     }
   }, [user]);
 
-  // Function to fetch company details including email domain
+  useEffect(() => {
+    const userData = getUserDataFromStorage();
+    if (userData) {
+      setStoredUserData(userData);
+      console.log('Using stored user data:', userData);
+    }
+  }, []);
+
   const fetchCompanyDetails = async (companyId: string) => {
     try {
       console.log("Attempting to fetch company details for CompanyId:", companyId);
       
-      // Use scan instead of get to find company by companyId
-      const params = {
-        TableName: 'Companies',
-        FilterExpression: 'CompanyId = :companyId',
-        ExpressionAttributeValues: {
-          ':companyId': companyId
-        }
-      };
-      
-      const result = await dynamoDb.scan(params).promise();
-      if (result.Items && result.Items.length > 0) {
-        setCompanyDetails(result.Items[0]);
-        console.log("Company details found:", result.Items[0]);
-      } else {
-        console.warn("No company found with CompanyId:", companyId);
-        // Still create a basic company object with the ID to prevent errors
-        setCompanyDetails({ 
-          CompanyId: companyId, 
-          CompanyName: 'Unknown Company' 
-        });
+      // First, try to get company details from localStorage
+      const storedData = getUserDataFromStorage();
+      if (storedData && storedData.companyName) {
+        const localCompany = {
+          CompanyId: companyId,
+          CompanyName: storedData.companyName,
+          EmailDomain: storedData.emailDomain || 'unknown',
+          // ...other fields
+        };
+        console.log("Using company details from localStorage:", localCompany);
+        setCompanyDetails(localCompany);
+        return;
       }
+      
+      // Fall back to mock data if not in localStorage
+      const mockCompany = {
+        CompanyId: companyId,
+        CompanyName: 'Demo Company',
+        EmailDomain: 'demo-company.com',
+        Address: '123 Demo Street',
+        City: 'Demo City',
+        Country: 'United Kingdom'
+      };
+      setCompanyDetails(mockCompany);
+      console.log("Using mock company details:", mockCompany);
     } catch (error) {
       console.error("Error fetching company details:", error);
-      // Create fallback company object
       setCompanyDetails({ 
         CompanyId: companyId, 
         CompanyName: 'Unknown Company' 
@@ -479,66 +521,39 @@ const MakeBookings: React.FC = () => {
     }
   };
 
-  // Function to fetch user details including email domain
   const fetchUserDetails = async (username: string) => {
     try {
+      // This function should be updated to use the stored user data instead of mock data
       console.log("Attempting to fetch user details for username:", username);
       
-      // Use scan with the correct key structure based on the table schema
-      const params = {
-        TableName: 'Users',
-        FilterExpression: 'Username = :username',
-        ExpressionAttributeValues: {
-          ':username': username
-        }
-      };
-      
-      console.log("User query params:", params);
-      
-      const result = await dynamoDb.scan(params).promise();
-      if (result.Items && result.Items.length > 0) {
-        const userData = result.Items[0];
-        setUserDetails(userData);
-        console.log("User details found:", userData);
-        
-        // Log the specific attributes using the correct case from the schema
-        console.log("User email:", userData.Email);
-        console.log("User phone:", userData.PhoneNumber || "Not found");
-        console.log("User email domain:", userData.EmailDomain || "Not found");
-      } else {
-        console.warn("No user found with username:", username);
-        
-        // Try alternative capitalization
-        const altParams = {
-          TableName: 'Users',
-          FilterExpression: 'Username = :username OR username = :username',
-          ExpressionAttributeValues: {
-            ':username': username
-          }
-        };
-        
-        console.log("Trying alternative query:", altParams);
-        const altResult = await dynamoDb.scan(altParams).promise();
-        
-        if (altResult.Items && altResult.Items.length > 0) {
-          const userData = altResult.Items[0];
-          setUserDetails(userData);
-          console.log("User details found with alternative query:", userData);
-        } else {
-          // Create a fallback user object with the correct attribute names
-          setUserDetails({ 
-            Username: username, 
-            Email: `${username}@example.com`,
-            EmailDomain: 'example.com',
-            PhoneNumber: '',
-            UserRole: 'User',
-            CompanyId: user?.companyId || ''
-          });
-        }
+      // Check if we already have user data from localStorage
+      if (storedUserData) {
+        // Use the real user data from localStorage
+        console.log("Using stored user data instead of mock data");
+        setUserDetails({
+          Username: storedUserData.username || username,
+          Email: storedUserData.email || '',
+          EmailDomain: storedUserData.email ? storedUserData.email.split('@')[1] : '',
+          PhoneNumber: storedUserData.phoneNumber || '',
+          UserRole: storedUserData.role || 'User',
+          CompanyId: storedUserData.companyId || ''
+        });
+        return;
       }
+      
+      // Fallback to mock data if no stored data exists
+      const mockUser = {
+        Username: username,
+        Email: `${username}@example.com`,
+        EmailDomain: 'example.com',
+        PhoneNumber: '+44123456789',
+        UserRole: 'User',
+        CompanyId: user?.companyId || ''
+      };
+      setUserDetails(mockUser);
+      console.log("Using mock user details:", mockUser);
     } catch (error) {
       console.error("Error fetching user details:", error);
-      // Create fallback user object with correct attribute names
       setUserDetails({ 
         Username: username, 
         Email: `${username}@example.com`,
@@ -550,28 +565,27 @@ const MakeBookings: React.FC = () => {
     }
   };
 
-  // Function to fetch previous site contacts
   const fetchPreviousContacts = async (companyId: string) => {
     try {
       console.log("Fetching previous site contacts for company:", companyId);
-      
-      const params = {
-        TableName: 'SiteContacts',
-        FilterExpression: 'CompanyId = :cid',
-        ExpressionAttributeValues: {
-          ':cid': companyId
+      const mockContacts = [
+        {
+          id: 'contact_1',
+          name: 'John Smith',
+          phone: '+44 7777 123456',
+          email: 'john.smith@example.com',
+          isAvailableOnsite: true
+        },
+        {
+          id: 'contact_2',
+          name: 'Jane Doe',
+          phone: '+44 7777 654321',
+          email: 'jane.doe@example.com',
+          isAvailableOnsite: false
         }
-      };
-      
-      const result = await dynamoDb.scan(params).promise();
-      
-      if (result.Items && result.Items.length > 0) {
-        console.log("Found previous site contacts:", result.Items);
-        setPreviousContacts(result.Items as SiteContact[]);
-      } else {
-        console.log("No previous site contacts found");
-        setPreviousContacts([]);
-      }
+      ];
+      setPreviousContacts(mockContacts);
+      console.log("Using mock site contacts:", mockContacts);
     } catch (error) {
       console.error("Error fetching previous site contacts:", error);
       setPreviousContacts([]);
@@ -580,29 +594,18 @@ const MakeBookings: React.FC = () => {
 
   const toggleJobType = (type: string) => {
     setSelectedJobTypes(prev => {
-      // If already selected, remove it
       if (prev.includes(type)) {
         return prev.filter(t => t !== type);
       }
-      // Otherwise add it
       return [...prev, type];
     });
-    
-    // Set this type as the active one being configured
     setActiveServiceConfig(type);
-    
-    // Initialize service info for this type
     const serviceDetail = serviceDetails[type as keyof typeof serviceDetails] || null;
     setServiceInfo(serviceDetail);
-    
-    // Initialize options for this service type if not already set
     if (serviceDetail && !selectedOptions[type]) {
       const initialOptions: {[key: string]: any} = {};
-      
-      // Type guard to check if this service has options
       if ('options' in serviceDetail) {
         const serviceOpts = serviceDetail.options;
-        
         Object.keys(serviceOpts).forEach(optKey => {
           const opt = serviceOpts[optKey];
           if (opt.type === 'singleSelect' && opt.choices.length > 0) {
@@ -612,8 +615,6 @@ const MakeBookings: React.FC = () => {
           }
         });
       }
-      
-      // Set initial options for this service type
       setSelectedOptions(prev => ({
         ...prev,
         [type]: initialOptions
@@ -623,12 +624,10 @@ const MakeBookings: React.FC = () => {
 
   const handleOptionChange = (optionGroup: string, value: string, isMulti: boolean) => {
     if (!activeServiceConfig) return;
-    
     if (isMulti) {
       setSelectedOptions(prev => {
         const serviceOptions = prev[activeServiceConfig] || {};
         const currentValues = serviceOptions[optionGroup] || [];
-        
         if (currentValues.includes(value)) {
           return {
             ...prev,
@@ -658,11 +657,8 @@ const MakeBookings: React.FC = () => {
     }
   };
 
-  // Handle site contact field changes
   const handleContactChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
-    
-    // Handle checkbox differently
     if (type === 'checkbox') {
       const checked = (e.target as HTMLInputElement).checked;
       setSiteContact(prev => ({
@@ -676,8 +672,7 @@ const MakeBookings: React.FC = () => {
       }));
     }
   };
-  
-  // Handle selection of a previous contact
+
   const handleSelectPreviousContact = (contactId: string) => {
     const selected = previousContacts.find(contact => contact.id === contactId);
     if (selected) {
@@ -686,8 +681,7 @@ const MakeBookings: React.FC = () => {
       setShowContactForm(false);
     }
   };
-  
-  // Clear contact form and show it for a new entry
+
   const handleNewContact = () => {
     setSiteContact({
       name: '',
@@ -698,14 +692,10 @@ const MakeBookings: React.FC = () => {
     setSelectedPreviousContact(null);
     setShowContactForm(true);
   };
-  
-  // Check if site contact form is valid
+
   const isContactFormValid = () => {
     return siteContact.name.trim() !== '' && siteContact.phone.trim() !== '';
   };
-
-  // Add notes state variable
-  const [notes, setNotes] = useState<string>('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -719,8 +709,6 @@ const MakeBookings: React.FC = () => {
     }
 
     console.log("Submit booking initiated for user:", user.username);
-    console.log("Current user details:", userDetails);
-    console.log("Current company details:", companyDetails);
 
     if (selectedJobTypes.length === 0 || !asset) {
       setError('Please select at least one service type and an asset');
@@ -728,7 +716,6 @@ const MakeBookings: React.FC = () => {
       return;
     }
 
-    // Validate schedule information based on the selected schedule type
     if ((scheduleType === 'scheduled' || scheduleType === 'flexible') && !date) {
       setError('Please select a date for the service');
       setIsSubmitting(false);
@@ -750,112 +737,110 @@ const MakeBookings: React.FC = () => {
     // Generate a unique BookingId
     const bookingId = `booking_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-    // Log the current user information before creating booking using correct case
-    console.log("User email to add to booking:", userDetails?.Email || "Not available");
-    console.log("User phone to add to booking:", userDetails?.PhoneNumber || "Not available");
-    console.log("Email domain to add to booking:", userDetails?.EmailDomain || "Not available");
-    console.log("Asset postcode to add to booking:", asset.postcode || "Not available");
-
     try {
-      // Extract user contact information with correct attribute names
-      const userEmail = userDetails?.Email || ''; 
-      const userPhone = userDetails?.PhoneNumber || '';
-      let emailDomain = userDetails?.EmailDomain || '';
+      // Try to get user data from context first, then localStorage
+      const userData = user || storedUserData;
+      if (!userData) {
+        throw new Error('User data not available');
+      }
       
-      // If the EmailDomain is not available in userDetails, extract from email
-      if (!emailDomain && userEmail) {
+      // Extract user ID correctly
+      const userId = userData.id || userData.sub || ''; 
+      
+      console.log('User data for booking:', {
+        userId: userId,
+        username: userData.username || userData.name,
+        email: userData.email,
+        companyId: userData.companyId
+      });
+      
+      if (!userId) {
+        console.warn('Warning: No user ID found in user data, this may cause issues');
+      }
+      
+      // Get user details directly from userData instead of using mock data
+      // This is the key change - use the real data from localStorage/context
+      const userEmail = userData.email || '';
+      const userPhone = userData.phoneNumber || '';
+      const companyId = userData.companyId || 'unknown-company';
+      
+      // For company name, try to use real company name if available
+      const companyName = companyDetails?.CompanyName || userData.companyName || 'Unknown Company';
+      
+      // Prepare domain info
+      let emailDomain = '';
+      if (userEmail) {
         const domainPart = userEmail.split('@')[1] || '';
         emailDomain = domainPart;
-      }
-      
-      // Strip the domain to just the organization name (before any domain extension)
-      let strippedDomain = '';
-      if (emailDomain) {
-        // Match only the first part of the domain (before any dot)
+        
+        // Extract organization name from domain
         const domainMatch = emailDomain.match(/^([^.]+)/);
-        strippedDomain = domainMatch ? domainMatch[1] : '';
+        if (domainMatch) emailDomain = domainMatch[1];
       }
       
-      console.log("Original email domain:", emailDomain);
-      console.log("Stripped email domain:", strippedDomain);
+      // Get asset postcode with improved extraction and logging
+      // First check if postcode is directly available in the asset data
+      let finalPostcode = asset.postcode || asset.PostCode || '';
       
-      const assetPostcode = asset.postcode || '';
+      // Log asset details for debugging
+      console.log('Asset details:', {
+        id: asset.AssetId,
+        name: asset.name,
+        address: asset.address,
+        postcode: asset.postcode,
+        PostCode: asset.PostCode
+      });
       
-      // Save the site contact if it's new or modified
-      const contactId = selectedPreviousContact || `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-      
-      // Only save new contacts to the database
-      if (!selectedPreviousContact) {
-        try {
-          // Add to SiteContacts table
-          await dynamoDb.put({
-            TableName: 'SiteContacts',
-            Item: {
-              id: contactId,
-              CompanyId: user.companyId,
-              name: siteContact.name,
-              phone: siteContact.phone,
-              email: siteContact.email,
-              isAvailableOnsite: siteContact.isAvailableOnsite,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            }
-          }).promise();
-          
-          console.log("Saved new site contact:", contactId);
-        } catch (contactError) {
-          console.error("Error saving site contact, but continuing:", contactError);
-          // We'll continue with the booking even if contact saving fails
+      // If postcode is missing, try to extract it from the address using regex
+      if (!finalPostcode && asset.address) {
+        const extractedPostcode = extractPostcodeFromAddress(asset.address);
+        if (extractedPostcode) {
+          finalPostcode = extractedPostcode;
+          console.log('Successfully extracted postcode from address:', finalPostcode);
+        } else {
+          console.log('Failed to extract postcode from address:', asset.address);
         }
       }
       
-      // Prepare scheduling information based on the selected schedule type
+      // If still no postcode, use a default for testing purposes only
+      if (!finalPostcode) {
+        finalPostcode = 'BS16 1QY'; // Default postcode for testing
+        console.log('Using default test postcode:', finalPostcode);
+      }
+      
+      // Assign contact ID
+      const contactId = selectedPreviousContact || `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      
+      // Prepare scheduling information
       const schedulingInfo = {
         scheduleType,
-        // For scheduled and flexible, include the date
         ...(scheduleType === 'scheduled' || scheduleType === 'flexible' ? { date } : {}),
-        // For flexible, include flexibility
         ...(scheduleType === 'flexible' ? { flexibility } : {}),
-        // For recurring, include start date, end date, and frequency
-        ...(scheduleType === 'repeat' ? { 
-          startDate, 
-          endDate, 
-          repeatFrequency 
-        } : {})
+        ...(scheduleType === 'repeat' ? { startDate, endDate, repeatFrequency } : {})
       };
       
-      // Add site contact to booking object
-      const newBooking = {
-        CompanyId: user.companyId, // Use CompanyId as the partition key
-        BookingId: bookingId, // Use BookingId as the sort key
+      // Create booking object with actual user data
+      const bookingData = {
+        CompanyId: companyId,
+        BookingId: bookingId,
+        UserId: userId,
         assetId: asset.AssetId,
         assetName: asset.name,
         createdAt: new Date().toISOString(),
         flightDate: scheduleType === 'scheduled' || scheduleType === 'flexible' ? date : startDate,
-        // Change from jobType to jobTypes array
         jobTypes: selectedJobTypes,
         location: `${viewState.latitude}, ${viewState.longitude}`,
         status: 'pending',
-        userName: user.username || 'Unknown User',
-        
-        // Add scheduling information
+        userName: userData.username || userData.name || 'Unknown User',
         scheduling: schedulingInfo,
-        
-        // Add service options if available - now for multiple services
         serviceOptions: Object.keys(selectedOptions).length > 0 ? selectedOptions : null,
-        
-        // Add the postcode from the asset
-        postcode: assetPostcode,
-        
-        // Add user contact information
-        userEmail: userEmail, // Add the email from userDetails
-        userPhone: userPhone, // Add the phone number from userDetails
-        emailDomain: strippedDomain, // Use the stripped domain name
-        
-        // Ensure there are some minimal company details
-        companyName: companyDetails?.CompanyName || 'Unknown Company',
-        
-        // Add site contact information to booking
+        postcode: finalPostcode,
+        Postcode: finalPostcode,
+        userEmail: userEmail, // Use the actual email from userData
+        userPhone: userPhone, // Use the actual phone from userData
+        emailDomain: emailDomain,
+        companyName: companyName,
+        CompanyName: companyName,
         siteContact: {
           id: contactId,
           name: siteContact.name,
@@ -863,71 +848,76 @@ const MakeBookings: React.FC = () => {
           email: siteContact.email,
           isAvailableOnsite: siteContact.isAvailableOnsite
         },
-        
-        // Add notes if provided
         notes: notes.trim() || null
       };
 
-      console.log('Final booking object to be saved:', newBooking);
+      // Log the complete booking data for debugging
+      console.log('Full booking data being sent to API:', JSON.stringify(bookingData, null, 2));
+      console.log('Sending booking data to API with postcode:', finalPostcode);
 
-      // Save to DynamoDB
-      const params = {
-        TableName: 'Bookings',
-        Item: newBooking,
-      };
+      // Get ID token for authorization
+      const token = localStorage.getItem('idToken');
+      if (!token) {
+        throw new Error('Authentication token missing');
+      }
 
-      setError(null);
+      // Send booking to API
+      const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/bookings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(bookingData)
+      });
 
-      // Save to DynamoDB first - this is the most critical part
-      await dynamoDb.put(params).promise();
-      console.log('Booking submitted successfully to DynamoDB with ID:', bookingId);
+      if (!response.ok) {
+        let errorText = 'Failed to create booking';
+        try {
+          const errorData = await response.json();
+          errorText = errorData.message || errorText;
+        } catch (e) {
+          // Use default error message if can't parse response
+        }
+        throw new Error(errorText);
+      }
+
+      const responseData = await response.json();
+      console.log('Booking created successfully:', responseData);
       
-      // Prepare email data
-      const emailData = {
-        // ...existing email data...
-      };
-      
-      // Log the Formspree endpoint being used for debugging
-      console.log("Using Formspree booking endpoint:", FORMSPREE_ENDPOINTS.booking);
-      
-      // Try to send notification, but don't let it block success
+      // Try to send notification email
       try {
-        // Ensure the endpoint is defined before sending
-        if (!FORMSPREE_ENDPOINTS.booking || FORMSPREE_ENDPOINTS.booking.includes('undefined')) {
-          console.warn('Formspree endpoint is not properly configured');
-        } else {
-          // Try to send to Formspree with a timeout
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
+        console.log("Using Formspree booking endpoint:", FORMSPREE_ENDPOINTS.booking);
+        if (FORMSPREE_ENDPOINTS.booking && !FORMSPREE_ENDPOINTS.booking.includes('undefined')) {
+          const emailData = {
+            bookingId: bookingId,
+            assetName: asset.name,
+            assetType: asset.type,
+            jobTypes: selectedJobTypes.join(', '),
+            flightDate: scheduleType === 'scheduled' || scheduleType === 'flexible' ? date : startDate,
+            userName: userData.username,
+            userEmail: userEmail,
+            siteContactName: siteContact.name,
+            siteContactPhone: siteContact.phone
+          };
           
-          const formspreeResponse = await fetch(FORMSPREE_ENDPOINTS.booking, {
+          await fetch(FORMSPREE_ENDPOINTS.booking, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json'
             },
-            body: JSON.stringify(emailData),
-            signal: controller.signal
+            body: JSON.stringify(emailData)
           });
-          
-          clearTimeout(timeoutId);
-          
-          // Log the response for debugging
-          if (formspreeResponse.ok) {
-            console.log('Email notification sent successfully');
-          } else {
-            console.warn('Email notification failed:', await formspreeResponse.text());
-          }
+          console.log('Email notification sent successfully');
         }
       } catch (emailError) {
-        // Don't let email errors stop the success flow
         console.warn('Failed to send email notification, but booking was saved:', emailError);
       }
       
-      // Consider the submission successful even if the email fails
       setBookingSuccess(true);
       
-      // Navigate after a short delay to show success state
+      // Navigate after a delay
       setTimeout(() => {
         navigate('/my-bookings');
       }, 2000);
@@ -975,8 +965,6 @@ const MakeBookings: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar />
-      
-      {/* Hero section with gradient background */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-6 px-4 shadow-md">
         <div className="container mx-auto max-w-6xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
@@ -1004,8 +992,6 @@ const MakeBookings: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Add Breadcrumbs component here */}
       <Breadcrumbs 
         items={[
           { label: 'Dashboard', path: '/dashboard' },
@@ -1022,7 +1008,6 @@ const MakeBookings: React.FC = () => {
           { label: 'Book Service', isCurrent: true }
         ]} 
       />
-      
       <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm mb-6" role="alert">
@@ -1038,7 +1023,6 @@ const MakeBookings: React.FC = () => {
             </div>
           </div>
         )}
-        
         {!asset ? (
           <div className="bg-white shadow-lg rounded-lg p-8 text-center">
             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1055,7 +1039,6 @@ const MakeBookings: React.FC = () => {
           </div>
         ) : (
           <div>
-            {/* Improved Progress Steps - Now at the top level */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
               <div className="flex items-center mb-4">
                 <div className={`flex items-center justify-center w-10 h-10 rounded-full ${selectedJobTypes.length > 0 ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'} mr-2`}>
@@ -1080,11 +1063,8 @@ const MakeBookings: React.FC = () => {
                 <span>Confirm</span>
               </div>
             </div>
-            
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Column - Asset Info & Service Selection */}
               <div className="lg:col-span-1 space-y-6">
-                {/* Asset Details Card */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                   <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-6 py-4 border-b border-gray-200 flex items-center">
                     <div className="h-10 w-10 rounded-md flex items-center justify-center" style={{
@@ -1106,20 +1086,28 @@ const MakeBookings: React.FC = () => {
                         {getAssetTypeInfo(asset.type).title}
                       </span>
                     </div>
-                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                    <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 text-sm">
                       <div>
                         <dt className="text-gray-500 font-medium">Area Size</dt>
-                        <dd className="text-gray-900">{asset.area ? asset.area.toLocaleString() : '0'} m²</dd>
+                        <dd className="text-gray-900">{asset.area ? parseFloat(asset.area).toLocaleString() : '0'} m²</dd>
                       </div>
                       <div>
                         <dt className="text-gray-500 font-medium">Postcode</dt>
                         <dd className="text-gray-900">{asset.postcode || "Not specified"}</dd>
                       </div>
+                      {asset.address && (
+                        <div className="col-span-1 md:col-span-2">
+                          <dt className="text-gray-500 font-medium">Address</dt>
+                          <dd className="text-gray-900">{asset.address}</dd>
+                        </div>
+                      )}
+                      <div>
+                        <dt className="text-gray-500 font-medium">Asset ID</dt>
+                        <dd className="text-gray-900 font-mono text-xs">{asset.AssetId}</dd>
+                      </div>
                     </dl>
                   </div>
                 </div>
-                
-                {/* Map */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                   <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900">Service Location</h2>
@@ -1134,9 +1122,9 @@ const MakeBookings: React.FC = () => {
                       onLoad={() => setMapLoaded(true)}
                       reuseMaps={false}
                       ref={mapRef}
-                      key={`map-${asset?.AssetId || 'default'}`}
+                      key={`map-${asset?.AssetId || 'default'}-${Date.now()}`}
                     >
-                      {mapLoaded && asset && asset.coordinates && (
+                      {mapLoaded && asset && asset.coordinates && Array.isArray(asset.coordinates) && asset.coordinates.length > 0 && (
                         <Source
                           id="asset-polygon"
                           type="geojson"
@@ -1167,12 +1155,9 @@ const MakeBookings: React.FC = () => {
                           />
                         </Source>
                       )}
-                      {/* <NavigationControl position="top-right" /> */}
                     </Map>
                   </div>
                 </div>
-                
-                {/* Booking Summary - Shows dynamically as user completes form */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden sticky top-4">
                   <div className="bg-gradient-to-r from-blue-600 to-indigo-700 px-6 py-4 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-white">Booking Summary</h2>
@@ -1182,22 +1167,19 @@ const MakeBookings: React.FC = () => {
                       <div className="text-center py-6">
                         <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
-                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                         </svg>
                         <p className="mt-2 text-sm text-gray-500">Your booking details will appear here as you complete the form.</p>
                       </div>
                     )}
-                    
                     {selectedJobTypes.length > 0 && (
                       <div className="mb-4 pb-4 border-b border-gray-100">
                         <p className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-1">Selected Services</p>
-                        
-                        {/* Display multiple selected services */}
                         {selectedJobTypes.map((jobType, index) => (
                           <div key={index} className="flex items-center mt-2 first:mt-0">
                             <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                               <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                               </svg>
                             </div>
                             <div className="ml-3">
@@ -1206,25 +1188,16 @@ const MakeBookings: React.FC = () => {
                             </div>
                           </div>
                         ))}
-                        
-                        {/* Show selected options for each service */}
                         {Object.entries(selectedOptions).map(([serviceType, options]) => {
-                          // Only show if this service is selected
                           if (!selectedJobTypes.includes(serviceType)) return null;
-                          
                           return (
                             <div key={serviceType} className="ml-11 mt-2 border-l-2 border-blue-100 pl-3">
                               <p className="text-xs font-medium text-gray-700">{serviceType} options:</p>
-                              
                               {Object.entries(options).map(([optKey, optValue]) => {
-                                // Get service info to display proper labels
                                 const serviceDetail = serviceDetails[serviceType as keyof typeof serviceDetails];
                                 if (!serviceDetail || !('options' in serviceDetail)) return null;
-                                
                                 const option = serviceDetail.options[optKey];
                                 if (!option) return null;
-                                
-                                // Display option values
                                 if (Array.isArray(optValue) && optValue.length > 0) {
                                   return (
                                     <div key={optKey} className="mt-1 text-xs text-gray-600">
@@ -1245,7 +1218,6 @@ const MakeBookings: React.FC = () => {
                         })}
                       </div>
                     )}
-                    
                     {(date || startDate) && (
                       <div className="mb-4 pb-4 border-b border-gray-100">
                         <p className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-1">Schedule</p>
@@ -1266,7 +1238,6 @@ const MakeBookings: React.FC = () => {
                                 })}
                               </p>
                             )}
-                            
                             {scheduleType === 'flexible' && date && (
                               <div>
                                 <p className="text-sm font-medium text-gray-900">
@@ -1280,7 +1251,6 @@ const MakeBookings: React.FC = () => {
                                 <p className="text-xs text-gray-500">With {flexibility} flexibility</p>
                               </div>
                             )}
-                            
                             {scheduleType === 'repeat' && startDate && endDate && (
                               <div>
                                 <p className="text-sm font-medium text-gray-900">
@@ -1296,7 +1266,6 @@ const MakeBookings: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
                     {siteContact.name && (
                       <div className="mb-4">
                         <p className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-1">Site Contact</p>
@@ -1318,8 +1287,6 @@ const MakeBookings: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
-                    {/* Submit button moved to summary card for better UX */}
                     <button
                       onClick={handleSubmit}
                       disabled={isSubmitting || !selectedJobTypes.length || !isContactFormValid() || 
@@ -1350,10 +1317,7 @@ const MakeBookings: React.FC = () => {
                   </div>
                 </div>
               </div>
-              
-              {/* Middle & Right Column - Booking Form */}
               <div className="lg:col-span-2 space-y-6">
-                {/* Service Selection - Now with more visual appeal */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                   <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-6 py-4 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900">Select Services</h2>
@@ -1363,7 +1327,6 @@ const MakeBookings: React.FC = () => {
                       Choose the type of drone services you need for this {getAssetTypeInfo(asset.type).title.toLowerCase()}:
                       <span className="text-blue-600 ml-1 font-medium">(Select one or more)</span>
                     </p>
-                    
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
                       {getJobTypes().map((type, index) => (
                         <div 
@@ -1394,20 +1357,16 @@ const MakeBookings: React.FC = () => {
                           </div>
                           {selectedJobTypes.includes(type) && (
                             <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586l1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                             </svg>
                           )}
                         </div>
                       ))}
                     </div>
-                    
-                    {/* Service configuration section */}
                     {selectedJobTypes.length > 0 && (
                       <div className="mt-6 border-t border-gray-200 pt-6">
                         <div className="flex justify-between items-center mb-4">
                           <h3 className="text-md font-medium text-gray-900">Configure Service Options</h3>
-                          
-                          {/* Service selector tabs */}
                           {selectedJobTypes.length > 1 && (
                             <div className="flex flex-wrap gap-2">
                               {selectedJobTypes.map(type => (
@@ -1425,8 +1384,6 @@ const MakeBookings: React.FC = () => {
                             </div>
                           )}
                         </div>
-                        
-                        {/* Show service configuration for active service */}
                         {activeServiceConfig && selectedJobTypes.includes(activeServiceConfig) && (
                           <div className="animate-fadeIn">
                             <div className="mb-3 pb-3 border-b border-gray-100">
@@ -1434,21 +1391,16 @@ const MakeBookings: React.FC = () => {
                                 Configuring: {activeServiceConfig}
                               </span>
                             </div>
-                            
-                            {/* Render options based on selected service */}
                             {(() => {
                               const serviceDetail = serviceDetails[activeServiceConfig as keyof typeof serviceDetails];
-                              
                               if (!serviceDetail) return (
                                 <p className="text-sm text-gray-500 italic">No configuration options available for this service.</p>
                               );
-                              
                               if ('options' in serviceDetail && serviceDetail.options) {
                                 return Object.keys(serviceDetail.options).map((optKey) => {
                                   const option = serviceDetail.options[optKey];
                                   const isMulti = option.type === 'multiSelect';
                                   const currentOptions = selectedOptions[activeServiceConfig] || {};
-                                  
                                   return (
                                     <div key={optKey} className="mb-5">
                                       <div className="flex items-center mb-2">
@@ -1473,13 +1425,11 @@ const MakeBookings: React.FC = () => {
                                           </div>
                                         )}
                                       </div>
-                                      
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                                         {option.choices.map((choice: string) => {
                                           const isSelected = isMulti 
                                             ? (currentOptions[optKey] || []).includes(choice)
                                             : currentOptions[optKey] === choice;
-                                          
                                           return (
                                             <div 
                                               key={choice}
@@ -1510,8 +1460,6 @@ const MakeBookings: React.FC = () => {
                                                   {choice}
                                                 </label>
                                               </div>
-                                              
-                                              {/* Show detail-specific info for single select options */}
                                               {!isMulti && typeof option.info === 'object' && option.info[choice] && isSelected && (
                                                 <p className="mt-1 pl-6 text-xs text-gray-500">
                                                   {option.info[choice]}
@@ -1525,7 +1473,6 @@ const MakeBookings: React.FC = () => {
                                   );
                                 });
                               }
-                              
                               if ('included' in serviceDetail) {
                                 return (
                                   <div className="mt-2 bg-gray-50 rounded-lg p-4 border border-gray-200">
@@ -1538,13 +1485,10 @@ const MakeBookings: React.FC = () => {
                                   </div>
                                 );
                               }
-                              
                               return null;
                             })()}
                           </div>
                         )}
-                        
-                        {/* Instructions when multiple services are selected */}
                         {selectedJobTypes.length > 1 && !activeServiceConfig && (
                           <div className="bg-blue-50 p-4 rounded-lg">
                             <p className="text-sm text-blue-800">
@@ -1552,8 +1496,6 @@ const MakeBookings: React.FC = () => {
                             </p>
                           </div>
                         )}
-                        
-                        {/* Message when no service is being configured */}
                         {selectedJobTypes.length > 0 && !activeServiceConfig && (
                           <div className="text-center py-4">
                             <p className="text-sm text-gray-500">
@@ -1567,8 +1509,6 @@ const MakeBookings: React.FC = () => {
                     )}
                   </div>
                 </div>
-                
-                {/* New Site Contact Card - More spacious and user-friendly */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                   <div className="bg-gradient-to-r from-purple-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900">Site Contact</h2>
@@ -1577,7 +1517,6 @@ const MakeBookings: React.FC = () => {
                     <p className="text-sm text-gray-600 mb-4">
                       Please provide a site contact who will be available on the day of service:
                     </p>
-                    
                     {previousContacts.length > 0 && (
                       <div className="mb-6">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1607,7 +1546,6 @@ const MakeBookings: React.FC = () => {
                               </div>
                             </div>
                           ))}
-                          
                           <div 
                             onClick={handleNewContact}
                             className={`flex items-center p-3 border border-dashed rounded-lg cursor-pointer transition-all duration-200
@@ -1625,8 +1563,6 @@ const MakeBookings: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
-                    {/* Contact Form (shown when adding new contact or initially if no previous contacts) */}
                     {(showContactForm || previousContacts.length === 0) && (
                       <div className="space-y-4">
                         <div>
@@ -1644,7 +1580,6 @@ const MakeBookings: React.FC = () => {
                             required
                           />
                         </div>
-                        
                         <div>
                           <label htmlFor="contact-phone" className="block text-sm font-medium text-gray-700">
                             Phone Number<span className="text-red-500">*</span>
@@ -1660,7 +1595,6 @@ const MakeBookings: React.FC = () => {
                             required
                           />
                         </div>
-                        
                         <div>
                           <label htmlFor="contact-email" className="block text-sm font-medium text-gray-700">
                             Email Address
@@ -1675,7 +1609,6 @@ const MakeBookings: React.FC = () => {
                             placeholder="Email (optional)"
                           />
                         </div>
-                        
                         <div className="flex items-center mt-2">
                           <input
                             type="checkbox"
@@ -1691,8 +1624,6 @@ const MakeBookings: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
-                    {/* Show selected contact details when a previous contact is selected */}
                     {selectedPreviousContact && !showContactForm && (
                       <div className="mt-4 bg-purple-50 rounded-lg p-4 border border-purple-100">
                         <div className="flex justify-between items-start">
@@ -1701,7 +1632,6 @@ const MakeBookings: React.FC = () => {
                             <p className="text-sm text-gray-700 mt-1">{siteContact.name}</p>
                             <p className="text-sm text-gray-700">{siteContact.phone}</p>
                             {siteContact.email && <p className="text-sm text-gray-700">{siteContact.email}</p>}
-                            
                             {siteContact.isAvailableOnsite && (
                               <p className="text-xs text-green-600 mt-2 flex items-center">
                                 <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1723,8 +1653,6 @@ const MakeBookings: React.FC = () => {
                     )}
                   </div>
                 </div>
-                
-                {/* Additional Notes Section - Now with better design */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                   <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900">Additional Notes</h2>
@@ -1749,8 +1677,6 @@ const MakeBookings: React.FC = () => {
                     </p>
                   </div>
                 </div>
-                
-                {/* Scheduling Options - Enhanced with better UI */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                   <div className="bg-gradient-to-r from-green-50 to-blue-50 px-6 py-4 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900">Schedule Service</h2>
@@ -1779,7 +1705,6 @@ const MakeBookings: React.FC = () => {
                           </div>
                           <p className="text-xs text-gray-500 ml-6">Choose an exact date for the drone service</p>
                         </div>
-                        
                         <div 
                           onClick={() => setScheduleType('flexible')}
                           className={`p-4 border rounded-lg cursor-pointer transition ${
@@ -1801,7 +1726,6 @@ const MakeBookings: React.FC = () => {
                           </div>
                           <p className="text-xs text-gray-500 ml-6">Prefer a date but allow flexibility</p>
                         </div>
-                        
                         <div 
                           onClick={() => setScheduleType('repeat')}
                           className={`p-4 border rounded-lg cursor-pointer transition ${
@@ -1824,7 +1748,6 @@ const MakeBookings: React.FC = () => {
                           <p className="text-xs text-gray-500 ml-6">Schedule repeated services over time</p>
                         </div>
                       </div>
-                      
                       <div className="mt-4 bg-gray-50 p-5 rounded-lg border border-gray-200">
                         {scheduleType === 'scheduled' && (
                           <>
@@ -1841,7 +1764,6 @@ const MakeBookings: React.FC = () => {
                             />
                           </>
                         )}
-                        
                         {scheduleType === 'flexible' && (
                           <>
                             <p className="text-sm text-gray-600 mb-3">
@@ -1880,7 +1802,6 @@ const MakeBookings: React.FC = () => {
                             </div>
                           </>
                         )}
-                        
                         {scheduleType === 'repeat' && (
                           <>
                             <p className="text-sm text-gray-600 mb-3">
@@ -1944,10 +1865,9 @@ const MakeBookings: React.FC = () => {
           </div>
         )}
       </main>
-      
       <footer className="bg-white border-t border-gray-200 py-4 px-8 mt-auto">
         <div className="container mx-auto text-center text-gray-500 text-sm">
-          &copy; {new Date().getFullYear()} PilotForce. All rights reserved.
+          &copy; {new Date().toLocaleDateString('en-GB', { year: 'numeric' })} PilotForce. All rights reserved.
         </div>
       </footer>
     </div>

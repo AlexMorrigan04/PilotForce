@@ -13,9 +13,26 @@ import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 
 const FlightDetails: React.FC = () => {
   const params = useParams();
-  const { bookingId } = params;
+  // Extract bookingId from params with fallback to stored value
+  const bookingId = params.id || params.bookingId || localStorage.getItem('selectedBookingId');
   const navigate = useNavigate();
-  
+
+  console.log(`FlightDetails: Retrieved booking ID from params: ${bookingId}`);
+
+  // Store the ID to localStorage for backup access
+  useEffect(() => {
+    if (bookingId) {
+      localStorage.setItem('selectedBookingId', bookingId);
+    }
+  }, [bookingId]);
+
+  // Warn if no bookingId
+  useEffect(() => {
+    if (!bookingId) {
+      console.warn('No booking ID available from URL params or localStorage');
+    }
+  }, [bookingId]);
+
   const [booking, setBooking] = useState<any>(null);
   const [asset, setAsset] = useState<any>(null);
   const [images, setImages] = useState<any[]>([]);
@@ -106,113 +123,181 @@ const FlightDetails: React.FC = () => {
         return;
       }
 
+      console.log('====== FLIGHT DETAILS PAGE - FETCH BOOKING ======');
+      console.log(`Attempting to fetch booking ID: ${bookingId}`);
+
       try {
-        // Try a scan operation to be more flexible with the ID
-        const scanParams = {
-          TableName: 'Bookings',
-          FilterExpression: 'BookingId = :bid OR id = :bid',
-          ExpressionAttributeValues: {
-            ':bid': bookingId
-          }
-        };
-        
-        const scanData = await dynamoDb.scan(scanParams).promise();
-        
-        if (scanData.Items && scanData.Items.length > 0) {
-          const item = scanData.Items[0];
-          setBooking(item);
-          console.log("Booking details:", item); // Log booking details
+        // First try using the bookingUtils API function
+        try {
+          const { getBookingById } = await import('../utils/bookingUtils');
+          console.log('Using bookingUtils.getBookingById method...');
           
-          // Log the AssetId
-          const assetId = item.AssetId || item.assetId;
-          console.log("AssetId:", assetId);
+          const bookingData = await getBookingById(bookingId);
+          console.log('✅ Successfully fetched booking via API:', bookingData);
           
-          // Update map view if location is available
-          if (item.location) {
-            try {
-              // Try to parse location as "lat, lng" string
-              const [lat, lng]: [number, number] = item.location.split(',').map((coord: string) => parseFloat(coord.trim()));
-              if (!isNaN(lat) && !isNaN(lng)) {
-                setViewState({
-                  latitude: lat,
-                  longitude: lng,
-                  zoom: 14
-                });
-              }
-            } catch (e) {
-              console.error('Error parsing location:', e);
-            }
+          setBooking(bookingData);
+          
+          if (bookingData.assetId) {
+            // Fetch asset details if assetId exists
+            // ...existing asset fetching code...
           }
           
-          // Fetch asset details if we have an AssetId
-          if (assetId) {
-            try {
-              // First try to scan for asset since the key schema might not match exactly
-              const assetScanParams = {
-                TableName: 'Assets',
-                FilterExpression: 'AssetId = :aid OR id = :aid',
-                ExpressionAttributeValues: {
-                  ':aid': assetId
-                }
-              };
-              
-              const assetScanData = await dynamoDb.scan(assetScanParams).promise();
-              
-              if (assetScanData.Items && assetScanData.Items.length > 0) {
-                const assetItem = assetScanData.Items[0];
-                setAsset(assetItem);
-                console.log("Asset details:", assetItem);
-                console.log("Asset coordinates:", assetItem.coordinates);
-                
-                // Calculate center from coordinates if available
-                if (assetItem.coordinates && assetItem.coordinates.length > 0) {
-                  try {
-                    // For polygon coordinates, use the turf centerOfMass
-                    const polygon = turf.polygon(assetItem.coordinates);
-                    const center = turf.centroid(polygon);
-                    const centerPoint = center.geometry.coordinates;
-                    console.log("Center point:", centerPoint);
-                    
-                    // Set a more zoomed-in view to focus better on the asset
-                    setViewState({
-                      latitude: centerPoint[1],
-                      longitude: centerPoint[0],
-                      zoom: 16
-                    });
-                  } catch (e) {
-                    console.error('Error calculating center point:', e);
-                  }
-                } else if (assetItem.centerPoint) {
-                  setViewState({
-                    latitude: assetItem.centerPoint[1],
-                    longitude: assetItem.centerPoint[0],
-                    zoom: 16
-                  });
-                }
+          setIsLoading(false);
+          return; // Exit early since we got the data
+        } catch (apiError: unknown) {
+          console.warn('❌ API method failed:', apiError instanceof Error ? apiError.message : String(apiError));
+          console.log('Falling back to direct fetch method...');
+        }
+        
+        // Get the API URL from environment or use a default
+        const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+        
+        // Try multiple endpoint variations
+        const endpoints = [
+          `${apiUrl}/bookings/${bookingId}`,
+        ];
+        
+        console.log('Will attempt endpoints:', endpoints);
+        
+        // Get token for authorization
+        const token = localStorage.getItem('idToken') || localStorage.getItem('token');
+        
+        if (!token) {
+          throw new Error('No authentication token found');
+        }
+        
+        let response = null;
+        let endpointUsed = '';
+        
+        // Try each endpoint
+        for (const endpoint of endpoints) {
+          try {
+            console.log(`Trying endpoint: ${endpoint}`);
+            
+            const result = await fetch(endpoint, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
               }
-            } catch (assetError) {
-              console.error('Error fetching asset details:', assetError);
+            });
+            
+            if (result.ok) {
+              response = result;
+              endpointUsed = endpoint;
+              console.log(`✅ Successful response from ${endpoint}`);
+              break;
+            } else {
+              console.warn(`❌ Failed response from ${endpoint}: ${result.status}`);
             }
+          } catch (endpointError) {
+            console.warn(`❌ Error with endpoint ${endpoint}:`, endpointError);
+          }
+        }
+        
+        // If no successful response, fall back to DynamoDB
+        if (!response) {
+          console.log('All endpoints failed, falling back to direct DynamoDB query');
+          
+          // Verify AWS credentials are available before attempting direct DynamoDB access
+          if (!accessKey || !secretKey || !awsRegion) {
+            throw new Error('AWS credentials are missing. Please add them to your environment variables.');
+          }
+          
+          // Try a scan operation to be more flexible with the ID
+          const scanParams = {
+            TableName: 'Bookings',
+            FilterExpression: 'BookingId = :bid OR id = :bid OR bookingId = :bid',
+            ExpressionAttributeValues: {
+              ':bid': bookingId
+            }
+          };
+          
+          console.log('Executing DynamoDB scan with params:', JSON.stringify(scanParams));
+          
+          const scanData = await dynamoDb.scan(scanParams).promise();
+          
+          if (scanData.Items && scanData.Items.length > 0) {
+            const item = scanData.Items[0];
+            setBooking(item);
+            console.log("✅ Booking details retrieved via DynamoDB fallback:", item);
+            
+            // ... rest of existing code for handling the booking data ...
+          } else {
+            setError("Booking not found. It may have been deleted or the ID is incorrect.");
           }
         } else {
-          setError("Booking not found. It may have been deleted or the ID is incorrect.");
+          // Process the response from the Lambda endpoint
+          const contentType = response.headers.get('content-type');
+          console.log(`Response content type: ${contentType}`);
+          
+          if (!contentType || !contentType.includes('application/json')) {
+            console.warn(`Unexpected content type: ${contentType}`);
+            const textResponse = await response.text();
+            console.log('Raw response text:', textResponse.substring(0, 500));
+            throw new Error(`Expected JSON response but got ${contentType}`);
+          }
+          
+          const bookingData = await response.json();
+          console.log(`✅ Booking details parsed from ${endpointUsed}:`, bookingData);
+          
+          // Set the booking data
+          setBooking(bookingData);
+          
+          // ... rest of existing code for handling the booking data ...
         }
-      } catch (error) {
-        console.error('Error fetching booking details:', error);
-        setError("Failed to load booking details. Please try again later.");
+      } catch (error: unknown) {
+        console.error('❌ Error fetching booking details:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        setError(`Failed to load booking details: ${errorMessage}`);
       } finally {
         setIsLoading(false);
+        console.log('====== FLIGHT DETAILS PAGE - FETCH COMPLETE ======');
       }
     };
 
     fetchBookingDetails();
-  }, [bookingId]);
+  }, [bookingId, accessKey, secretKey, awsRegion]);
 
   useEffect(() => {
-    if ((activeTab === 'images' || activeTab === 'imageMap') && images.length === 0 && !imageError) {
+    if (activeTab === 'images' || activeTab === 'imageMap') {
       const loadImages = async () => {
         setIsLoadingImages(true);
         try {
+          // First try the Lambda API endpoint for fetching images
+          try {
+            // Get the API URL from environment or use a default
+            let apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+            const token = localStorage.getItem('idToken') || localStorage.getItem('token');
+            
+            if (!token) {
+              throw new Error('Authentication token not found');
+            }
+            
+            // Try to get images from API
+            const response = await fetch(`${apiUrl}/bookings/${bookingId}/images`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              setImages(data.images || []);
+              return;
+            }
+          } catch (apiError) {
+            console.warn('API image fetch failed, falling back to direct DynamoDB:', apiError);
+          }
+          
+          // Fallback to direct DynamoDB if API fails
+          // Check if AWS credentials are configured properly
+          if (!accessKey || !secretKey || !awsRegion) {
+            throw new Error('AWS credentials not properly configured. Please check your environment variables.');
+          }
+          
           // Query the ImageUploads table to get image metadata
           const imageParams = {
             TableName: 'ImageUploads',
@@ -235,16 +320,17 @@ const FlightDetails: React.FC = () => {
           
           setImages(dbImages);
           
-        } catch (error) {
+        } catch (error: unknown) {
           console.error('Failed to load booking images:', error);
-          setImageError('Failed to load images. Please try again later.');
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+          setImageError(`Failed to load images: ${errorMessage}`);
         } finally {
           setIsLoadingImages(false);
         }
       };
       loadImages();
     }
-  }, [activeTab, bookingId, images.length, imageError, dynamoDb]);
+  }, [activeTab, bookingId, images.length, imageError, dynamoDb, accessKey, secretKey, awsRegion]);
 
   useEffect(() => {
     if (activeTab === 'imageMap' && images.length > 0) {

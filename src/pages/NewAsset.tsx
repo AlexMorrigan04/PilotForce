@@ -74,10 +74,11 @@ const NewAsset: React.FC = () => {
   const [isLoadingPostcode, setIsLoadingPostcode] = useState(false);
   const [geocodeError, setGeocodeError] = useState<string | null>(null);
   const [postcodeError, setPostcodeError] = useState<string | null>(null);
-  
-  // Add the missing state variables
   const [geocodingLoading, setGeocodingLoading] = useState(false);
   const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
+  const [apiEndpoint, setApiEndpoint] = useState<string>(
+    "https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/assets"
+  );
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -93,10 +94,75 @@ const NewAsset: React.FC = () => {
 
   const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
-  // Get user info simplified for demo
+  // Enhanced user info setup
   useEffect(() => {
-    setUserInfo({ name: 'Demo User' });
-  }, []);
+    const fetchUserDetails = async () => {
+      try {
+        // First check if user context already has what we need
+        if (user && user.username) {
+          console.log('Using user from AuthContext:', user);
+          setUserInfo({
+            name: user.username,
+            userId: user.sub || user.userId || user.id,
+            companyId: user.companyId,
+            email: user.email
+          });
+          return;
+        }
+        
+        // If not in user context, try to get from localStorage
+        const idToken = localStorage.getItem('idToken');
+        const tokensStr = localStorage.getItem('tokens');
+        const savedUserStr = localStorage.getItem('user');
+        
+        if (savedUserStr) {
+          try {
+            const savedUser = JSON.parse(savedUserStr);
+            console.log('Using user data from localStorage:', savedUser);
+            setUserInfo({
+              name: savedUser.username || savedUser.name || 'Demo User',
+              userId: savedUser.sub || savedUser.userId || savedUser.id,
+              companyId: savedUser.companyId,
+              email: savedUser.email
+            });
+            return;
+          } catch (error) {
+            console.error('Error parsing saved user data:', error);
+          }
+        }
+        
+        // If we still don't have user info, try getting from API
+        if (idToken || tokensStr) {
+          // Ideally here we would call an API endpoint to get user info
+          console.log('Would fetch user data from API using token');
+        }
+        
+        // Fallback to demo data if nothing else works
+        setUserInfo({
+          name: 'Demo User',
+          userId: 'demo-user-id',
+          companyId: 'demo-company-id',
+          email: 'demo@example.com'
+        });
+      } catch (error) {
+        console.error('Error fetching user details:', error);
+        setUserInfo({
+          name: 'Demo User',
+          userId: 'demo-user-id',
+          companyId: 'demo-company-id'
+        });
+      }
+    };
+    
+    fetchUserDetails();
+  }, [user]);
+
+  // Log userInfo whenever it changes
+  useEffect(() => {
+    if (userInfo) {
+      console.log('Current user info:', userInfo);
+    }
+  }, [userInfo]);
 
   // Initialize MapboxDraw when the map loads
   const onMapLoad = (event: any) => {
@@ -199,10 +265,27 @@ const NewAsset: React.FC = () => {
     setSelectedType(type);
   };
 
+  const getAuthToken = (): string | null => {
+    const idToken = localStorage.getItem('idToken');
+    if (idToken) return idToken;
+    
+    const tokensStr = localStorage.getItem('tokens');
+    if (tokensStr) {
+      try {
+        const tokens = JSON.parse(tokensStr);
+        if (tokens.idToken) return tokens.idToken;
+      } catch (e) {
+        console.error('Error parsing tokens:', e);
+      }
+    }
+    
+    return null;
+  };
+
   // Save the new asset to DynamoDB
-  const handleSaveAsset = () => {
-    if (!user) {
-      setError('You must be logged in to create an asset');
+  const handleSaveAsset = async () => {
+    if (!userInfo) {
+      setError('User information is not available. Please log in again.');
       return;
     }
 
@@ -228,6 +311,7 @@ const NewAsset: React.FC = () => {
 
     // Set saving state to show loading indicator
     setIsSaving(true);
+    setError(null);
 
     // Get the coordinates from the drawn polygon
     const coordinates = drawnArea.features[0].geometry.coordinates;
@@ -243,28 +327,27 @@ const NewAsset: React.FC = () => {
       centerPoint = [viewState.longitude, viewState.latitude];
     }
 
-    // Generate a unique AssetId
-    const assetId = `asset_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-
-    // Create the asset object with all required fields
-    const newAsset = {
-      CompanyId: user.companyId,
-      AssetId: assetId,
-      userName: user.username || 'Unknown User', // Add user's username instead of UserId
+    // Create the asset object with user info - ensure the field names match exactly what the Lambda function expects
+    const assetData = {
       name: assetName,
-      type: selectedType,
+      assetType: selectedType,
+      description: `Asset created from postal code: ${postcode}`,
+      address: postcode,
       coordinates: coordinates,
-      centerPoint: centerPoint,
       area: areaSize,
-      createdAt: new Date().toISOString(),
-      status: 'active',
-      postcode: postcode, // Save the postcode
+      centerPoint: centerPoint,
+      userId: userInfo.userId,  // This must match the field name in the Lambda
+      companyId: userInfo.companyId, // This must match the field name in the Lambda
+      createdBy: userInfo.name,
+      tags: [selectedType],
       geojson: {
         type: 'Feature',
         properties: {
           name: assetName,
           type: selectedType,
-          area: areaSize
+          area: areaSize,
+          userId: userInfo.userId,
+          companyId: userInfo.companyId
         },
         geometry: {
           type: 'Polygon',
@@ -273,27 +356,148 @@ const NewAsset: React.FC = () => {
       }
     };
 
-    console.log('Saving asset:', newAsset);
+    console.log('Saving asset with data:', assetData);
 
-    // Save to DynamoDB
-    const params = {
-      TableName: 'Assets',
-      Item: newAsset,
-    };
-
-    setError(null);
-    
-    dynamoDb.put(params, (err) => {
-      setIsSaving(false);
-      if (err) {
-        console.error('Error saving asset:', err);
-        setError('Failed to save asset: ' + err.message);
-      } else {
-        console.log('Asset saved successfully');
-        // Navigate back to the assets page
-        navigate('/assets');
+    try {
+      // Get auth token for API request
+      const token = getAuthToken();
+      
+      console.log('Saving asset with API endpoint:', apiEndpoint);
+      console.log('Authorization available:', !!token);
+      console.log('User info included:', {
+        userId: userInfo.userId,
+        companyId: userInfo.companyId,
+        name: userInfo.name
+      });
+      
+      // Make API request to create asset
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(assetData)
+      });
+      
+      const responseText = await response.text();
+      console.log('API Response:', responseText);
+      
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (err) {
+        console.error('Error parsing response:', err);
+        throw new Error(`API returned invalid JSON: ${responseText}`);
       }
-    });
+      
+      if (!response.ok) {
+        throw new Error(responseData.message || `API error: ${response.status}`);
+      }
+      
+      console.log('Asset created successfully:', responseData);
+      
+      // Navigate back to the assets page
+      navigate('/assets');
+    } catch (err: any) {
+      console.error('Error creating asset via API:', err);
+      setError(err.message || 'Failed to create asset');
+      
+      // Fallback to direct Lambda invocation through AWS SDK
+      try {
+        console.log('Attempting fallback with direct Lambda invocation...');
+        
+        // Configure AWS SDK for Lambda access
+        const lambda = new AWS.Lambda({
+          region: 'eu-north-1', // Update to your Lambda region
+          accessKeyId: process.env.REACT_APP_AWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.REACT_APP_AWS_SECRET_ACCESS_KEY
+        });
+        
+        // Invoke Lambda function directly
+        const params = {
+          FunctionName: 'pilotforce-create-asset',
+          InvocationType: 'RequestResponse',
+          Payload: JSON.stringify(assetData)
+        };
+        
+        const lambdaResponse = await lambda.invoke(params).promise();
+        console.log('Lambda response:', lambdaResponse);
+        
+        if (lambdaResponse.StatusCode === 200) {
+          console.log('Asset saved successfully via Lambda');
+          navigate('/assets');
+        } else {
+          throw new Error(`Lambda error: ${lambdaResponse.FunctionError || 'Unknown error'}`);
+        }
+      } catch (lambdaErr: any) {
+        console.error('Lambda fallback failed:', lambdaErr);
+        
+        // Last resort: fall back to DynamoDB direct access
+        if (process.env.NODE_ENV === 'development') {
+          try {
+            console.log('Attempting last fallback with direct DynamoDB access...');
+            
+            // Generate a unique AssetId
+            const assetId = `asset_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+            // Create the asset object with all required fields
+            const newAsset = {
+              CompanyId: userInfo.companyId || 'unknown-company',
+              AssetId: assetId,
+              UserId: userInfo.userId || 'unknown-user',
+              userName: userInfo.name || 'Unknown User',
+              name: assetName,
+              type: selectedType,
+              coordinates: coordinates,
+              centerPoint: centerPoint,
+              area: areaSize,
+              createdAt: new Date().toISOString(),
+              status: 'active',
+              postcode: postcode,
+              geojson: {
+                type: 'Feature',
+                properties: {
+                  name: assetName,
+                  type: selectedType,
+                  area: areaSize,
+                  userId: userInfo.userId,
+                  companyId: userInfo.companyId
+                },
+                geometry: {
+                  type: 'Polygon',
+                  coordinates: coordinates
+                }
+              }
+            };
+
+            // Save to DynamoDB
+            const params = {
+              TableName: 'Assets',
+              Item: newAsset,
+            };
+
+            dynamoDb.put(params, (dbErr) => {
+              if (dbErr) {
+                console.error('Error saving asset with fallback method:', dbErr);
+                setError(`Failed to save asset: ${dbErr.message}`);
+              } else {
+                console.log('Asset saved successfully with fallback method');
+                // Navigate back to the assets page
+                navigate('/assets');
+              }
+            });
+          } catch (fallbackErr: any) {
+            console.error('All fallback methods failed:', fallbackErr);
+            setError(`All attempts to save asset failed: ${fallbackErr.message}`);
+          }
+        } else {
+          setError(`Failed to create asset: ${lambdaErr.message}`);
+        }
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Handle cancel and return to assets page

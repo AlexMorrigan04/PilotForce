@@ -22,9 +22,9 @@ export interface NavItem {
 export interface Stat {
   count: string;
   label: string;
-  icon: string;
+  icon: string | React.ReactNode; // Update to support both string paths and React nodes
   bgColor: string;
-  textColor?: string;
+  textColor: string;
 }
 
 export interface Inspection {

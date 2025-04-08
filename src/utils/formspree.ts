@@ -209,46 +209,29 @@ export const formatBookingForEmail = (
   userDetails: any = null,
   companyDetails: any = null
 ) => {
-  // Prepare data object with all information
+  // Prepare the data object with all needed information
   const data = {
-    subject: `New PilotForce Booking: ${booking.jobType} for ${asset.name}`,
-    bookingId: booking.BookingId,
-    customerName: user.username || user.email || 'Unknown User',
-    companyId: user.companyId,
-    companyName: companyDetails?.CompanyName || 'Unknown Company',
-    emailDomain: userDetails?.EmailDomain || companyDetails?.EmailDomain || 'unknown.com',
+    bookingId: booking?.id || booking?.BookingId || 'BK-' + Math.floor(Math.random() * 10000),
+    timestamp: booking?.createdAt || new Date().toISOString(),
     bookingDetails: {
-      jobType: booking.jobType,
-      date: booking.flightDate,
-      scheduleType: scheduleInfo.type,
-      scheduleDetails: scheduleInfo.details,
-      status: booking.status,
-      createdAt: booking.createdAt
+      jobType: booking?.jobType || 'Standard Inspection',
+      status: booking?.status || 'Pending',
+      date: booking?.flightDate || scheduleInfo?.date || new Date().toISOString(),
+      scheduleType: scheduleInfo?.type || 'One-time'
     },
     assetDetails: {
-      name: asset.name,
-      id: asset.AssetId,
-      type: asset.type,
-      location: booking.location,
-      area: asset.area,
-      coordinates: asset.coordinates ? 'Available' : 'Not available'
+      name: asset?.name || 'Unnamed Asset',
+      type: asset?.type || 'Property',
+      id: asset?.id || asset?.AssetId || '',
+      area: asset?.area || asset?.size || 'Unknown',
+      location: asset?.location || booking?.location || 'No location provided'
     },
-    userDetails: {
-      name: user.username,
-      email: user.email || userDetails?.email,
-      company: user.companyId,
-      emailDomain: userDetails?.EmailDomain || 'Not available'
-    },
-    companyDetails: {
-      name: companyDetails?.CompanyName,
-      domain: companyDetails?.EmailDomain,
-      contactPerson: companyDetails?.ContactPerson,
-      contactPhone: companyDetails?.ContactPhone
-    },
-    timestamp: new Date().toISOString()
+    customerName: user?.name || user?.username || userDetails?.name || 'Customer',
+    companyName: companyDetails?.name || 'Company',
+    emailDomain: userDetails?.email ? userDetails.email.split('@')[1] : 'unknown.com',
+    userDetails: userDetails || { email: user?.email || 'No email provided' }
   };
-  
-  // Create HTML email template
+
   const htmlEmail = `
     <!DOCTYPE html>
     <html>
@@ -447,21 +430,7 @@ export const formatBookingForEmail = (
     </html>
   `;
 
-  // Return both the data object and HTML content for the email
-  return {
-    ...data, // Original data for API compatibility
-    html: htmlEmail, // HTML formatted email
-    text: `New Booking: ${data.bookingDetails.jobType} for ${data.assetDetails.name}
-Booking ID: ${data.bookingId}
-Customer: ${data.customerName}
-Company: ${data.companyName}
-Flight Date: ${new Date(data.bookingDetails.date).toLocaleDateString()}
-Status: ${data.bookingDetails.status}
-    
-View details at: https://dashboard.pilotforceapp.com/bookings/${data.bookingId}
-    
-© ${new Date().getFullYear()} PilotForce`
-  };
+  return htmlEmail;
 };
 
 const formspreeUtils = {

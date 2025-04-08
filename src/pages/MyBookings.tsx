@@ -1,22 +1,22 @@
 import React, { useState, useEffect, useContext } from 'react';
 import AWS from 'aws-sdk';
-import { AuthContext } from '../context/AuthContext'; // Import AuthContext
+import { AuthContext } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
 import { BookingsList } from '../components/bookings/BookingsList';
 import { BookingFilters } from '../components/bookings/BookingFilters';
 import { EmptyBookingState } from '../components/bookings/EmptyBookingState';
 import { Booking, BookingStatus } from '../types/bookingTypes';
-import { Link, useNavigate } from 'react-router-dom'; // Import useNavigate
-import * as exifr from 'exifr'; // Import exifr
-import 'mapbox-gl/dist/mapbox-gl.css'; // Import MapBox CSS
-import { GeoTiffUploader } from '../components/bookings/GeoTiffUploader'; // Import GeoTiffUploader
+import { Link, useNavigate } from 'react-router-dom';
+import * as exifr from 'exifr';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { GeoTiffUploader } from '../components/bookings/GeoTiffUploader';
 import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 
 // Add a Mapbox access token constant near the top of the file
 const MAPBOX_ACCESS_TOKEN = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
 
 const MyBookings: React.FC = () => {
-  const { user } = useContext(AuthContext); // Get the authenticated user
+  const { user } = useContext(AuthContext);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [filteredBookings, setFilteredBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -27,8 +27,8 @@ const MyBookings: React.FC = () => {
   const [showModal, setShowModal] = useState<boolean>(false);
   const [userInfo, setUserInfo] = useState<any>(null);
   const [images, setImages] = useState<any[]>([]);
-  const [imageLocations, setImageLocations] = useState<{url: string, latitude: number, longitude: number}[]>([]);
-  const [geoTiffFiles, setGeoTiffFiles] = useState<{[bookingId: string]: string}>({});
+  const [imageLocations, setImageLocations] = useState<{ url: string; latitude: number; longitude: number }[]>([]);
+  const [geoTiffFiles, setGeoTiffFiles] = useState<{ [bookingId: string]: string }>({});
   const [filterByCurrentUser, setFilterByCurrentUser] = useState<boolean>(false);
 
   // Explicitly define AWS credentials and region
@@ -40,270 +40,362 @@ const MyBookings: React.FC = () => {
   AWS.config.update({
     accessKeyId: accessKey,
     secretAccessKey: secretKey,
-    region: awsRegion
+    region: awsRegion,
   });
 
   const s3 = new AWS.S3();
-  const dynamoDb = new AWS.DynamoDB.DocumentClient({ 
+  const dynamoDb = new AWS.DynamoDB.DocumentClient({
     region: awsRegion,
     accessKeyId: accessKey,
-    secretAccessKey: secretKey
+    secretAccessKey: secretKey,
   });
 
-  // Get user info from token - Fix token parsing
+  // Enhance user info extraction
   useEffect(() => {
-    try {
-      const token = localStorage.getItem('token');
-      if (token) {
-        // Safely parse the token
-        const parts = token.split('.');
-        if (parts.length === 3) { // Verify token has 3 parts (header.payload.signature)
-          const base64Url = parts[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const loadUserInfo = async () => {
+      try {
+        // Try to get user info from context first
+        if (user && Object.keys(user).length > 0) {
+          console.log('Got user from context:', user);
+          setUserInfo(user);
+          return;
+        }
+
+        // Try to get token and decode it
+        const token = localStorage.getItem('token') || localStorage.getItem('idToken');
+        if (token) {
+          // Safely parse the token
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            // Verify token has 3 parts (header.payload.signature)
+            const base64Url = parts[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            try {
+              const jsonPayload = decodeURIComponent(
+                atob(base64)
+                  .split('')
+                  .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                  .join('')
+              );
+              const tokenData = JSON.parse(jsonPayload);
+              console.log('Extracted user info from token:', tokenData);
+              setUserInfo({
+                name: tokenData.name || tokenData['cognito:username'] || tokenData.email || 'User',
+                email: tokenData.email,
+                sub: tokenData.sub,
+                companyId: tokenData['custom:companyId']
+              });
+              return;
+            } catch (error) {
+              console.error('Failed to decode token payload:', error);
+            }
+          }
+        }
+
+        // Last resort: try to get from localStorage
+        const userData = localStorage.getItem('user');
+        if (userData) {
           try {
-            const jsonPayload = decodeURIComponent(
-              atob(base64)
-                .split('')
-                .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-                .join('')
-            );
-            setUserInfo(JSON.parse(jsonPayload));
-          } catch (error) {
-            console.error('Failed to decode token payload:', error);
+            const parsedUser = JSON.parse(userData);
+            console.log('Using user data from localStorage:', parsedUser);
+            setUserInfo({
+              name: parsedUser.name || parsedUser.username || parsedUser.email || 'User',
+              email: parsedUser.email,
+              companyId: parsedUser.companyId,
+              ...parsedUser
+            });
+          } catch (e) {
+            console.error('Error parsing user data from localStorage:', e);
+            setUserInfo({ name: 'Guest User' });
           }
         } else {
-          console.error('Token format is invalid');
+          // If we get here, we couldn't find user info anywhere
+          console.warn('Could not find user info in any source');
+          setUserInfo({ name: 'Guest User' });
         }
+      } catch (error) {
+        console.error('Error loading user info:', error);
+        setUserInfo({ name: 'Guest User' });
       }
-    } catch (error) {
-      console.error('Error handling token:', error);
-    }
-  }, []);
+    };
 
-  // Fetch bookings from DynamoDB
+    loadUserInfo();
+  }, [user]);
+
   useEffect(() => {
-    if (user && user.companyId) { // Make sure user and companyId exist
+    const fetchBookings = async () => {
       setLoading(true);
       setError(null);
-      
-      // The issue is here - we can't use CompanyId as a key condition if it's not part of the primary key
-      // Let's use scan with a filter expression instead of query
-      const params = {
-        TableName: 'Bookings',
-        FilterExpression: 'CompanyId = :companyId',
-        ExpressionAttributeValues: {
-          ':companyId': user.companyId
+
+      try {
+        // Try multiple token sources in order of preference
+        let token = localStorage.getItem('idToken');
+        
+        // If idToken isn't available, try the regular token
+        if (!token) {
+          token = localStorage.getItem('token');
+          console.log('Using regular token instead of idToken');
         }
-      };
-      
-      console.log('Fetching bookings with params:', params);
-      
-      // Use scan instead of query since CompanyId might not be the primary key
-      dynamoDb.scan(params, (err, data) => {
-        if (err) {
-          console.error('Error fetching bookings:', err);
-          setError('Failed to fetch bookings: ' + err.message);
-          setLoading(false);
+        
+        // Check for user session token as last resort
+        if (!token) {
+          const userDataStr = localStorage.getItem('user');
+          if (userDataStr) {
+            try {
+              const userData = JSON.parse(userDataStr);
+              token = userData.token || userData.idToken;
+              console.log('Extracted token from user data:', !!token);
+            } catch (e) {
+              console.error('Error parsing user data:', e);
+            }
+          }
+        }
+        
+        if (!token) {
+          throw new Error('Authentication token not found in any storage location');
+        }
+
+        console.log('Fetching bookings with user info:', userInfo);
+
+        // Get the API URL from environment or use a default
+        let apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+        let bookingsUrl = `${apiUrl}/bookings`;
+        
+        // Make sure we have the companyId from userInfo or token
+        let companyId = userInfo?.companyId;
+        
+        // If companyId not found in userInfo, try decoding it from the token
+        if (!companyId && token) {
+          try {
+            // Basic JWT decode
+            const parts = token.split('.');
+            if (parts.length === 3) {
+              const base64Url = parts[1];
+              const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+              const payload = JSON.parse(atob(base64));
+              companyId = payload['custom:companyId'];
+              console.log('Extracted companyId from token:', companyId);
+            }
+          } catch (e) {
+            console.error('Error extracting companyId from token:', e);
+          }
+        }
+        
+        // If we have a companyId, add it to the query
+        if (companyId) {
+          bookingsUrl += `?companyId=${encodeURIComponent(companyId)}`;
+          console.log('Using companyId in request URL:', companyId);
         } else {
-          console.log('Fetched bookings:', data.Items);
-          
-          // Filter bookings by username if needed
-          const items = data.Items || []; // Handle undefined Items
-          const filteredBookings = items.filter(booking => 
-            !filterByCurrentUser || booking.userName === user.username
-          );
-          
-          // Convert to proper Booking type
-          const typedBookings = filteredBookings.map(item => ({
-            id: item.BookingId,
-            UserId: item.userName,
-            CompanyId: item.CompanyId,
-            BookingId: item.BookingId,
-            assetId: item.assetId,
-            assetName: item.assetName,
-            createdAt: item.createdAt,
-            flightDate: item.flightDate,
-            jobType: item.jobType,
-            location: item.location,
-            status: item.status,
-            userName: item.userName
-          }));
-          
-          console.log('Processed bookings:', typedBookings);
-          setBookings(typedBookings);
-          setFilteredBookings(typedBookings);
-          setLoading(false);
+          console.warn('No companyId available for filtering bookings');
         }
-      });
+
+        // Debug the token before sending
+        console.log('Token type:', typeof token);
+        console.log('Token first 20 chars:', token.substring(0, 20) + '...');
+        console.log('Token length:', token.length);
+        console.log('Token starts with Bearer?', token.startsWith('Bearer '));
+
+        // IMPORTANT FIX: Use token directly (not Bearer prefix) as API Gateway adds this in the integration
+        console.log('Making request to:', bookingsUrl);
+        
+        const response = await fetch(bookingsUrl, {
+          method: 'GET',
+          headers: {
+            // KEY CHANGE: Don't add 'Bearer ' prefix as API Gateway expects the raw token
+            'Authorization': token,
+            'Content-Type': 'application/json'
+          },
+          credentials: 'omit'  // Don't send cookies to avoid CORS issues
+        });
+
+        // Debug the response status
+        console.log(`API response status: ${response.status} ${response.statusText}`);
+        console.log('Response headers:', Object.fromEntries([...response.headers.entries()]));
+
+        // Get the full response body for debugging
+        const responseText = await response.text();
+        console.log('Raw response body:', responseText.substring(0, 500));
+        
+        // Try to parse the response as JSON
+        let responseData;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch (e) {
+          console.error('Error parsing response as JSON:', e);
+          throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}...`);
+        }
+
+        // Handle nested API Gateway response format
+        if (responseData.statusCode && responseData.body) {
+          console.log('Received API Gateway proxy response, unwrapping...');
+          
+          // Check if the nested response indicates an error
+          if (responseData.statusCode >= 400) {
+            const errorBody = typeof responseData.body === 'string' 
+              ? JSON.parse(responseData.body) 
+              : responseData.body;
+              
+            throw new Error(errorBody.message || 'API request failed');
+          }
+          
+          // Try to parse the nested body if it's a string
+          if (typeof responseData.body === 'string') {
+            try {
+              responseData = JSON.parse(responseData.body);
+            } catch (e) {
+              console.error('Error parsing nested response body:', e);
+              responseData = { message: responseData.body };
+            }
+          } else {
+            // If body is already an object, use it directly
+            responseData = responseData.body;
+          }
+        }
+        
+        console.log('Parsed API response:', responseData);
+        
+        // Extract bookings array with better handling of various response formats
+        let bookingsData: any[] = [];
+        
+        if (responseData.bookings) {
+          // Standard format from our Lambda
+          bookingsData = responseData.bookings;
+        } else if (Array.isArray(responseData)) {
+          // Direct array format
+          bookingsData = responseData;
+        } else if (typeof responseData === 'object' && responseData !== null) {
+          // Look for any array property that could contain bookings
+          const possibleArrays = Object.values(responseData).filter(value => Array.isArray(value));
+          if (possibleArrays.length > 0) {
+            // Use the first array found (most likely to be bookings)
+            bookingsData = possibleArrays[0] as any[];
+          } else if (responseData.BookingId || responseData.id) {
+            // Single booking object
+            bookingsData = [responseData];
+          }
+        }
+        
+        console.log('Extracted bookings data:', bookingsData.length, 'items');
+        
+        if (bookingsData.length === 0) {
+          console.log('No bookings found in response');
+          setBookings([]);
+          setFilteredBookings([]);
+          return;
+        }
+
+        // Map the received bookings to the expected format with better error handling
+        const formattedBookings: Booking[] = bookingsData
+          .map((item: any): Booking | null => {
+            // Handle potential null/undefined items
+            if (!item) return null;
+            
+            return {
+              id: item.BookingId || item.id || `booking-${Math.random()}`,
+              UserId: item.UserId || item.userId || '',
+              BookingId: item.BookingId || item.id || '',
+              CompanyId: item.CompanyId || item.companyId || '',
+              assetId: item.assetId || item.AssetId || '',
+              assetName: item.assetName || item.AssetName || 'Unnamed Asset',
+              createdAt: item.createdAt || item.CreatedAt || '',
+              flightDate: item.flightDate || item.FlightDate || '',
+              jobTypes: item.jobTypes || item.JobTypes || [],
+              jobType: item.jobType || '',  // For backwards compatibility
+              location: item.location || item.Location || '',
+              status: item.status || item.Status || 'pending',
+              userName: item.userName || item.UserName || '',
+              userEmail: item.userEmail || item.UserEmail || '',
+              userPhone: item.userPhone || item.UserPhone || '',
+              companyName: item.companyName || item.CompanyName || '',
+              notes: item.notes || item.Notes || '',
+              serviceOptions: item.serviceOptions || item.ServiceOptions || {},
+              siteContact: item.siteContact || item.SiteContact || {}
+            };
+          })
+          .filter((booking): booking is Booking => booking !== null);
+        
+        console.log('Formatted bookings:', formattedBookings);
+        setBookings(formattedBookings);
+        setFilteredBookings(formattedBookings);
+      } catch (err) {
+        console.error('Error fetching bookings:', err);
+        if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('An unknown error occurred');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Only fetch if user data is available
+    if (user || localStorage.getItem('user') || userInfo) {
+      fetchBookings();
     } else {
-      console.warn('User or companyId not available, cannot fetch bookings');
       setError('You must be logged in to view bookings');
       setLoading(false);
     }
-  }, [user?.companyId, filterByCurrentUser]);
+  }, [user, userInfo]);
 
-  // Function to get user ID from localStorage as a fallback
-  const getUserIdFromLocalStorage = (): string | null => {
-    try {
-      const userData = localStorage.getItem('user');
-      if (userData) {
-        const parsedUser = JSON.parse(userData);
-        return parsedUser.id || parsedUser.userId || parsedUser.sub;
-      }
-      
-      // Try to extract from token
-      const token = localStorage.getItem('token');
-      if (token) {
-        try {
-          const parts = token.split('.');
-          if (parts.length === 3) {
-            const payload = JSON.parse(atob(parts[1]));
-            return payload.sub || payload.user_id;
-          }
-        } catch (e) {
-          console.error('Error parsing token for user ID:', e);
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error('Error getting user ID from localStorage:', error);
-      return null;
-    }
-  };
-
-  interface FetchBookingsParams {
-    TableName: string;
-    KeyConditionExpression: string;
-    ExpressionAttributeValues: {
-      ':userId': string;
-    };
-  }
-
-  interface DynamoDBResponse {
-    Items: Booking[];
-  }
-
-  const fetchBookings = async (userId: string): Promise<void> => {
-    if (!userId) {
-      console.error('User ID is required to fetch bookings');
-      setError('User ID is missing. Please login again.');
-      setLoading(false);
-      return;
-    }
-
-    // Another issue might be here - using KeyConditionExpression with UserId
-    // Since we're not sure about the table's key schema, let's use FilterExpression instead
-    const params = {
-      TableName: 'Bookings',
-      FilterExpression: 'UserId = :userId',
-      ExpressionAttributeValues: {
-        ':userId': userId
-      }
-    };
-
-    try {
-      const data = await dynamoDb.scan(params).promise();
-      
-      const items: Booking[] = data.Items?.map(item => ({
-        UserId: item.UserId || item.userId || '',
-        BookingId: item.BookingId || item.id || '',
-        id: item.BookingId || item.id || '',
-        userId: item.UserId || item.userId || '',
-        jobName: item.JobName || item.jobName || '',
-        companyId: item.CompanyId || item.companyId || '',
-        companyName: item.CompanyName || item.companyName || '',
-        assetName: item.AssetName || item.assetName || '',
-        flightDate: item.FlightDate || item.flightDate || '',
-        dateFlexibility: item.DateFlexibility || item.dateFlexibility || '',
-        repeat: item.Repeat || item.repeat || '',
-        repeatFrequency: item.RepeatFrequency || item.repeatFrequency || '',
-        location: item.Location || item.location || '',
-        siteContact: item.SiteContact || item.siteContact || '',
-        siteContactNumber: item.SiteContactNumber || item.siteContactNumber || '',
-        notes: item.Notes || item.notes || '',
-        inspectionOptions: item.InspectionOptions || item.inspectionOptions || '',
-        inspectionDetail: item.InspectionDetail || item.inspectionDetail || '',
-        surveyType: item.SurveyType || item.surveyType || '',
-        surveyDetail: item.SurveyDetail || item.surveyDetail || '',
-        thermalType: item.ThermalType || item.thermalType || '',
-        mediaOptions: item.MediaOptions || item.mediaOptions || '',
-        status: item.Status as BookingStatus || 'pending',
-        time: item.Time || item.time || '',
-        dateTime: item.DateTime || item.dateTime || '',
-        contactPerson: item.SiteContact || item.contactPerson || '',
-        contactPhone: item.SiteContactNumber || item.contactPhone || '',
-        contactEmail: item.ContactEmail || item.contactEmail || '',
-        serviceType: item.ServiceType || item.serviceType || '',
-        address: item.Address || item.address || '',
-        propertyType: item.PropertyType || item.propertyType || '',
-        images: item.Images || [],
-        createdAt: item.createdAt || '' // Add createdAt property
-      })) || [];
-      
-      setBookings(items);
-      setFilteredBookings(items);
-    } catch (error) {
-      console.error('Error fetching bookings:', error);
-      setError('Failed to fetch your bookings. Please try again later.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Enhanced function to fetch images from S3 bucket and extract geolocation data
   const fetchImages = async (bookingId: string) => {
     const params = {
       Bucket: 'drone-images-bucket',
-      Prefix: `uploads/${bookingId}/`
+      Prefix: `uploads/${bookingId}/`,
     };
 
     try {
       const data = await s3.listObjectsV2(params).promise();
-      
+
       // Look for normal images
-      const imageUrls = data.Contents?.map(item => ({
-        url: `https://${params.Bucket}.s3.amazonaws.com/${item.Key}`,
-        key: item.Key
-      })) || [];
+      const imageUrls =
+        data.Contents?.map((item) => ({
+          url: `https://${params.Bucket}.s3.amazonaws.com/${item.Key}`,
+          key: item.Key,
+        })) || [];
       setImages(imageUrls);
-      
+
       // Check for GeoTIFF files
-      const geoTiffObjects = data.Contents?.filter(item => 
-        item.Key && (
-          item.Key.endsWith('.tif') || 
-          item.Key.endsWith('.tiff') || 
-          item.Key.endsWith('.geotiff')
-        )
+      const geoTiffObjects = data.Contents?.filter(
+        (item) =>
+          item.Key &&
+          (item.Key.endsWith('.tif') || item.Key.endsWith('.tiff') || item.Key.endsWith('.geotiff'))
       );
-      
+
       if (geoTiffObjects && geoTiffObjects.length > 0) {
         const geoTiffUrl = `https://${params.Bucket}.s3.amazonaws.com/${geoTiffObjects[0].Key}`;
-        const filename = geoTiffObjects && geoTiffObjects[0] && geoTiffObjects[0].Key ? geoTiffObjects[0].Key.split('/').pop() || '' : '';
+        const filename =
+          geoTiffObjects && geoTiffObjects[0] && geoTiffObjects[0].Key
+            ? geoTiffObjects[0].Key.split('/').pop() || ''
+            : '';
         console.log(`GeoTIFF Filename: ${filename}`);
-        setGeoTiffFiles(prev => ({...prev, [bookingId]: geoTiffUrl}));
+        setGeoTiffFiles((prev) => ({ ...prev, [bookingId]: geoTiffUrl }));
       }
-      
+
       // Extract geolocation for all images
       const locationsPromises = imageUrls.map(async (image) => {
         const location = await extractGeolocation(image.url);
         if (location) {
-          return { 
-            url: image.url, 
-            latitude: location.latitude, 
-            longitude: location.longitude 
+          return {
+            url: image.url,
+            latitude: location.latitude,
+            longitude: location.longitude,
           };
         }
         return null;
       });
-      
-      const locations = (await Promise.all(locationsPromises)).filter(Boolean) as {url: string, latitude: number, longitude: number}[];
+
+      const locations = (await Promise.all(locationsPromises)).filter(Boolean) as {
+        url: string;
+        latitude: number;
+        longitude: number;
+      }[];
       setImageLocations(locations);
     } catch (error) {
       console.error('Error fetching images from S3:', error);
     }
   };
 
-  // Extract geolocation data from images using exifr
   const extractGeolocation = async (imageUrl: string) => {
     try {
       const response = await fetch(imageUrl);
@@ -321,25 +413,9 @@ const MyBookings: React.FC = () => {
     return null;
   };
 
-  // Log geolocation of images when bookings are loaded
-  useEffect(() => {
-    if (!loading && bookings.length > 0) {
-      bookings.forEach(async (booking) => {
-        if (booking.images && booking.images.length > 0) {
-          for (const image of booking.images) {
-            const geolocation = await extractGeolocation(image);
-            if (geolocation) {
-              console.log(`Image: ${image}, Geolocation: ${geolocation.latitude}, ${geolocation.longitude}`);
-            }
-          }
-        }
-      });
-    }
-  }, [loading, bookings]);
-
   const handleFilterChange = (status: BookingStatus) => {
     if (activeFilters.includes(status)) {
-      setActiveFilters(activeFilters.filter(s => s !== status));
+      setActiveFilters(activeFilters.filter((s) => s !== status));
     } else {
       setActiveFilters([...activeFilters, status]);
     }
@@ -349,172 +425,159 @@ const MyBookings: React.FC = () => {
     setSearchTerm(e.target.value);
   };
 
-  // Apply filters and search when either changes
   useEffect(() => {
     let filtered = [...bookings];
-    
+
     // Apply status filters if any are active
     if (activeFilters.length > 0) {
-      filtered = filtered.filter(booking => activeFilters.includes(booking.status as BookingStatus));
+      filtered = filtered.filter((booking) => activeFilters.includes(booking.status as BookingStatus));
     }
-    
+
     // Apply search term if not empty
     if (searchTerm.trim()) {
       const searchLower = searchTerm.toLowerCase();
-      filtered = filtered.filter(booking => 
-        (booking.assetName && booking.assetName.toLowerCase().includes(searchLower)) ||
-        (booking.UserId && booking.UserId.toLowerCase().includes(searchLower)) ||
-        (booking.location && booking.location.toLowerCase().includes(searchLower)) ||
-        (booking.serviceType && booking.serviceType.toLowerCase().includes(searchLower)) ||
-        (booking.jobType && booking.jobType.toLowerCase().includes(searchLower))
+      filtered = filtered.filter(
+        (booking) =>
+          (booking.assetName && booking.assetName.toLowerCase().includes(searchLower)) ||
+          (booking.UserId && booking.UserId.toLowerCase().includes(searchLower)) ||
+          (booking.location && booking.location.toLowerCase().includes(searchLower)) ||
+          (booking.serviceType && booking.serviceType.toLowerCase().includes(searchLower)) ||
+          (booking.jobType && booking.jobType.toLowerCase().includes(searchLower))
       );
     }
-    
+
     setFilteredBookings(filtered);
   }, [bookings, activeFilters, searchTerm]);
 
-  // Enhanced function to fetch GeoTIFF information for bookings
-  const fetchGeoTiffInfo = async (bookingId: string) => {
-    const params = {
-      TableName: 'GeoTiffUploads',
-      FilterExpression: 'BookingId = :bookingId',
-      ExpressionAttributeValues: {
-        ':bookingId': bookingId
-      }
-    };
-
-    try {
-      const data = await dynamoDb.scan(params).promise();
-      if (data.Items && data.Items.length > 0) {
-        const geoTiff = data.Items[0];
-        
-        // If the entry has a direct S3 URL, use it
-        if (geoTiff.s3Url) {
-          setGeoTiffFiles(prev => ({...prev, [bookingId]: geoTiff.s3Url}));
-          return;
-        }
-        
-        // If the entry has an S3 key, generate a signed URL
-        if (geoTiff.s3Key) {
-          const s3Params = {
-            Bucket: 'drone-images-bucket',
-            Key: geoTiff.s3Key,
-            Expires: 3600 // URL expires in 1 hour
-          };
-          
-          const signedUrl = s3.getSignedUrl('getObject', s3Params);
-          setGeoTiffFiles(prev => ({...prev, [bookingId]: signedUrl}));
-          return;
-        }
-        
-        // If we have a filename but no direct URL/key
-        if (geoTiff.filename) {
-          // Try to construct a possible S3 key based on common patterns
-          const potentialKey = `uploads/${bookingId}/${geoTiff.filename}`;
-          
-          try {
-            // Check if the object exists at this key
-            await s3.headObject({
-              Bucket: 'drone-images-bucket',
-              Key: potentialKey
-            }).promise();
-            
-            // If we reach here, the object exists
-            const s3Params = {
-              Bucket: 'drone-images-bucket',
-              Key: potentialKey,
-              Expires: 3600
-            };
-            
-            const signedUrl = s3.getSignedUrl('getObject', s3Params);
-            setGeoTiffFiles(prev => ({...prev, [bookingId]: signedUrl}));
-          } catch (headErr) {
-            // Continue to S3 bucket scan
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching GeoTIFF info:', error);
-    }
-  };
-
-  const navigate = useNavigate(); // Initialize useNavigate
+  const navigate = useNavigate();
 
   const handleViewBooking = (booking: Booking) => {
-    navigate(`/flight-details/${booking.id}`); // Redirect to FlightDetails page
+    navigate(`/flight-details/${booking.id || booking.BookingId}`);
   };
 
-  // Update the cancelBooking function to use proper error handling
-  const cancelBooking = (bookingId: string) => {
-    if (!user || !user.companyId) {
-      setError('You must be logged in to cancel a booking');
-      return;
+  const handleViewBookingDetails = (bookingId: string) => {
+    console.log(`Navigating to flight details for bookingId: ${bookingId}`);
+    
+    // Store the selected booking ID in localStorage for easy retrieval
+    if (bookingId) {
+      localStorage.setItem('selectedBookingId', bookingId);
     }
     
+    // Navigate using the /flight-details/{id} format which corresponds to the API's /bookings/{id}
+    navigate(`/flight-details/${bookingId}`);
+  };
+
+  const cancelBooking = async (bookingId: string) => {
     if (!bookingId) {
       setError('Invalid booking ID');
       return;
     }
-    
-    const params = {
-      TableName: 'Bookings',
-      Key: {
-        CompanyId: user.companyId,
-        BookingId: bookingId
-      },
-      UpdateExpression: 'SET #status = :status',
-      ExpressionAttributeNames: {
-        '#status': 'status'
-      },
-      ExpressionAttributeValues: {
-        ':status': 'cancelled'
-      },
-      ReturnValues: 'ALL_NEW' // Return the updated item
-    };
-    
-    setLoading(true);
-    
-    dynamoDb.update(params, (err, data) => {
-      setLoading(false);
+
+    try {
+      setLoading(true);
+
+      // Try multiple token sources in order of preference
+      let token = localStorage.getItem('idToken');
       
-      if (err) {
-        console.error('Error cancelling booking:', err);
-        setError('Failed to cancel booking: ' + err.message);
-      } else {
-        // Update local state after successful cancellation
-        setBookings(bookings.map(booking => 
-          booking.BookingId === bookingId 
-            ? { ...booking, status: 'cancelled' } 
-            : booking
-        ));
-        
-        // Also update filtered bookings
-        setFilteredBookings(filteredBookings.map(booking => 
-          booking.BookingId === bookingId 
-            ? { ...booking, status: 'cancelled' } 
-            : booking
-        ));
+      // If idToken isn't available, try the regular token
+      if (!token) {
+        token = localStorage.getItem('token');
+        console.log('Using regular token instead of idToken for cancellation');
       }
-    });
+      
+      // Check for user session token as last resort
+      if (!token) {
+        const userDataStr = localStorage.getItem('user');
+        if (userDataStr) {
+          try {
+            const userData = JSON.parse(userDataStr);
+            token = userData.token || userData.idToken;
+            console.log('Extracted token from user data for cancellation:', !!token);
+          } catch (e) {
+            console.error('Error parsing user data:', e);
+          }
+        }
+      }
+      
+      if (!token) {
+        throw new Error('Authentication token not found');
+      }
+
+      // Get the API URL from environment or use a default
+      const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+
+      // Fix: Ensure proper format for the Authorization header
+      const authHeader = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+      console.log('Using auth header for cancel:', authHeader.substring(0, 30) + '...');
+      
+      const response = await fetch(`${apiUrl}/bookings/${bookingId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          status: 'cancelled'
+        }),
+        credentials: 'omit'  // Don't send cookies to avoid CORS issues
+      });
+
+      if (!response.ok) {
+        let errorMessage = `Failed to cancel booking: ${response.status} ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+          console.error('API error response for cancellation:', errorData);
+        } catch (e) {
+          console.error('Could not parse cancellation error response:', e);
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Update local state after successful cancellation
+      setBookings(prevBookings =>
+        prevBookings.map(booking =>
+          booking.BookingId === bookingId ? { ...booking, status: 'cancelled' } : booking
+        )
+      );
+
+      // Also update filtered bookings
+      setFilteredBookings(prevBookings =>
+        prevBookings.map(booking =>
+          booking.BookingId === bookingId ? { ...booking, status: 'cancelled' } : booking
+        )
+      );
+    } catch (err) {
+      console.error('Error cancelling booking:', err);
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unknown error occurred');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Define breadcrumbs
   const breadcrumbs: BreadcrumbItem[] = [
     { name: 'Dashboard', href: '/dashboard', current: false },
-    { name: 'Flights', href: '/my-bookings', current: true }
+    { name: 'Flights', href: '/my-bookings', current: true },
   ];
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar userInfo={userInfo} />
-      
-      {/* Hero section with gradient background */}
+
+      {/* Hero section with gradient background - WIDER CONTAINER */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
-        <div className="container mx-auto max-w-6xl">
+        <div className="container mx-auto max-w-7xl">  {/* Changed from max-w-6xl to max-w-7xl */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
             <div className="mb-4 md:mb-0">
               <h1 className="text-3xl font-bold mb-2">Flights</h1>
-              <p className="text-blue-100">View and manage all your drone inspection bookings</p>
+              <p className="text-blue-100">
+                {userInfo?.name ? `Welcome, ${userInfo.name}! ` : ''}
+                View and manage all your drone inspection bookings
+              </p>
             </div>
             <Link
               to="/assets"
@@ -529,10 +592,10 @@ const MyBookings: React.FC = () => {
         </div>
       </div>
 
-      <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
+      <main className="flex-1 container mx-auto px-4 py-6 max-w-7xl">  {/* Changed from max-w-6xl to max-w-7xl */}
         {/* Add breadcrumbs component here */}
         <Breadcrumbs items={breadcrumbs} className="mb-6" />
-        
+
         {loading ? (
           <div className="flex justify-center items-center h-64">
             <div className="flex flex-col items-center">
@@ -545,7 +608,11 @@ const MyBookings: React.FC = () => {
             <div className="flex">
               <div className="flex-shrink-0">
                 <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </div>
               <div className="ml-3">
@@ -574,69 +641,94 @@ const MyBookings: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* Flight statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
+            {/* Flight statistics - WIDER GRID with larger cells */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">  {/* Changed gap-4 to gap-6 for more spacing */}
+              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200"> {/* Increased padding from p-4 to p-5 */}
                 <div className="flex items-center">
                   <div className="flex-shrink-0 bg-blue-100 rounded-md p-3">
-                    <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    <svg className="h-7 w-7 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"> {/* Increased icon size */}
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                      />
                     </svg>
                   </div>
-                  <div className="ml-4">
+                  <div className="ml-5"> {/* Increased margin from ml-4 to ml-5 */}
                     <h3 className="text-sm font-medium text-gray-500">Total Flights</h3>
-                    <p className="text-lg font-semibold text-gray-900">{bookings.length}</p>
+                    <p className="text-xl font-semibold text-gray-900">{bookings.length}</p> {/* Increased text size */}
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
+              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
                 <div className="flex items-center">
                   <div className="flex-shrink-0 bg-yellow-100 rounded-md p-3">
-                    <svg className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <svg className="h-7 w-7 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
                     </svg>
                   </div>
-                  <div className="ml-4">
+                  <div className="ml-5">
                     <h3 className="text-sm font-medium text-gray-500">Pending</h3>
-                    <p className="text-lg font-semibold text-gray-900">{bookings.filter(b => b.status === 'pending').length}</p>
+                    <p className="text-xl font-semibold text-gray-900">{bookings.filter((b) => b.status === 'pending').length}</p>
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
+              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
                 <div className="flex items-center">
                   <div className="flex-shrink-0 bg-purple-100 rounded-md p-3">
-                    <svg className="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    <svg className="h-7 w-7 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
                     </svg>
                   </div>
-                  <div className="ml-4">
+                  <div className="ml-5">
                     <h3 className="text-sm font-medium text-gray-500">Scheduled</h3>
-                    <p className="text-lg font-semibold text-gray-900">{bookings.filter(b => b.status === 'scheduled').length}</p>
+                    <p className="text-xl font-semibold text-gray-900">{bookings.filter((b) => b.status === 'scheduled').length}</p>
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
+              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
                 <div className="flex items-center">
                   <div className="flex-shrink-0 bg-green-100 rounded-md p-3">
-                    <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    <svg className="h-7 w-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
                   </div>
-                  <div className="ml-4">
+                  <div className="ml-5">
                     <h3 className="text-sm font-medium text-gray-500">Completed</h3>
-                    <p className="text-lg font-semibold text-gray-900">{bookings.filter(b => b.status === 'completed').length}</p>
+                    <p className="text-xl font-semibold text-gray-900">{bookings.filter((b) => b.status === 'completed').length}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Search and Filters */}
-            <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            {/* Search and Filters - MORE PADDING and improved spacing */}
+            <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-5"> {/* Increased padding from p-4 to p-5 */}
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5"> {/* Increased gap from gap-4 to gap-5 */}
                 <div className="relative flex-grow">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
                     </svg>
                   </div>
                   <input
@@ -644,10 +736,10 @@ const MyBookings: React.FC = () => {
                     value={searchTerm}
                     onChange={handleSearchChange}
                     placeholder="Search flights by asset name, location, or job type..."
-                    className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                 </div>
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap gap-3"> {/* Flex-wrap added to handle smaller screens better */}
                   <button
                     onClick={() => handleFilterChange('pending')}
                     className={`px-3 py-2 rounded-md text-sm font-medium ${
@@ -695,7 +787,12 @@ const MyBookings: React.FC = () => {
                     className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
                   >
                     <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
                     </svg>
                     Clear Filters
                   </button>
@@ -703,31 +800,77 @@ const MyBookings: React.FC = () => {
               </div>
             </div>
 
-            {/* Flights Table */}
-            <div className="bg-white shadow-md rounded-lg overflow-hidden border border-gray-200 mb-4">
+            {/* Flights Table - IMPROVED TABLE STYLING */}
+            <div className="bg-white shadow-md rounded-lg overflow-hidden border border-gray-200 mb-6">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Asset</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service Type</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Requested</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scheduled for</th>
-                      <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th
+                        scope="col"
+                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" 
+                        /* Increased padding from px-6 py-3 to px-7 py-4 */
+                      >
+                        Asset
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                      >
+                        Status
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                      >
+                        Service Type
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                      >
+                        Requested
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                      >
+                        Scheduled for
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-7 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
+                      >
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredBookings.map((booking) => (
-                      <tr key={booking.BookingId || `booking-${Math.random()}`} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
+                    {filteredBookings.map((booking, index) => (
+                      <tr 
+                        key={booking.BookingId || index} 
+                        className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => handleViewBookingDetails(booking.BookingId)}
+                      >
+                        <td className="px-7 py-5 whitespace-nowrap"> {/* Increased padding/spacing */}
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10 bg-gray-100 rounded-md flex items-center justify-center">
-                              <svg className="h-6 w-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                            <div className="flex-shrink-0 h-11 w-11 bg-gray-100 rounded-md flex items-center justify-center">
+                              {/* Increased icon size */}
+                              <svg
+                                className="h-7 w-7 text-gray-500"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                                />
                               </svg>
                             </div>
-                            <div className="ml-4">
+                            <div className="ml-5"> {/* Increased margin */}
                               <div className="text-sm font-medium text-gray-900">
                                 {booking.assetName || 'Unnamed Asset'}
                               </div>
@@ -737,60 +880,101 @@ const MyBookings: React.FC = () => {
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-3 py-1 inline-flex text-xs leading-5 font-medium rounded-full 
-                            ${booking.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
-                            booking.status === 'scheduled' ? 'bg-blue-100 text-blue-800' : 
-                            booking.status === 'completed' ? 'bg-green-100 text-green-800' : 
-                            booking.status === 'cancelled' ? 'bg-red-100 text-red-800' : 
-                            'bg-gray-100 text-gray-800'}`}>
-                            {booking.status ? booking.status.charAt(0).toUpperCase() + booking.status.slice(1) : 'Pending'}
+                        <td className="px-7 py-5 whitespace-nowrap">
+                          <span
+                            className={`px-3 py-1 inline-flex text-xs leading-5 font-medium rounded-full 
+                            ${
+                              booking.status === 'pending'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : booking.status === 'scheduled'
+                                ? 'bg-blue-100 text-blue-800'
+                                : booking.status === 'completed'
+                                ? 'bg-green-100 text-green-800'
+                                : booking.status === 'cancelled'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}
+                          >
+                            {booking.status
+                              ? booking.status.charAt(0).toUpperCase() + booking.status.slice(1)
+                              : 'Pending'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{booking.serviceType || booking.jobType || 'Standard'}</div>
+                        <td className="px-7 py-5 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {booking.serviceType || booking.jobType || 'Standard'}
+                          </div>
                           {booking.location && (
                             <div className="text-xs text-gray-500 mt-1 flex items-center">
-                              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <svg
+                                className="w-3 h-3 mr-1"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                                />
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                                />
                               </svg>
                               {booking.location}
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {booking.createdAt ? new Date(booking.createdAt).toLocaleDateString(undefined, {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric'
-                          }) : 'N/A'}
+                        <td className="px-7 py-5 whitespace-nowrap text-sm text-gray-500">
+                          {booking.createdAt
+                            ? new Date(booking.createdAt).toLocaleDateString(undefined, {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              })
+                            : 'N/A'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {booking.flightDate ? new Date(booking.flightDate).toLocaleDateString(undefined, {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric'
-                          }) : 'Not scheduled'}
+                        <td className="px-7 py-5 whitespace-nowrap text-sm text-gray-500">
+                          {booking.flightDate
+                            ? new Date(booking.flightDate).toLocaleDateString(undefined, {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              })
+                            : 'Not scheduled'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <td className="px-7 py-5 whitespace-nowrap text-right text-sm font-medium">
                           <button
-                            onClick={() => handleViewBooking(booking)}
-                            className="inline-flex items-center bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1 rounded-md transition-colors mr-2"
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent row click event
+                              handleViewBookingDetails(booking.BookingId);
+                            }}
+                            className="text-blue-600 hover:text-blue-800"
                           >
-                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                            Details
+                            View Details
                           </button>
                           {booking.status !== 'cancelled' && booking.status !== 'completed' && (
-                            <button 
+                            <button
                               onClick={() => booking.BookingId && cancelBooking(booking.BookingId)}
-                              className="inline-flex items-center bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1 rounded-md transition-colors"
+                              className="inline-flex items-center bg-red-50 hover:bg-red-100 text-red-700 px-3.5 py-1.5 rounded-md transition-colors"
+                              /* Increased button padding */
                             >
-                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              <svg
+                                className="w-4 h-4 mr-1.5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
                               </svg>
                               Cancel
                             </button>
@@ -801,27 +985,47 @@ const MyBookings: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-              
+
               {filteredBookings.length === 0 && (
-                <div className="py-10 text-center">
-                  <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 16l2.879-2.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242zM21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <p className="mt-4 text-gray-500">No flights match your current filters</p>
-                  <button 
-                    onClick={() => setActiveFilters([])} 
-                    className="mt-3 text-blue-600 hover:text-blue-800 inline-flex items-center"
+                <div className="py-12 text-center"> {/* Increased padding */}
+                  <svg
+                    className="mx-auto h-14 w-14 text-gray-300"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M8 16l2.879-2.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <p className="mt-4 text-gray-500 text-lg">No flights match your current filters</p> {/* Increased text size */}
+                  <button
+                    onClick={() => setActiveFilters([])}
+                    className="mt-4 text-blue-600 hover:text-blue-800 inline-flex items-center"
+                  >
+                    <svg
+                      className="w-4 h-4 mr-1.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
                     </svg>
                     Clear filters
                   </button>
                 </div>
               )}
             </div>
-            
-            <div className="text-right text-sm text-gray-500">
+
+            <div className="text-right text-sm text-gray-500 mb-6"> {/* Added bottom margin */}
               Showing {filteredBookings.length} of {bookings.length} flights
             </div>
           </>

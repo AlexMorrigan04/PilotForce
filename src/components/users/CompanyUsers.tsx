@@ -1,415 +1,364 @@
-import React, { useState, useEffect } from 'react';
-import AWS from 'aws-sdk';
-import { FaTrash, FaEdit, FaUserPlus, FaSpinner, FaUserClock } from 'react-icons/fa';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import PendingUserRequests from './PendingUserRequests';
+import { getUser } from '../../utils/localStorage';
+import { 
+  getUsersByCompany, 
+  getCompanyUsersSimplified 
+} from '../../services/userService';
 
 interface CompanyUser {
-  id: string;
-  username: string; // Changed from name to username
-  email: string;
-  phoneNumber?: string; // Add phone number to the CompanyUser interface
-  role: string;
-  status: string;
-  dateJoined: string;
+  UserId: string;
+  Username: string;
+  Email: string;
+  Name?: string;
+  PhoneNumber?: string;
+  UserRole: string;
+  Status: string;
+  CreatedAt: string;
+  CompanyId: string;
 }
 
 interface CompanyUsersProps {
-  className?: string;
+  users?: CompanyUser[];
+  loading?: boolean;
+  error?: string | null;
+  companyId?: string; // Add companyId as an optional prop
 }
 
-const CompanyUsers: React.FC<CompanyUsersProps> = ({ className }) => {
-  const { user } = useAuth();
+const CompanyUsers: React.FC<CompanyUsersProps> = ({ 
+  users: propsUsers, 
+  loading: propsLoading, 
+  error: propsError,
+  companyId: propsCompanyId
+}) => {
   const [users, setUsers] = useState<CompanyUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingUser, setEditingUser] = useState<CompanyUser | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editFormData, setEditFormData] = useState({ name: '', email: '', role: '', phoneNumber: '' });
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'active' | 'pending'>('active');
-  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { user } = useAuth();
 
-  // AWS configuration
-  const awsRegion = process.env.REACT_APP_AWS_REGION;
-  const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
-  const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
-
-  const dynamoDb = new AWS.DynamoDB.DocumentClient({ 
-    region: awsRegion,
-    accessKeyId: accessKey,
-    secretAccessKey: secretKey
-  });
-
+  // If users are provided via props, use them; otherwise fetch them
   useEffect(() => {
-    // Check if the current user is an admin
-    if (user?.role === 'AccountAdmin' || user?.role === 'Admin') {
-      setIsAdmin(true);
+    if (propsUsers) {
+      setUsers(sortUsers(propsUsers));
+      setIsLoading(false);
+    } else {
+      fetchCompanyUsers();
     }
-    
-    fetchCompanyUsers();
-  }, [user?.companyId]);
+  }, [propsUsers]);
 
-  const fetchCompanyUsers = async () => {
-    if (!user?.companyId) {
-      setError('Cannot fetch users: No company ID available');
-      setLoading(false);
-      return;
+  // Update loading and error states when props change
+  useEffect(() => {
+    if (propsLoading !== undefined) {
+      setIsLoading(propsLoading);
     }
+    if (propsError !== undefined && propsError !== null) {
+      setError(propsError);
+    }
+  }, [propsLoading, propsError]);
 
-    try {
-      setLoading(true);
-      
-      // Query the Users table by CompanyId and UserAccess=true (only active users)
-      const params = {
-        TableName: 'Users',
-        FilterExpression: 'CompanyId = :companyId AND UserAccess = :userAccess',
-        ExpressionAttributeValues: {
-          ':companyId': user.companyId,
-          ':userAccess': true // Only get active/approved users
-        }
-      };
-
-      const response = await dynamoDb.scan(params).promise();
-      
-      if (response.Items) {
-        const companyUsers = response.Items.map(item => ({
-          id: item.UserId || item.id,
-          username: item.Username || item.username || 'N/A', // Get Username field
-          email: item.Email || item.email || 'N/A',
-          phoneNumber: item.PhoneNumber || item.phoneNumber || 'N/A',
-          role: item.UserRole || item.Role || item.role || 'User', // Also check UserRole field
-          status: item.UserAccess ? 'Active' : 'Pending', // Convert UserAccess boolean to status string
-          dateJoined: item.CreatedAt || item.DateJoined || item.createdAt || 'N/A'
-        }));
-        
-        setUsers(companyUsers);
-      } else {
-        setUsers([]);
+  const sortUsers = (userList: CompanyUser[]) => {
+    // Sort users by role (admin first), then by name/username
+    return [...userList].sort((a: CompanyUser, b: CompanyUser) => {
+      // Sort by role first (Admin at top)
+      if ((a.UserRole?.toLowerCase().includes('admin') && !b.UserRole?.toLowerCase().includes('admin'))) {
+        return -1;
+      }
+      if ((!a.UserRole?.toLowerCase().includes('admin') && b.UserRole?.toLowerCase().includes('admin'))) {
+        return 1;
       }
       
+      // Then sort by name/username
+      const nameA = a.Name || a.Username || '';
+      const nameB = b.Name || b.Username || '';
+      return nameA.localeCompare(nameB);
+    });
+  };
+
+  const fetchCompanyUsers = async () => {
+    try {
+      setIsLoading(true);
       setError(null);
-    } catch (err) {
-      console.error('Error fetching company users:', err);
-      setError('Failed to load company users. Please try again later.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Function to handle pending requests count update
-  const handlePendingRequestsCountChange = (count: number) => {
-    setPendingRequestsCount(count);
-  };
-
-  const handleEditClick = (user: CompanyUser) => {
-    setEditingUser(user);
-    setEditFormData({
-      name: user.username, // Use username instead of name
-      email: user.email,
-      role: user.role,
-      phoneNumber: user.phoneNumber || ''
-    });
-    setIsEditing(true);
-  };
-
-  const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setEditFormData({
-      ...editFormData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  const handleEditFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!editingUser || !user?.companyId) return;
-    
-    try {
-      const params = {
-        TableName: 'Users',
-        Key: {
-          UserId: editingUser.id
-        },
-        UpdateExpression: 'set Username = :username, Email = :email, UserRole = :role, PhoneNumber = :phoneNumber',
-        ExpressionAttributeValues: {
-          ':username': editFormData.name, // Send as Username
-          ':email': editFormData.email,
-          ':role': editFormData.role,
-          ':phoneNumber': editFormData.phoneNumber
-        },
-        ReturnValues: 'UPDATED_NEW'
-      };
       
-      await dynamoDb.update(params).promise();
+      // First try to use companyId passed as prop
+      let companyId = propsCompanyId;
       
-      // Update the user in the local state
-      setUsers(users.map(u => 
-        u.id === editingUser.id 
-          ? { ...u, username: editFormData.name, email: editFormData.email, role: editFormData.role, phoneNumber: editFormData.phoneNumber }
-          : u
-      ));
-      
-      // Close the edit form
-      setIsEditing(false);
-      setEditingUser(null);
-    } catch (err) {
-      console.error('Error updating user:', err);
-      setError('Failed to update user. Please try again.');
-    }
-  };
-
-  const handleDeleteUser = async (userId: string) => {
-    if (!user?.companyId) return;
-    
-    // Check if user is trying to delete themselves
-    if (user.id === userId) {
-      setError("You cannot delete your own account from this interface.");
-      return;
-    }
-    
-    // Set the user ID as being deleted
-    setIsDeleting(userId);
-    
-    try {
-      const params = {
-        TableName: 'Users',
-        Key: {
-          UserId: userId
+      // If we have a specific company ID, use the direct DB lookup with no auth
+      if (companyId) {
+        console.log('Using direct DB lookup for company users (no auth):', companyId);
+        try {
+          // Import the direct lookup function
+          const { getCompanyUsersDirect } = await import('../../services/userService');
+          const companyUsers = await getCompanyUsersDirect(companyId);
+          
+          // Normalize the user objects to ensure consistent property names
+          const normalizedUsers = companyUsers.map(user => ({
+            UserId: user.UserId || user.userId || user.id || '',
+            Username: user.Username || user.username || '',
+            Email: user.Email || user.email || '',
+            Name: user.Name || user.name || '',
+            PhoneNumber: user.PhoneNumber || user.phoneNumber || user.phone_number || '',
+            UserRole: user.UserRole || user.role || user.userRole || 'User',
+            Status: user.Status || user.status || 'UNKNOWN',
+            CreatedAt: user.CreatedAt || user.createdAt || new Date().toISOString(),
+            CompanyId: user.CompanyId || user.companyId || companyId || ''
+          }));
+          
+          setUsers(sortUsers(normalizedUsers));
+          return;
+        } catch (directLookupError) {
+          console.error('Error using direct DB lookup:', directLookupError);
+          // Fall back to existing methods
+          const companyUsers = await getUsersByCompany(companyId);
+          
+          // Normalize the user objects to ensure consistent property names
+          const normalizedUsers = companyUsers.map(user => ({
+            UserId: user.UserId || user.userId || user.id || '',
+            Username: user.Username || user.username || '',
+            Email: user.Email || user.email || '',
+            Name: user.Name || user.name || '',
+            PhoneNumber: user.PhoneNumber || user.phoneNumber || user.phone_number || '',
+            UserRole: user.UserRole || user.role || user.userRole || 'User',
+            Status: user.Status || user.status || 'UNKNOWN',
+            CreatedAt: user.CreatedAt || user.createdAt || new Date().toISOString(),
+            CompanyId: user.CompanyId || user.companyId || companyId || ''
+          }));
+          
+          setUsers(sortUsers(normalizedUsers));
+          return;
         }
-      };
+      }
       
-      await dynamoDb.delete(params).promise();
+      // If no specific company ID, use the simplified method that handles everything server-side
+      console.log('No specific company ID, using simplified method to get current user\'s company members');
       
-      // Remove the user from the local state
-      setUsers(users.filter(u => u.id !== userId));
-      setError(null);
-    } catch (err) {
-      console.error('Error deleting user:', err);
-      setError('Failed to delete user. Please try again.');
+      try {
+        // Use the new simplified method
+        const companyUsers = await getCompanyUsersSimplified();
+        
+        console.log(`Successfully fetched ${companyUsers.length} company users via simplified method`);
+        
+        // Use the same normalization logic as before
+        interface UserData {
+          UserId?: string;
+          userId?: string;
+          id?: string;
+          Username?: string;
+          username?: string;
+          Email?: string;
+          email?: string;
+          Name?: string;
+          name?: string;
+          PhoneNumber?: string;
+          phoneNumber?: string;
+          phone_number?: string;
+          UserRole?: string;
+          role?: string;
+          userRole?: string;
+          Status?: string;
+          status?: string;
+          CreatedAt?: string;
+          createdAt?: string;
+          CompanyId?: string;
+          companyId?: string;
+        }
+
+        const normalizedUsers: CompanyUser[] = companyUsers.map((user: UserData) => ({
+          UserId: user.UserId || user.userId || user.id || '',
+          Username: user.Username || user.username || '',
+          Email: user.Email || user.email || '',
+          Name: user.Name || user.name || '',
+          PhoneNumber: user.PhoneNumber || user.phoneNumber || user.phone_number || '',
+          UserRole: user.UserRole || user.role || user.userRole || 'User',
+          Status: user.Status || user.status || 'UNKNOWN',
+          CreatedAt: user.CreatedAt || user.createdAt || new Date().toISOString(),
+          CompanyId: user.CompanyId || user.companyId || companyId || ''
+        }));
+        
+        setUsers(sortUsers(normalizedUsers));
+      } catch (error) {
+        console.error('Error using simplified method:', error);
+        
+        // Fall back to trying to determine company ID from current user
+        try {
+          // Try multiple sources for company ID
+          const currentUser = getUser();
+          const userCompanyId = currentUser?.companyId || currentUser?.CompanyId;
+          const localStorageCompanyId = localStorage.getItem('companyId');
+          
+          companyId = userCompanyId || localStorageCompanyId;
+          
+          if (!companyId) {
+            throw new Error('Could not determine company ID');
+          }
+          
+          console.log('Falling back to regular method with company ID:', companyId);
+          const companyUsers = await getUsersByCompany(companyId);
+          
+          // Use the same normalization logic
+          const normalizedUsers = companyUsers.map(user => ({
+            UserId: user.UserId || user.userId || user.id || '',
+            Username: user.Username || user.username || '',
+            Email: user.Email || user.email || '',
+            Name: user.Name || user.name || '',
+            PhoneNumber: user.PhoneNumber || user.phoneNumber || user.phone_number || '',
+            UserRole: user.UserRole || user.role || user.userRole || 'User',
+            Status: user.Status || user.status || 'UNKNOWN',
+            CreatedAt: user.CreatedAt || user.createdAt || new Date().toISOString(),
+            CompanyId: user.CompanyId || user.companyId || companyId || ''
+          }));
+          
+          setUsers(sortUsers(normalizedUsers));
+        } catch (fallbackError) {
+          console.error('Error with fallback method:', fallbackError);
+          setError('Could not fetch company users. Please try again later.');
+          
+          // For development only - provide some mock data for UI testing
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Using mock data for development');
+            setUsers([
+              {
+                UserId: '1',
+                Username: 'admin_user',
+                Email: 'admin@example.com',
+                Name: 'Admin User',
+                PhoneNumber: '+1234567890',
+                UserRole: 'Admin',
+                Status: 'CONFIRMED',
+                CreatedAt: new Date().toISOString(),
+                CompanyId: companyId || 'company123'
+              },
+              {
+                UserId: '2',
+                Username: 'regular_user',
+                Email: 'user@example.com',
+                Name: 'Regular User',
+                UserRole: 'User',
+                Status: 'CONFIRMED',
+                CreatedAt: new Date().toISOString(),
+                CompanyId: companyId || 'company123'
+              },
+              {
+                UserId: '3',
+                Username: 'new_user',
+                Email: 'new@example.com',
+                UserRole: 'User',
+                Status: 'UNCONFIRMED',
+                CreatedAt: new Date().toISOString(),
+                CompanyId: companyId || 'company123'
+              }
+            ]);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error('Error in fetchCompanyUsers:', err);
+      setError(err.message || 'Failed to load company users');
     } finally {
-      setIsDeleting(null);
+      setIsLoading(false);
     }
   };
 
-  const formatDate = (dateString: string): string => {
-    if (!dateString) return 'N/A';
-    
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return dateString;
-      
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    } catch (error) {
-      return dateString;
+  const getRoleBadgeStyle = (role: string) => {
+    const lowerRole = role.toLowerCase();
+    if (lowerRole.includes('admin')) {
+      return 'bg-purple-100 text-purple-800';
+    } else if (lowerRole.includes('manager')) {
+      return 'bg-blue-100 text-blue-800';
+    } else {
+      return 'bg-green-100 text-green-800';
     }
   };
 
-  if (loading) {
-    return (
-      <div className={`bg-white shadow-sm rounded-lg p-6 ${className}`}>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Company Users</h2>
-        </div>
-        <div className="flex justify-center items-center p-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-        </div>
-      </div>
-    );
-  }
+  const getStatusBadgeStyle = (status: string) => {
+    const lowerStatus = status.toLowerCase();
+    if (lowerStatus === 'confirmed') {
+      return 'bg-green-100 text-green-800';
+    } else if (lowerStatus === 'unconfirmed') {
+      return 'bg-yellow-100 text-yellow-800';
+    } else {
+      return 'bg-gray-100 text-gray-800';
+    }
+  };
 
   return (
-    <div className={`bg-white shadow-sm rounded-lg p-6 ${className}`}>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold text-gray-900">Company Users</h2>
-      </div>
-      
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4" role="alert">
-          <p>{error}</p>
+    <div className="overflow-x-auto">
+      {isLoading ? (
+        <div className="p-6 text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-gray-300 border-t-blue-600"></div>
+          <p className="mt-2 text-gray-600">Loading company users...</p>
         </div>
-      )}
-      
-      {/* Tabs for active/pending users */}
-      {isAdmin && (
-        <div className="border-b border-gray-200 mb-4">
-          <div className="flex space-x-4">
-            <button
-              onClick={() => setActiveTab('active')}
-              className={`py-2 px-1 font-medium text-sm relative ${activeTab === 'active' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Active Users
-            </button>
-            <button
-              onClick={() => setActiveTab('pending')}
-              className={`py-2 px-1 font-medium text-sm relative ${activeTab === 'pending' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Pending Requests
-              {pendingRequestsCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-yellow-500 text-white text-xs rounded-full px-1.5">
-                  {pendingRequestsCount}
-                </span>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-      
-      {activeTab === 'active' ? (
-        <>
-          {isEditing && editingUser && (
-            <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
-              <h3 className="text-lg font-medium text-blue-800 mb-3">Edit User</h3>
-              <form onSubmit={handleEditFormSubmit}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={editFormData.name}
-                      onChange={handleEditFormChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    <input
-                      type="email"
-                      name="email"
-                      value={editFormData.email}
-                      onChange={handleEditFormChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                    <input
-                      type="tel"
-                      name="phoneNumber"
-                      value={editFormData.phoneNumber || ''}
-                      onChange={handleEditFormChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                    <select
-                      name="role"
-                      value={editFormData.role}
-                      onChange={handleEditFormChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    >
-                      <option value="Admin">Admin</option>
-                      <option value="Manager">Manager</option>
-                      <option value="User">User</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex justify-end space-x-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEditing(false);
-                      setEditingUser(null);
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
-                  >
-                    Save Changes
-                  </button>
-                </div>
-              </form>
+      ) : error ? (
+        <div className="p-6 text-center">
+          <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
             </div>
-          )}
-          
-          <div className="overflow-hidden rounded-md border border-gray-200">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {users.length > 0 ? (
-                  users.map(user => (
-                    <tr key={user.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{user.username}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.email}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.phoneNumber}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          user.role === 'Admin' || user.role === 'AccountAdmin' ? 'bg-purple-100 text-purple-800' :
-                          user.role === 'Manager' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          user.status === 'Active' ? 'bg-green-100 text-green-800' :
-                          user.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {user.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(user.dateJoined)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => handleEditClick(user)}
-                          className="text-blue-600 hover:text-blue-900 mr-4"
-                          title="Edit user"
-                        >
-                          <FaEdit />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(user.id)}
-                          className="text-red-600 hover:text-red-900"
-                          title="Delete user"
-                          disabled={isDeleting === user.id}
-                        >
-                          {isDeleting === user.id ? (
-                            <FaSpinner className="animate-spin" />
-                          ) : (
-                            <FaTrash />
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
-                      No users found in your company. Invite users to get started.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
           </div>
-        </>
+        </div>
+      ) : users.length === 0 ? (
+        <div className="p-6 text-center">
+          <p className="text-gray-500">No users found in your company.</p>
+        </div>
       ) : (
-        <PendingUserRequests onRequestsCountChange={handlePendingRequestsCountChange} />
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                User
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Role
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Joined
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {users.map(user => (
+              <tr key={user.UserId} className="hover:bg-gray-50">
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">
+                      {(user.Name || user.Username || 'U').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="ml-4">
+                      <div className="text-sm font-medium text-gray-900">
+                        {user.Name || user.Username}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {user.Email}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getRoleBadgeStyle(user.UserRole)}`}>
+                    {user.UserRole}
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeStyle(user.Status)}`}>
+                    {user.Status}
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {new Date(user.CreatedAt).toLocaleDateString()}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

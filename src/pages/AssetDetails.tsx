@@ -2,14 +2,13 @@ import React, { useState, useEffect, useContext, useRef, useCallback } from 'rea
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
-import Map, { Source, Layer, NavigationControl } from 'react-map-gl';
+import Map, { Source, Layer, Marker } from 'react-map-gl';
 import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
-import AWS from 'aws-sdk';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { getAssetById } from '../services/assetService';
 
-// Define the asset type colors and icons for display
 const assetTypeDetails = {
   buildings: {
     title: 'Building',
@@ -55,11 +54,26 @@ const assetTypeDetails = {
   },
 };
 
+const safelyFormatCoordinate = (value: any): string => {
+  try {
+    if (typeof value === 'number') {
+      return value.toFixed(6);
+    } else if (typeof value === 'string') {
+      return parseFloat(value).toFixed(6);
+    } else {
+      return 'N/A';
+    }
+  } catch (error) {
+    console.warn('Error formatting coordinate value:', value, error);
+    return 'N/A';
+  }
+};
+
 const AssetDetails: React.FC = () => {
   const { user } = useContext(AuthContext);
   const navigate = useNavigate();
   const location = useLocation();
-  const { assetId } = useParams<{ assetId: string }>();
+  const { id: assetId } = useParams<{ id: string }>();
   const [userInfo, setUserInfo] = useState<any>(null);
   const [asset, setAsset] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -67,7 +81,7 @@ const AssetDetails: React.FC = () => {
   const [viewState, setViewState] = useState({
     longitude: -2.587910,
     latitude: 51.454514,
-    zoom: 16 // Increased from 13 to 16 for a more zoomed in initial view
+    zoom: 16
   });
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -76,136 +90,150 @@ const AssetDetails: React.FC = () => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
 
-  // Set Mapbox token explicitly
   useEffect(() => {
     try {
-      // Use your actual valid token
-      mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN || '';
+      mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q';
     } catch (error) {
       console.error('Error setting Mapbox token:', error);
       setMapError('Failed to initialize map: invalid access token');
     }
   }, []);
 
-  // Configure AWS SDK
-  const awsRegion = 'eu-north-1';
-  AWS.config.update({
-    region: awsRegion,
-    accessKeyId: process.env.REACT_APP_AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.REACT_APP_AWS_SECRET_ACCESS_KEY,
-  });
-
-  const dynamoDb = new AWS.DynamoDB.DocumentClient();
-
-  // Get user info simplified for demo
   useEffect(() => {
-    setUserInfo({ name: 'Demo User' });
-  }, []);
-
-  // Check if asset was passed via location state
-  useEffect(() => {
-    if (location.state && location.state.asset) {
-      setAsset(location.state.asset);
-      setLoading(false);
-      
-      // Update view state to focus on asset with higher zoom level
-      if (location.state.asset.centerPoint) {
-        setViewState({
-          longitude: location.state.asset.centerPoint[0],
-          latitude: location.state.asset.centerPoint[1],
-          zoom: 18 // Increased from 16 to 18 for a more zoomed in view
-        });
+    if (user) {
+      setUserInfo({ 
+        name: user.username || 'Demo User',
+        companyId: user.companyId
+      });
+    } else {
+      const savedUserStr = localStorage.getItem('user');
+      if (savedUserStr) {
+        try {
+          const savedUser = JSON.parse(savedUserStr);
+          setUserInfo({
+            name: savedUser.username || savedUser.name || 'Demo User',
+            companyId: savedUser.companyId
+          });
+        } catch (e) {
+          console.error('Error parsing saved user data', e);
+          setUserInfo({ name: 'Demo User' });
+        }
+      } else {
+        setUserInfo({ name: 'Demo User' });
       }
-    } else if (assetId && user) {
-      // Fetch asset from DynamoDB if not passed in location state
-      fetchAssetDetails();
     }
-  }, [location, assetId, user]);
+  }, [user]);
 
-  // Fetch asset details from DynamoDB
-  const fetchAssetDetails = () => {
-    setLoading(true);
-    
-    if (!user) {
-      setError('User not authenticated.');
-      setLoading(false);
-      return;
-    }
-
-    const params = {
-      TableName: 'Assets',
-      Key: {
-        UserId: user.id,
-        AssetId: assetId
+  useEffect(() => {
+    const fetchAssetDetails = async () => {
+      if (location.state && location.state.asset) {
+        console.log('Using asset from location state:', location.state.asset);
+        setAsset(location.state.asset);
+        setLoading(false);
+        
+        if (location.state.asset.CenterPoint) {
+          setViewState({
+            longitude: location.state.asset.CenterPoint[0],
+            latitude: location.state.asset.CenterPoint[1],
+            zoom: 18
+          });
+        }
+        return;
+      }
+      
+      if (!assetId) {
+        setError('Asset ID is missing');
+        setLoading(false);
+        return;
+      }
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const assetData = await getAssetById(assetId);
+        
+        console.log('Asset details response:', assetData);
+        
+        if (assetData) {
+          setAsset(assetData);
+          
+          if (assetData.CenterPoint) {
+            setViewState({
+              longitude: assetData.CenterPoint[0],
+              latitude: assetData.CenterPoint[1],
+              zoom: 18
+            });
+          } else if (assetData.Coordinates && assetData.Coordinates.length > 0) {
+            try {
+              const polygon = turf.polygon(assetData.Coordinates);
+              const center = turf.centroid(polygon);
+              const centerPoint = center.geometry.coordinates;
+              
+              setViewState({
+                longitude: centerPoint[0],
+                latitude: centerPoint[1],
+                zoom: 18
+              });
+            } catch (error) {
+              console.error('Error calculating center point:', error);
+            }
+          }
+        } else {
+          setError('Asset not found or invalid response format');
+        }
+      } catch (err: any) {
+        console.error('Error fetching asset details:', err);
+        setError(err.message || 'Failed to load asset details');
+        
+        if (err.message && err.message.includes('Authentication error')) {
+          setTimeout(() => navigate('/login'), 3000);
+        }
+      } finally {
+        setLoading(false);
       }
     };
+    
+    fetchAssetDetails();
+  }, [assetId, location.state, navigate]);
 
-    dynamoDb.get(params, (err, data) => {
-      if (err) {
-        console.error('Error fetching asset:', err);
-        setError('Failed to load asset details.');
-        setLoading(false);
-      } else if (!data.Item) {
-        setError('Asset not found.');
-        setLoading(false);
-      } else {
-        setAsset(data.Item);
-        setLoading(false);
-
-        // Update map viewport to center on asset with higher zoom
-        if (data.Item.centerPoint) {
-          setViewState({
-            longitude: data.Item.centerPoint[0],
-            latitude: data.Item.centerPoint[1],
-            zoom: 18 // Increased from 16 to 18
-          });
-        } else if (data.Item.coordinates && data.Item.coordinates.length > 0) {
-          // Calculate center from coordinates if centerPoint not available
-          try {
-            const polygon = turf.polygon(data.Item.coordinates);
-            const center = turf.centroid(polygon);
-            const centerPoint = center.geometry.coordinates;
-            
-            setViewState({
-              longitude: centerPoint[0],
-              latitude: centerPoint[1],
-              zoom: 18 // Increased from 16 to 18
-            });
-          } catch (error) {
-            console.error('Error calculating center point:', error);
-          }
-        }
-      }
-    });
-  };
-
-  // Initialize mapbox when the component loads
-  const onMapLoad = (event: any) => {
-    console.log("Map loaded");
-    const map = event.target;
-    mapRef.current = map;
-    setMapLoaded(true);
-    setMapError(null);
-  };
-
-  // Handle map errors
-  const onMapError = (event: any) => {
-    console.error("Map error:", event);
-    setMapError('Error loading map: ' + (event.error?.message || 'Unknown error'));
-    setMapLoaded(false);
-  };
-
-  // Add a cleanup effect that safely removes the map
   useEffect(() => {
     return () => {
       console.log('AssetDetails component unmounting, cleaning up map');
+      
       try {
+        // Safely clean up the map to prevent indoor_manager errors
         if (mapRef.current) {
-          mapRef.current.remove();
-          mapRef.current = null;
+          try {
+            // First remove all sources and layers to prevent internal errors
+            const map = mapRef.current;
+            if (map) {
+              try {
+                const style = map.getStyle && map.getStyle();
+                if (style && style.layers) {
+                  style.layers.forEach((layer: { id: string }) => {
+                    if (map.getLayer && map.getLayer(layer.id)) {
+                      map.removeLayer(layer.id);
+                    }
+                  });
+                }
+                if (style && style.sources) {
+                  Object.keys(style.sources).forEach(source => {
+                    if (map.getSource && map.getSource(source)) {
+                      map.removeSource(source);
+                    }
+                  });
+                }
+              } catch (styleError) {
+                console.warn('Error accessing map style:', styleError);
+              }
+            }
+            mapRef.current = null;
+          } catch (cleanupError) {
+            console.warn('Non-critical map cleanup error:', cleanupError);
+          }
         }
         
-        // Also clear navigation locks on unmount
         sessionStorage.removeItem('navigating_to_booking');
       } catch (error) {
         console.warn('Error cleaning up map in AssetDetails:', error);
@@ -213,7 +241,6 @@ const AssetDetails: React.FC = () => {
     };
   }, []);
 
-  // Format date string for display
   const formatDate = (dateString: string) => {
     try {
       return new Date(dateString).toLocaleDateString('en-GB', {
@@ -228,7 +255,6 @@ const AssetDetails: React.FC = () => {
     }
   };
 
-  // Get asset type information
   const getAssetTypeInfo = (type: string) => {
     return assetTypeDetails[type as keyof typeof assetTypeDetails] || {
       title: 'Unknown Type',
@@ -239,18 +265,14 @@ const AssetDetails: React.FC = () => {
     };
   };
 
-  // Return to assets list page - modify this function
   const handleBackToList = useCallback(() => {
-    // Add a navigation lock to prevent double navigation
     if (sessionStorage.getItem('navigating_to_assets')) {
       console.log('Navigation already in progress, ignoring duplicate click');
       return;
     }
     
-    // Set navigation lock
     sessionStorage.setItem('navigating_to_assets', 'true');
     
-    // Clean up map instance before navigating
     try {
       if (mapRef.current) {
         console.log('Cleaning up map instance before navigation to Assets');
@@ -261,68 +283,100 @@ const AssetDetails: React.FC = () => {
       console.warn('Error during map cleanup during Assets navigation:', e);
     }
     
-    // Mark that assets page should reload
     sessionStorage.setItem('reloadAssetsPage', 'true');
     
-    // Use setTimeout to ensure map cleanup completes before navigation
     setTimeout(() => {
       navigate('/assets', {
         state: {
           fromAssetDetails: true,
-          timestamp: Date.now() // Add timestamp to ensure state is always unique
+          timestamp: Date.now()
         }
       });
       
-      // Clear the navigation lock after navigation is triggered
       setTimeout(() => {
         sessionStorage.removeItem('navigating_to_assets');
       }, 1000);
     }, 100);
   }, [navigate, mapRef]);
 
-  // Open booking modal
-  const handleOpenBookingModal = () => {
-    setBookingModalOpen(true);
-  };
-
-  // Find the "Book services" button click handler and modify it
   const handleBookService = useCallback(() => {
-    // Add a navigation lock to prevent double navigation
     if (sessionStorage.getItem('navigating_to_booking')) {
       console.log('Navigation already in progress, ignoring duplicate click');
       return;
     }
     
-    // Set navigation lock
     sessionStorage.setItem('navigating_to_booking', 'true');
     
-    // Completely clean up the map before navigating
     try {
+      // Safely clean up the map to prevent indoor_manager errors
       if (mapRef.current) {
         console.log('Cleaning up map instance before navigation');
-        // Ensure the map instance is properly removed
-        mapRef.current.remove();
-        mapRef.current = null;
+        try {
+          // First set map loaded state to false to prevent further rendering
+          setMapLoaded(false);
+          
+          // Add a small delay to ensure React state update before map removal
+          setTimeout(() => {
+            try {
+              // Check if mapRef is still valid before removing
+              if (mapRef.current) {
+                const map = mapRef.current;
+                // Remove all sources and layers to prevent internal errors
+                if (map) {
+                  const style = map.getStyle();
+                  if (style && style.layers) {
+                    style.layers.forEach((layer: { id: string }) => {
+                      if (map.getLayer(layer.id)) {
+                      map.removeLayer(layer.id);
+                      }
+                    });
+                  }
+                  if (style && style.sources) {
+                    Object.keys(style.sources).forEach(source => {
+                      if (map.getSource(source)) {
+                        map.removeSource(source);
+                      }
+                    });
+                  }
+                }
+                mapRef.current = null;
+              }
+            } catch (cleanupError) {
+              console.warn('Non-critical map cleanup error:', cleanupError);
+            }
+          }, 10);
+        } catch (e) {
+          console.warn('Error during map cleanup:', e);
+        }
       }
     } catch (e) {
       console.warn('Error during map cleanup:', e);
     }
     
-    // Clear any existing makeBookings_loaded flag to avoid skipping needed reloads
     sessionStorage.removeItem('makeBookings_loaded');
     
-    // Use setTimeout to ensure map cleanup completes before navigation
+    // Prepare a clean asset object with only needed properties
+    const essentialAssetData = asset ? {
+      AssetId: asset.AssetId,
+      name: asset.Name,
+      type: asset.AssetType || 'buildings',
+      area: asset.Area,
+      address: asset.Address,
+      postcode: asset.PostCode || '',
+      // Safe handling of coordinates
+      coordinates: asset.Coordinates || [],
+      CenterPoint: asset.CenterPoint || null
+    } : null;
+    
     setTimeout(() => {
-      // Navigate to the booking page with the selected asset
       navigate('/make-booking', { 
         state: { 
-          selectedAsset: asset,
+          selectedAsset: essentialAssetData,
           fromAssetDetails: true,
-          timestamp: Date.now() // Add timestamp to ensure state is always unique
+          timestamp: Date.now()
         } 
       });
       
-      // Clear the navigation lock after navigation is triggered
       setTimeout(() => {
         sessionStorage.removeItem('navigating_to_booking');
       }, 1000);
@@ -330,39 +384,36 @@ const AssetDetails: React.FC = () => {
   }, [asset, navigate, mapRef]);
 
   function calculateAssetBounds(coordinates: any): [mapboxgl.LngLatLike, mapboxgl.LngLatLike] {
-      if (!coordinates || coordinates.length === 0) {
-        throw new Error('Invalid coordinates provided.');
-      }
-  
-      // Flatten the coordinates array to extract all points
-      const allPoints = coordinates.flat(1);
-  
-      // Calculate the bounding box
-      const bounds = allPoints.reduce(
-        (acc: [number, number, number, number], point: [number, number]) => {
-          const [minLng, minLat, maxLng, maxLat] = acc;
-          const [lng, lat] = point;
-          return [
-            Math.min(minLng, lng),
-            Math.min(minLat, lat),
-            Math.max(maxLng, lng),
-            Math.max(maxLat, lat),
-          ];
-        },
-        [Infinity, Infinity, -Infinity, -Infinity]
-      );
-  
-      // Return bounds as a tuple of LngLatLike
-      return [
-        [bounds[0], bounds[1]], // Southwest corner
-        [bounds[2], bounds[3]], // Northeast corner
-      ];
+    if (!coordinates || coordinates.length === 0) {
+      throw new Error('Invalid coordinates provided.');
     }
+
+    const allPoints = coordinates.flat(1);
+
+    const bounds = allPoints.reduce(
+      (acc: [number, number, number, number], point: [number, number]) => {
+        const [minLng, minLat, maxLng, maxLat] = acc;
+        const [lng, lat] = point;
+        return [
+          Math.min(minLng, lng),
+          Math.min(minLat, lat),
+          Math.max(maxLng, lng),
+          Math.max(maxLat, lat),
+        ];
+      },
+      [Infinity, Infinity, -Infinity, -Infinity]
+    );
+
+    return [
+      [bounds[0], bounds[1]],
+      [bounds[2], bounds[3]],
+    ];
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar userInfo={userInfo} />
       
-      {/* Hero section with gradient background */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
         <div className="container mx-auto max-w-6xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
@@ -377,17 +428,17 @@ const AssetDetails: React.FC = () => {
                   </svg>
                 </button>
                 <h1 className="text-3xl font-bold">
-                  {loading ? 'Loading Asset...' : asset?.name || 'Asset Details'}
+                  {loading ? 'Loading Asset...' : asset?.Name || 'Asset Details'}
                 </h1>
               </div>
-              {!loading && asset?.type && (
+              {!loading && asset?.AssetType && (
                 <div className="flex items-center">
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/20 text-white mr-2">
-                    {getAssetTypeInfo(asset.type).title}
+                    {getAssetTypeInfo(asset.AssetType).title}
                   </span>
                   <p className="text-blue-100">
-                    {asset.postcode && `${asset.postcode} • `}
-                    Created {asset.createdAt ? formatDate(asset.createdAt).split(',')[0] : 'Unknown date'}
+                    {asset.Address ? `${asset.Address} • ` : ''}
+                    Created {asset.CreatedAt ? formatDate(asset.CreatedAt).split(',')[0] : 'Unknown date'}
                   </p>
                 </div>
               )}
@@ -417,7 +468,7 @@ const AssetDetails: React.FC = () => {
             onClick: handleBackToList 
           },
           { 
-            label: asset?.name || 'Asset Details', 
+            label: asset?.Name || 'Asset Details', 
             isCurrent: true 
           }
         ]} 
@@ -445,124 +496,18 @@ const AssetDetails: React.FC = () => {
             </div>
           </div>
         ) : asset ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Panel - Asset Information */}
-            <div className="lg:col-span-1 space-y-6">
-              {/* Asset Basic Info Card */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex items-center">
-                  <div className="h-10 w-10 rounded-md flex items-center justify-center" style={{
-                    backgroundColor: getAssetTypeInfo(asset.type).color,
-                    color: 'white'
-                  }}>
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={getAssetTypeInfo(asset.type).icon} />
-                    </svg>
-                  </div>
-                  <div className="ml-3">
-                    <h2 className="text-lg font-semibold text-gray-900">Asset Information</h2>
-                  </div>
-                </div>
-
-                <div className="p-6">
-                  <dl className="divide-y divide-gray-200">
-                    <div className="py-3 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Asset ID</dt>
-                      <dd className="text-sm text-gray-900 font-mono truncate max-w-[200px]">{asset.AssetId}</dd>
-                    </div>
-                    <div className="py-3 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Created By</dt>
-                      <dd className="text-sm text-gray-900">{asset.userName || 'Unknown'}</dd>
-                    </div>
-                    <div className="py-3 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Created On</dt>
-                      <dd className="text-sm text-gray-900">{formatDate(asset.createdAt)}</dd>
-                    </div>
-                    <div className="py-3 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Status</dt>
-                      <dd>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          {asset.status || 'Active'}
-                        </span>
-                      </dd>
-                    </div>
-                    <div className="py-3 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Area Size</dt>
-                      <dd className="text-sm text-gray-900">{asset.area ? asset.area.toLocaleString() : '0'} m²</dd>
-                    </div>
-                    <div className="py-3 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Postcode</dt>
-                      <dd className="text-sm text-gray-900">{asset.postcode || "Not specified"}</dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
-              
-              {/* Asset Type Info Card */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Asset Type</h2>
-                </div>
-                <div className="p-6">
-                  <div className="rounded-lg border border-gray-200 bg-white p-5" style={{
-                    borderLeftWidth: '4px',
-                    borderLeftColor: getAssetTypeInfo(asset.type).color
-                  }}>
-                    <h3 className="text-lg font-medium text-gray-900 mb-1">{getAssetTypeInfo(asset.type).title}</h3>
-                    <p className="text-sm text-gray-600">{getAssetTypeInfo(asset.type).description}</p>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Actions Card */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">Actions</h2>
-                </div>
-                <div className="p-6 space-y-4">
-                  <button
-                    className="w-full inline-flex justify-center items-center px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150"
-                    onClick={handleBookService}
-                  >
-                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Book a Flight
-                  </button>
-                  {/* <button
-                    className="w-full inline-flex justify-center items-center px-4 py-2.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150"
-                    onClick={() => navigate(`/edit-asset/${asset.AssetId}`, { state: { asset } })}
-                  >
-                    <svg className="w-5 h-5 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    Edit Asset
-                  </button> */}
-                  <button
-                    className="w-full inline-flex justify-center items-center px-4 py-2.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-red-600 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition duration-150"
-                    onClick={() => {
-                      if (window.confirm('Are you sure you want to delete this asset?')) {
-                        // Handle asset deletion
-                        navigate('/assets');
-                      }
-                    }}
-                  >
-                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    Delete Asset
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Panel - Map */}
-            <div className="lg:col-span-2">
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+            <div className="md:col-span-7 md:order-2 order-1">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden h-[500px]">
+                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
                   <h2 className="text-lg font-semibold text-gray-900">Asset Location</h2>
+                  {asset?.Area && (
+                    <span className="text-sm font-medium text-gray-500">
+                      {parseFloat(asset.Area).toLocaleString()} m²
+                    </span>
+                  )}
                 </div>
-                <div className="h-[600px]" ref={mapContainerRef}>
+                <div className="h-full" ref={mapContainerRef}>
                   {mapError ? (
                     <div className="flex items-center justify-center h-full bg-gray-50">
                       <div className="text-center p-6 max-w-sm">
@@ -586,14 +531,13 @@ const AssetDetails: React.FC = () => {
                         mapRef.current = event.target;
                         setMapLoaded(true);
                         
-                        // If we have an asset already, ensure proper zoom after map load
-                        if (asset && asset.coordinates) {
+                        if (asset && asset.Coordinates) {
                           setTimeout(() => {
                             try {
-                              const bounds = calculateAssetBounds(asset.coordinates);
+                              const bounds = calculateAssetBounds(asset.Coordinates);
                               if (bounds) {
                                 mapRef.current?.fitBounds(bounds, {
-                                  padding: 80, // Add padding to ensure asset is well framed
+                                  padding: 80,
                                   maxZoom: 19,
                                   duration: 800
                                 });
@@ -601,14 +545,11 @@ const AssetDetails: React.FC = () => {
                             } catch (e) {
                               console.warn('Error zooming to asset after map load:', e);
                             }
-                          }, 200); // Short delay to ensure map is ready
+                          }, 200);
                         }
                       }}
                     >
-                      {/* <NavigationControl position="top-right" /> */}
-                      
-                      {/* Display the asset polygon */}
-                      {mapLoaded && asset?.coordinates && asset.coordinates.length > 0 && (
+                      {mapLoaded && asset?.Coordinates && asset.Coordinates.length > 0 && (
                         <Source
                           id="asset-polygon"
                           type="geojson"
@@ -617,7 +558,7 @@ const AssetDetails: React.FC = () => {
                             properties: {},
                             geometry: {
                               type: 'Polygon',
-                              coordinates: asset.coordinates,
+                              coordinates: asset.Coordinates,
                             },
                           }}
                         >
@@ -625,7 +566,7 @@ const AssetDetails: React.FC = () => {
                             id="asset-polygon-fill"
                             type="fill"
                             paint={{
-                              'fill-color': getAssetTypeInfo(asset.type).color,
+                              'fill-color': getAssetTypeInfo(asset.AssetType).color,
                               'fill-opacity': 0.4,
                             }}
                           />
@@ -633,14 +574,144 @@ const AssetDetails: React.FC = () => {
                             id="asset-polygon-outline"
                             type="line"
                             paint={{
-                              'line-color': getAssetTypeInfo(asset.type).strokeColor,
+                              'line-color': getAssetTypeInfo(asset.AssetType).strokeColor,
                               'line-width': 2,
                             }}
                           />
                         </Source>
                       )}
+                      
+                      {mapLoaded && asset?.CenterPoint && (
+                        <Marker 
+                          longitude={parseFloat(asset.CenterPoint[0])} 
+                          latitude={parseFloat(asset.CenterPoint[1])}
+                          anchor="bottom"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-white p-1 shadow-lg flex items-center justify-center">
+                            <svg className="w-5 h-5" fill={getAssetTypeInfo(asset.AssetType).color} viewBox="0 0 24 24">
+                              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                            </svg>
+                          </div>
+                        </Marker>
+                      )}
                     </Map>
                   )}
+                </div>
+              </div>
+              
+              <div className="mt-6 grid grid-cols-2 gap-4">
+                <button
+                  className="inline-flex justify-center items-center px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150"
+                  onClick={handleBookService}
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Book a Flight
+                </button>
+                <button
+                  className="inline-flex justify-center items-center px-4 py-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-red-600 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition duration-150"
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to delete this asset?')) {
+                      navigate('/assets');
+                    }
+                  }}
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete Asset
+                </button>
+              </div>
+            </div>
+
+            <div className="md:col-span-5 md:order-1 order-2">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center">
+                  <div className="h-8 w-8 rounded-md flex items-center justify-center" style={{
+                    backgroundColor: getAssetTypeInfo(asset.AssetType).color,
+                    color: 'white'
+                  }}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={getAssetTypeInfo(asset.AssetType).icon} />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h2 className="text-lg font-semibold text-gray-900">Asset Information</h2>
+                  </div>
+                </div>
+
+                <div className="p-4">
+                  {asset.Description && (
+                    <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
+                      {asset.Description}
+                    </div>
+                  )}
+
+                  <dl className="divide-y divide-gray-200">
+                    <div className="py-2.5 flex justify-between">
+                      <dt className="text-sm font-medium text-gray-500">Asset Name</dt>
+                      <dd className="text-sm text-gray-900 text-right">{asset.Name || 'Unnamed Asset'}</dd>
+                    </div>
+                    <div className="py-2.5 flex justify-between">
+                      <dt className="text-sm font-medium text-gray-500">Address</dt>
+                      <dd className="text-sm text-gray-900 text-right">{asset.Address || "Not specified"}</dd>
+                    </div>
+                    <div className="py-2.5 flex justify-between">
+                      <dt className="text-sm font-medium text-gray-500">Asset Type</dt>
+                      <dd className="text-sm text-gray-900 text-right">{getAssetTypeInfo(asset.AssetType).title}</dd>
+                    </div>
+                    <div className="py-2.5 flex justify-between">
+                      <dt className="text-sm font-medium text-gray-500">Area Size</dt>
+                      <dd className="text-sm text-gray-900 text-right">{asset.Area ? parseFloat(asset.Area).toLocaleString() : '0'} m²</dd>
+                    </div>
+                    <div className="py-2.5 flex justify-between">
+                      <dt className="text-sm font-medium text-gray-500">Created On</dt>
+                      <dd className="text-sm text-gray-900 text-right">{formatDate(asset.CreatedAt)}</dd>
+                    </div>
+                    {asset.UpdatedAt && (
+                      <div className="py-2.5 flex justify-between">
+                        <dt className="text-sm font-medium text-gray-500">Last Updated</dt>
+                        <dd className="text-sm text-gray-900 text-right">{formatDate(asset.UpdatedAt)}</dd>
+                      </div>
+                    )}
+                    <div className="py-2.5 flex justify-between">
+                      <dt className="text-sm font-medium text-gray-500">Status</dt>
+                      <dd className="text-right">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          {asset.status || 'Active'}
+                        </span>
+                      </dd>
+                    </div>
+                    {asset.Tags && asset.Tags.length > 0 && (
+                      <div className="py-2.5">
+                        <dt className="text-sm font-medium text-gray-500 mb-1.5">Tags</dt>
+                        <dd className="flex flex-wrap gap-1">
+                          {asset.Tags.map((tag: string, index: number) => (
+                            <span 
+                              key={index} 
+                              className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </dd>
+                      </div>
+                    )}
+                    <div className="py-2.5 flex justify-between">
+                      <dt className="text-sm font-medium text-gray-500">Asset ID</dt>
+                      <dd className="text-sm text-gray-900 font-mono truncate max-w-[180px] text-right">{asset.AssetId}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mt-6">
+                <div className="p-4 rounded-lg border-l-4" style={{
+                  borderLeftColor: getAssetTypeInfo(asset.AssetType).color
+                }}>
+                  <h3 className="text-md font-medium text-gray-900 mb-1">{getAssetTypeInfo(asset.AssetType).title}</h3>
+                  <p className="text-sm text-gray-600">{getAssetTypeInfo(asset.AssetType).description}</p>
                 </div>
               </div>
             </div>
@@ -662,7 +733,6 @@ const AssetDetails: React.FC = () => {
         )}
       </main>
 
-      {/* Booking Modal */}
       {bookingModalOpen && (
         <div className="fixed z-10 inset-0 overflow-y-auto">
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">

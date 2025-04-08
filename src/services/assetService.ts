@@ -1,248 +1,174 @@
-import AWS from 'aws-sdk';
-import { v4 as uuidv4 } from 'uuid';
-import { Asset } from '../types/assetTypes';
-import * as turf from '@turf/turf';
+import axios from 'axios';
+import { refreshToken } from './authServices';
 
-// AWS Configuration - reusing the same config from bookingService
-const awsRegion = process.env.REACT_APP_AWS_REGION;
-const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
-const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
+const API_URL = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
 
-// Configure AWS SDK
-AWS.config.update({
-  accessKeyId: accessKey,
-  secretAccessKey: secretKey,
-  region: awsRegion
-});
+// Track if we're currently trying to refresh the token to prevent infinite loops
+let isRefreshingToken = false;
 
-const dynamoDb = new AWS.DynamoDB.DocumentClient({
-  region: awsRegion,
-  accessKeyId: accessKey,
-  secretAccessKey: secretKey
-});
-
-// Mock storage for development/fallback
-let mockAssets: Asset[] = [];
-let nextId = 1;
-
-// Helper function to calculate area of a polygon
-export const calculatePolygonArea = (coordinates: number[][][]): number => {
+/**
+ * Fetches all assets for a company
+ * @param companyId The company ID
+ * @returns Array of assets
+ */
+export const getAssets = async (companyId: string): Promise<any[]> => {
   try {
-    const polygon = turf.polygon(coordinates);
-    const area = turf.area(polygon);
-    return Math.round(area * 100) / 100; // Round to 2 decimal places
-  } catch (error) {
-    console.error('Error calculating area:', error);
-    return 0;
-  }
-};
-
-// Fetch assets for a specific user
-export const fetchUserAssets = async (userId: string): Promise<Asset[]> => {
-  try {
-    console.log(`Fetching assets for user ${userId} from DynamoDB...`);
-    const params = {
-      TableName: 'Assets',
-      KeyConditionExpression: 'UserId = :userId',
-      ExpressionAttributeValues: {
-        ':userId': userId
-      }
-    };
-
-    const data = await dynamoDb.query(params).promise();
+    // Get ID token from localStorage
+    const token = localStorage.getItem('idToken');
     
-    // Process the results
-    const assets: Asset[] = [];
+    if (!token) {
+      console.error('Authentication token missing, cannot make API request');
+      throw new Error('Authentication error: Please log in again');
+    }
     
-    if (data && data.Items && Array.isArray(data.Items)) {
-      data.Items.forEach(item => {
-        try {
-          assets.push({
-            id: item.AssetId || item.id || '',
-            userId: item.UserId || item.userId || '',
-            name: item.Name || item.name || '',
-            description: item.Description || item.description || '',
-            assetType: item.AssetType || item.assetType || '',
-            address: item.Address || item.address || '',
-            coordinates: item.Coordinates || item.coordinates || {
-              type: 'Feature',
-              geometry: { 
-                type: 'Polygon', 
-                coordinates: [] 
-              },
-              properties: {}
-            },
-            area: item.Area || item.area || 0,
-            createdAt: item.CreatedAt || item.createdAt || new Date().toISOString(),
-            updatedAt: item.UpdatedAt || item.updatedAt,
-            tags: item.Tags || item.tags || []
-          });
-        } catch (itemError) {
-          console.error('Error transforming asset item:', itemError, item);
-        }
-      });
+    console.log(`Making API request to: ${API_URL}/assets with token: ${token.substring(0, 15)}...`);
+    
+    // Use the /assets endpoint to fetch all assets for the company
+    const response = await axios.get(`${API_URL}/assets`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      params: {
+        companyId
+      },
+      timeout: 10000 // Add timeout to prevent hanging requests
+    });
+    
+    console.log('API response status:', response.status);
+    
+    // Parse response data based on structure
+    let assets: any[] = [];
+    
+    if (response.data && response.data.assets) {
+      console.log(`Found ${response.data.assets.length} assets in response`);
+      assets = response.data.assets;
+    } else if (Array.isArray(response.data)) {
+      console.log(`Found ${response.data.length} assets in response (array format)`);
+      assets = response.data;
+    } else {
+      console.warn('Unexpected API response format:', response.data);
     }
     
     return assets;
-  } catch (error) {
-    console.error('Error fetching user assets from DynamoDB:', error);
-    // Fallback to mock data if DynamoDB fails
-    return getAssets(userId);
-  }
-};
-
-// Create a new asset
-export const createAsset = async (asset: Omit<Asset, 'id' | 'createdAt'>): Promise<Asset> => {
-  const now = new Date().toISOString();
-  const newAsset: Asset = {
-    ...asset,
-    id: uuidv4(),
-    createdAt: now,
-    updatedAt: now
-  };
-
-  try {
-    const params = {
-      TableName: 'Assets',
-      Item: {
-        AssetId: newAsset.id,
-        UserId: newAsset.userId,
-        Name: newAsset.name,
-        Description: newAsset.description || '',
-        AssetType: newAsset.assetType,
-        Address: newAsset.address,
-        Coordinates: newAsset.coordinates,
-        Area: newAsset.area || 0,
-        CreatedAt: newAsset.createdAt,
-        UpdatedAt: newAsset.updatedAt,
-        Tags: newAsset.tags || []
-      }
-    };
-
-    await dynamoDb.put(params).promise();
-    return newAsset;
-  } catch (error) {
-    console.error('Error creating asset in DynamoDB:', error);
+  } catch (error: any) {
+    console.error('Error fetching assets:', error);
     
-    // Fall back to mock implementation if DynamoDB fails
-    return addAsset({
-      ...asset,
-      id: '',
-      createdAt: now
-    } as Asset);
-  }
-};
-
-// Update an existing asset in DynamoDB
-export const updateAssetInDb = async (asset: Asset): Promise<Asset> => {
-  try {
-    const updatedAsset = {
-      ...asset,
-      updatedAt: new Date().toISOString()
-    };
-
-    const params = {
-      TableName: 'Assets',
-      Key: {
-        AssetId: asset.id,
-        UserId: asset.userId
-      },
-      UpdateExpression: 'set #name = :name, Description = :description, AssetType = :assetType, ' +
-        'Address = :address, Coordinates = :coordinates, Area = :area, UpdatedAt = :updatedAt, Tags = :tags',
-      ExpressionAttributeNames: {
-        '#name': 'Name' // 'Name' is a reserved keyword in DynamoDB
-      },
-      ExpressionAttributeValues: {
-        ':name': updatedAsset.name,
-        ':description': updatedAsset.description || '',
-        ':assetType': updatedAsset.assetType,
-        ':address': updatedAsset.address || '',
-        ':coordinates': updatedAsset.coordinates || null,
-        ':area': updatedAsset.area || 0,
-        ':updatedAt': updatedAsset.updatedAt,
-        ':tags': updatedAsset.tags || []
-      },
-      ReturnValues: 'ALL_NEW'
-    };
-
-    const result = await dynamoDb.update(params).promise();
-    return updatedAsset;
-  } catch (error) {
-    console.error('Error updating asset in DynamoDB:', error);
-    
-    // Fall back to mock implementation
-    return updateAsset(asset.id, asset);
-  }
-};
-
-// Delete an asset from DynamoDB
-export const deleteAssetFromDb = async (assetId: string, userId: string): Promise<void> => {
-  try {
-    const params = {
-      TableName: 'Assets',
-      Key: {
-        AssetId: assetId,
-        UserId: userId
+    // Log detailed error information
+    if (error.response) {
+      console.error('Error response status:', error.response.status);
+      console.error('Error response data:', error.response.data);
+      console.error('Error response headers:', error.response.headers);
+      
+      // Try to refresh token if we got a 401 and we're not already refreshing
+      if (error.response.status === 401 && !isRefreshingToken) {
+        console.log('Attempting to refresh token due to 401 error...');
+        
+        try {
+          isRefreshingToken = true;
+          const refreshResult = await refreshToken();
+          isRefreshingToken = false;
+          
+          if (refreshResult.success) {
+            // Token refreshed successfully, try again with new token
+            console.log('Token refreshed successfully, retrying request...');
+            return getAssets(companyId);
+          } else {
+            // If token refresh failed, we need to log in again
+            throw new Error('Authentication error: Please log in again');
+          }
+        } catch (refreshError) {
+          isRefreshingToken = false;
+          console.error('Error during token refresh:', refreshError);
+          throw new Error('Authentication error: Please log in again');
+        }
       }
-    };
-
-    await dynamoDb.delete(params).promise();
-  } catch (error) {
-    console.error('Error deleting asset from DynamoDB:', error);
-    // Fall back to mock delete
-    await deleteAsset(assetId, userId);
+    } else if (error.request) {
+      // The request was made but no response was received
+      console.error('Error request:', error.request);
+      throw new Error('Network error: Unable to connect to the server');
+    } else {
+      // Something happened in setting up the request that triggered an Error
+      console.error('Error message:', error.message);
+    }
+    
+    // Handle specific error cases
+    if (error.response?.status === 403) {
+      throw new Error('Authorization error: You do not have permission to access these assets');
+    }
+    
+    if (error.response?.status === 502 || error.response?.status === 504) {
+      throw new Error('API Gateway error: The service is currently unavailable. Please try again later.');
+    }
+    
+    // If we got here, re-throw the error with a user-friendly message
+    throw new Error(error.response?.data?.message || error.message || 'Failed to fetch assets');
   }
 };
 
-// === Mock API functions (for development/fallback) === 
-
-// Add an asset (legacy/mock interface)
-export const addAsset = async (asset: Asset): Promise<Asset> => {
-  const now = new Date().toISOString();
-  const newAsset: Asset = {
-    ...asset,
-    id: asset.id || `asset-${nextId++}`,
-    createdAt: now,
-    updatedAt: now
-  };
-  mockAssets.push(newAsset);
-  return newAsset;
-};
-
-// Get all assets (mock)
-export const getAssets = async (userId?: string): Promise<Asset[]> => {
-  if (userId) {
-    return mockAssets.filter(asset => asset.userId === userId);
+/**
+ * Fetches a single asset by ID
+ * @param assetId The asset ID
+ * @returns The asset details
+ */
+export const getAssetById = async (assetId: string): Promise<any> => {
+  try {
+    // Get ID token from localStorage
+    const token = localStorage.getItem('idToken');
+    
+    if (!token) {
+      throw new Error('Authentication error: Please log in again');
+    }
+    
+    // Use the /assets/{id} endpoint to fetch a specific asset
+    const response = await axios.get(`${API_URL}/assets/${assetId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      timeout: 10000 // Add timeout to prevent hanging requests
+    });
+    
+    if (response.data && response.data.asset) {
+      return response.data.asset;
+    } else {
+      console.warn('Unexpected API response format for asset details:', response.data);
+      return response.data;
+    }
+  } catch (error: any) {
+    // Handle token refresh similar to getAssets
+    if (error.response?.status === 401 && !isRefreshingToken) {
+      console.log('Attempting to refresh token due to 401 error...');
+      
+      try {
+        isRefreshingToken = true;
+        const refreshResult = await refreshToken();
+        isRefreshingToken = false;
+        
+        if (refreshResult.success) {
+          // Token refreshed successfully, try again with new token
+          console.log('Token refreshed successfully, retrying request...');
+          return getAssetById(assetId);
+        } else {
+          // If token refresh failed, we need to log in again
+          throw new Error('Authentication error: Please log in again');
+        }
+      } catch (refreshError) {
+        isRefreshingToken = false;
+        console.error('Error during token refresh:', refreshError);
+        throw new Error('Authentication error: Please log in again');
+      }
+    }
+    
+    if (error.response?.status === 404) {
+      throw new Error('Asset not found');
+    } else if (error.response?.status === 403) {
+      throw new Error('You do not have permission to access this asset');
+    }
+    
+    throw new Error(error.response?.data?.message || error.message || 'Failed to fetch asset details');
   }
-  return mockAssets;
 };
 
-// Get a single asset by ID (mock)
-export const getAssetById = async (id: string): Promise<Asset | null> => {
-  const asset = mockAssets.find(a => a.id === id);
-  return asset || null;
-};
-
-// Update an asset (mock)
-export const updateAsset = async (id: string, updates: Partial<Asset>): Promise<Asset> => {
-  const index = mockAssets.findIndex(a => a.id === id);
-  if (index === -1) {
-    throw new Error(`Asset with ID ${id} not found`);
-  }
-
-  const updatedAsset = {
-    ...mockAssets[index],
-    ...updates,
-    updatedAt: new Date().toISOString()
-  };
-  
-  mockAssets[index] = updatedAsset;
-  return updatedAsset;
-};
-
-// Delete an asset (mock)
-export const deleteAsset = async (id: string, userId: string): Promise<boolean> => {
-  const initialLength = mockAssets.length;
-  mockAssets = mockAssets.filter(a => a.id !== id);
-  return mockAssets.length !== initialLength;
+export default {
+  getAssets,
+  getAssetById
 };

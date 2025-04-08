@@ -1,8 +1,31 @@
 import { Resend } from 'resend';
 import AWS from 'aws-sdk';
 
-// Use environment variable for API key
-const resend = new Resend(process.env.REACT_APP_RESEND_API_KEY || '');
+// Create a function to get Resend instance that safely handles missing API key
+const getResendInstance = () => {
+  const apiKey = process.env.REACT_APP_RESEND_API_KEY;
+  
+  // Check if API key exists
+  if (!apiKey) {
+    console.warn('Resend API key is missing. Email functionality will be disabled.');
+    
+    // Return a mock Resend instance that logs instead of sending emails
+    return {
+      emails: {
+        send: async (emailData: any) => {
+          console.log('Would send email if API key was provided:', emailData);
+          return { data: null, error: new Error('API key not configured') };
+        }
+      }
+    };
+  }
+  
+  // If API key exists, return actual Resend instance
+  return new Resend(apiKey);
+};
+
+// Create the instance using our safe method
+const resend = getResendInstance();
 
 // Formspree endpoints constructed from environment variables with fallbacks
 const FORMSPREE_BASE_URL = 'https://formspree.io/f';
@@ -364,4 +387,58 @@ export const sendViaProxy = async (formId: string, data: any) => {
   }
 };
 
-// Removed duplicate declaration of getCompanyAdminEmails to resolve the error.
+// Email sending function
+export const sendEmail = async (data: {
+  to: string[];
+  from: string;
+  subject: string;
+  html: string;
+  text?: string;
+}) => {
+  try {
+    const result = await resend.emails.send(data);
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('Error sending email:', error);
+    return { success: false, error };
+  }
+};
+
+// Pre-configured email templates
+export const emailTemplates = {
+  bookingConfirmation: (userName: string, bookingDetails: any) => ({
+    subject: 'Your Drone Flight Booking Confirmation',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>Booking Confirmation</h2>
+        <p>Hello ${userName},</p>
+        <p>Your drone flight has been scheduled successfully:</p>
+        <ul>
+          <li><strong>Asset:</strong> ${bookingDetails.assetName || 'N/A'}</li>
+          <li><strong>Date:</strong> ${bookingDetails.flightDate ? new Date(bookingDetails.flightDate).toLocaleDateString() : 'TBD'}</li>
+          <li><strong>Status:</strong> ${bookingDetails.status || 'Pending'}</li>
+        </ul>
+        <p>Thank you for using our services!</p>
+      </div>
+    `
+  }),
+  
+  newUserNotification: (adminEmail: string, newUserInfo: any) => ({
+    subject: 'New User Registration Pending Approval',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>New User Registration</h2>
+        <p>Hello Admin,</p>
+        <p>A new user has registered and is waiting for approval:</p>
+        <ul>
+          <li><strong>Username:</strong> ${newUserInfo.username || 'N/A'}</li>
+          <li><strong>Email:</strong> ${newUserInfo.email || 'N/A'}</li>
+          <li><strong>Company:</strong> ${newUserInfo.company || 'N/A'}</li>
+        </ul>
+        <p>Please log in to the admin panel to approve or reject this request.</p>
+      </div>
+    `
+  })
+};
+
+export default resend;

@@ -1,439 +1,559 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import AWS from 'aws-sdk';
-import bcrypt from 'bcryptjs';
-import { useNavigate } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
-import axios from 'axios';
-// Replace jsonwebtoken with jwt-decode for client-side use
-import { secureStorage } from '../utils/secureStorage';
-import { loginRateLimiter } from '../utils/rateLimiter';
+import React, { createContext, useState, useEffect } from 'react';
+import * as authService from '../services/authServices';
+import { isAdminFromToken } from '../utils/adminUtils';
 
-// Define the shape of the authentication context
-interface User {
-  id: string;
-  companyId: string;
-  username: string;
-  email: string;
-  role?: string;  // Add role property to the User interface
-}
-
+// Define the shape of our auth context
 interface AuthContextType {
-  user: User | null;
-  login: (userData: User) => void;
-  logout: () => void;
-  isAuthenticated: boolean;
-  signIn: (username: string, password: string) => Promise<any>;
-  signUp: (username: string, password: string, email: string, companyId: string, phoneNumber: string) => Promise<any>;
-  confirmSignUp: (username: string, code: string) => Promise<void>;
+  user: any | null;
   loading: boolean;
-  error: Error | null;
+  error: { message: string } | null;
+  isAuthenticated: boolean;
+  isAdmin: boolean;
+  userRole: string;
+  login: (username: string, password: string) => Promise<any>;
+  signup: (username: string, password: string, email: string, companyId: string) => Promise<any>;
+  logout: () => Promise<void>;
+  checkAuth: () => Promise<void>;
+  confirmUser: (username: string, code: string) => Promise<any>;
+  resendConfirmationCode: (username: string) => Promise<any>;
+  signIn: (username: string, password: string) => Promise<any>;
+  signUp: (username: string, password: string, attributes: Record<string, string>) => Promise<any>;
+  confirmSignUp: (username: string, code: string) => Promise<any>;
+  checkAdminStatus: () => Promise<boolean>;
 }
 
-// Create the context with a default value
-const AuthContext = createContext<AuthContextType>({
+// Create the context with default values
+export const AuthContext = createContext<AuthContextType>({
   user: null,
-  login: () => {},
-  logout: () => {},
-  isAuthenticated: false,
-  signIn: async () => {},
-  signUp: async () => {},
-  confirmSignUp: async () => {},
-  loading: false,
+  loading: true,
   error: null,
+  isAuthenticated: false,
+  isAdmin: false,
+  userRole: 'User',
+  login: async () => ({}),
+  signup: async () => ({}),
+  logout: async () => {},
+  checkAuth: async () => {},
+  confirmUser: async () => ({}),
+  resendConfirmationCode: async () => ({}),
+  signIn: async () => ({}),
+  signUp: async () => ({}),
+  confirmSignUp: async () => ({}),
+  checkAdminStatus: async () => false
 });
 
-// Export the hook for using the auth context
-export const useAuth = () => useContext(AuthContext);
-
 // Auth provider component
-interface AuthProviderProps {
-  children: ReactNode;
-}
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<any | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<{ message: string } | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [userRole, setUserRole] = useState<string>('User');
 
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const navigate = useNavigate();
-
-  const awsRegion = process.env.REACT_APP_AWS_REGION;
-  const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
-  const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
-
-  AWS.config.update({
-    accessKeyId: accessKey,
-    secretAccessKey: secretKey,
-    region: awsRegion
-  });
-
-  const dynamoDb = new AWS.DynamoDB.DocumentClient();
-
-  // Add password complexity validation function
-  const validatePassword = (password: string): boolean => {
-    // At least 8 chars, containing uppercase, lowercase, number and special char
-    const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,}$/;
-    return regex.test(password);
-  };
-
+  // Check for existing authentication on component mount
   useEffect(() => {
-    // Load user from localStorage on mount
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
+    const initAuth = async () => {
       try {
-        setUser(JSON.parse(storedUser));
+        setLoading(true);
+
+        // First check localStorage for user data
+        const savedUserStr = localStorage.getItem('user');
+        const idToken = localStorage.getItem('idToken');
+
+        if (savedUserStr) {
+          try {
+            const savedUser = JSON.parse(savedUserStr);
+            setUser(savedUser);
+
+            // Make sure token is available in localStorage
+            if (idToken) {
+              // Also set it in sessionStorage as a backup
+              sessionStorage.setItem('idToken', idToken);
+            }
+
+            console.log('Auth initialized from localStorage');
+          } catch (e) {
+            console.error('Error parsing saved user data:', e);
+          }
+        } else if (idToken) {
+          // We have a token but no user, try to fetch user info
+          try {
+            // Call your API to verify token and get user info
+            const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/auth/me', {
+              headers: {
+                'Authorization': `Bearer ${idToken}`
+              }
+            });
+
+            if (response.ok) {
+              const userData = await response.json();
+              setUser(userData);
+              localStorage.setItem('user', JSON.stringify(userData));
+              console.log('Auth initialized from token verification');
+            }
+          } catch (e) {
+            console.error('Error verifying token:', e);
+            // Keep the token but couldn't get user info
+          }
+        }
       } catch (e) {
-        console.error('Error parsing user from localStorage', e);
-        localStorage.removeItem('user');
+        console.error('Error initializing auth:', e);
+        setError({ message: 'Failed to initialize authentication' });
+      } finally {
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    };
+
+    initAuth();
   }, []);
 
-  const login = (userData: User) => {
-    setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
-  };
-
-  // Replace JWT token generation with a simpler approach for browser environment
-  const generateToken = (userData: User): string => {
-    // Create a token with expiration time
-    const token = {
-      data: { ...userData },
-      exp: Math.floor(Date.now() / 1000) + (60 * 60) // 1 hour expiry
-    };
-    
-    // Base64 encode the token
-    return btoa(JSON.stringify(token));
-  };
-
-  // Store tokens securely using our secure storage utility
-  const storeToken = (token: string) => {
-    secureStorage.setItem('authToken', {
-      value: token,
-      expiry: new Date().getTime() + (60 * 60 * 1000) // 1 hour
-    });
-  };
-
-  const getStoredToken = (): string | null => {
-    const tokenData = secureStorage.getItem('authToken');
-    if (!tokenData) return null;
-    
-    if (new Date().getTime() > tokenData.expiry) {
-      secureStorage.removeItem('authToken');
-      return null;
-    }
-    
-    return tokenData.value;
-  };
-
-  // Verify token
-  const verifyToken = (token: string): User | null => {
-    try {
-      // Decode the base64 token
-      const decoded = JSON.parse(atob(token));
-      
-      // Check if token is expired
-      if (decoded.exp && decoded.exp < Math.floor(Date.now() / 1000)) {
-        return null;
-      }
-      
-      return decoded.data;
-    } catch (error) {
-      console.error('Error verifying token:', error);
-      return null;
-    }
-  };
-
-  // Login function
-  const handleSignIn = async (username: string, password: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Apply rate limiting
-      if (!loginRateLimiter.checkLimit(username)) {
-        throw new Error('Too many login attempts. Please try again later.');
-      }
-
-      // Instead of using Username-index, we'll scan the table and filter by username
-      const params = {
-        TableName: 'Users',
-        FilterExpression: 'Username = :username',
-        ExpressionAttributeValues: {
-          ':username': username
-        }
-      };
-
-      // Use scan instead of query since we don't have the specified index
-      const data = await dynamoDb.scan(params).promise();
-      
-      if (data.Items && data.Items.length > 0) {
-        const user = data.Items[0];
-        const isPasswordValid = await bcrypt.compare(password, user.PasswordHash);
-        
-        if (isPasswordValid) {
-          // Check if user has access
-          if (user.UserAccess === false) {
-            throw new Error('Your account is pending approval. Please wait for admin approval.');
+  // Set up token refresh interval
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Set up a timer to check token validity every 5 minutes
+      const tokenCheckInterval = setInterval(async () => {
+        try {
+          console.log('Performing scheduled token check');
+          const result = await authService.checkAuthentication();
+          
+          if (!result.success || !result.isAuthenticated) {
+            console.warn('Token validation failed during scheduled check');
+            setUser(null);
+            setIsAuthenticated(false);
+            
+            // Clear invalid tokens
+            localStorage.removeItem('idToken');
+            sessionStorage.removeItem('idToken');
+            
+            // Redirect to login page
+            setTimeout(() => {
+              window.location.href = '/login';
+            }, 500);
           }
-          
-          const userData = {
-            id: user.UserId,
-            companyId: user.CompanyId,
-            username: user.Username,
-            email: user.Email,
-            role: user.UserRole || 'User'  // Include role in the user data
-          };
-          
-          // Generate token and store it securely
-          const token = generateToken(userData);
-          storeToken(token);
-          
-          login(userData);
-          return userData;
-        } else {
-          throw new Error('Invalid password');
+        } catch (err) {
+          console.error('Error during scheduled token check:', err);
         }
-      } else {
-        throw new Error('User not found');
+      }, 5 * 60 * 1000); // 5 minutes
+      
+      return () => {
+        clearInterval(tokenCheckInterval);
+      };
+    }
+  }, [isAuthenticated]);
+
+  // Check if user is already authenticated
+  const checkAuth = async () => {
+    setLoading(true);
+    try {
+      // Get token from storage
+      const token = localStorage.getItem('idToken');
+      
+      if (!token) {
+        console.warn('No token found in localStorage');
+        setUser(null);
+        setIsAuthenticated(false);
+        setError(null);
+        setLoading(false);
+        return;
       }
-    } catch (error: any) {
-      setError(error);
-      throw error;
+      
+      console.log('Token found, checking validity...');
+      
+      // Check authentication status
+      const result = await authService.checkAuthentication();
+
+      if (result.success && result.isAuthenticated) {
+        // Get or use cached user data
+        let userData;
+        try {
+          const userResponse = await authService.getCurrentUser();
+          userData = userResponse.user;
+          
+          // Update stored user data
+          if (userData) {
+            localStorage.setItem('user', JSON.stringify(userData));
+          }
+        } catch (userError) {
+          console.warn('Could not get fresh user data:', userError);
+          // If we can't get fresh user data, try to use cached data
+          const cachedUserData = localStorage.getItem('user');
+          if (cachedUserData) {
+            userData = JSON.parse(cachedUserData);
+          }
+        }
+
+        setUser(userData);
+        setIsAuthenticated(true);
+        console.log('Authentication successful');
+      } else {
+        console.warn('Authentication check failed:', result);
+        setUser(null);
+        setIsAuthenticated(false);
+        
+        // Clear invalid tokens
+        localStorage.removeItem('idToken');
+        sessionStorage.removeItem('idToken');
+      }
+      setError(null);
+    } catch (err: any) {
+      console.error('Authentication check error:', err);
+      setUser(null);
+      setIsAuthenticated(false);
+
+      if (err.message === 'No authentication token found' ||
+        err.message === 'Invalid or expired authentication') {
+        // This is an expected state, don't show error
+        setError(null);
+        
+        // Clear invalid tokens
+        localStorage.removeItem('idToken');
+        sessionStorage.removeItem('idToken'); 
+      } else {
+        setError({ message: err.message || 'Failed to check authentication status' });
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Logout function
-  const logout = () => {
-    setUser(null);
-    secureStorage.removeItem('user');
-    secureStorage.removeItem('authToken');
+  // Add this function to check admin status
+  const checkAdminStatus = async (): Promise<boolean> => {
+    try {
+      const idToken = localStorage.getItem('idToken');
+      if (idToken) {
+        // First try client-side check
+        const adminFromToken = isAdminFromToken(idToken);
+        if (adminFromToken) {
+          setIsAdmin(true);
+          setUserRole('Admin');
+          return true;
+        }
+      }
+      
+      // If client check fails, verify with API
+      const token = localStorage.getItem('accessToken') || localStorage.getItem('idToken');
+      if (!token) return false;
+      
+      const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/admin', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) return false;
+      
+      const data = await response.json();
+      const hasAdminRole = data.isAdmin === true;
+      
+      setIsAdmin(hasAdminRole);
+      setUserRole(hasAdminRole ? 'Admin' : 'User');
+      return hasAdminRole;
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+      return false;
+    }
   };
 
-  // Signup function
-  const handleSignUp = async (username: string, password: string, email: string, companyId: string, phoneNumber: string) => {
+  // Add this to the useEffect for automatic admin status check
+  useEffect(() => {
+    // Also check admin status if the user is authenticated
+    if (isAuthenticated) {
+      checkAdminStatus();
+    }
+  }, [isAuthenticated]);
+
+  // Login method - uses API Gateway
+  const login = async (username: string, password: string) => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
+      console.log('Logging in user:', username);
 
-      // Check password complexity
-      if (!validatePassword(password)) {
-        throw new Error('Password does not meet complexity requirements.');
+      // Ensure username and password are strings
+      const sanitizedUsername = String(username).trim();
+      const sanitizedPassword = String(password);
+
+      if (!sanitizedUsername || !sanitizedPassword) {
+        setError({ message: 'Username and password are required' });
+        throw new Error('Username and password are required');
       }
 
-      // First check if username already exists
-      const checkParams = {
-        TableName: 'Users',
-        FilterExpression: 'Username = :username',
-        ExpressionAttributeValues: {
-          ':username': username
-        }
-      };
+      // Call the service with the sanitized credentials
+      const response = await authService.login(sanitizedUsername, sanitizedPassword);
+      console.log('Login response received:', response);
 
-      const existingUsers = await dynamoDb.scan(checkParams).promise();
-      if (existingUsers.Items && existingUsers.Items.length > 0) {
-        throw new Error('Username already exists. Please choose another username.');
+      // CRITICAL: Check if login was actually successful
+      if (!response.success) {
+        // Set error message from the response
+        setError({ message: response.message || 'Login failed' });
+        setIsAuthenticated(false);
+        setUser(null);
+        throw new Error(response.message || 'Login failed');
       }
 
-      // Also check if email already exists
-      const checkEmailParams = {
-        TableName: 'Users',
-        FilterExpression: 'Email = :email',
-        ExpressionAttributeValues: {
-          ':email': email
-        }
-      };
+      // IMPORTANT: Only proceed with these steps if login was successful
+      if (response.success) {
+        // Save the AWS config data
+        const awsConfig = {
+          region: process.env.REACT_APP_AWS_REGION || 'eu-north-1',
+          userPoolId: process.env.REACT_APP_USER_POOL_ID || 'eu-north-1_gejWyB4ZB',
+          userPoolWebClientId: process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID || 're4qc69mpbck8uf69jd53oqpa'
+        };
 
-      const existingEmails = await dynamoDb.scan(checkEmailParams).promise();
-      if (existingEmails.Items && existingEmails.Items.length > 0) {
-        throw new Error('Email already in use. Please use another email address.');
-      }
+        // Save AWS config to localStorage
+        localStorage.setItem('awsConfig', JSON.stringify(awsConfig));
+        console.log('AWS config saved to localStorage:', awsConfig);
 
-      // Extract email domain for company matching
-      const emailDomain = email.split('@')[1];
-      
-      // Generate user ID
-      const userId = uuidv4();
-      
-      console.log(`Checking for all users with domain: ${emailDomain}`);
-      
-      // First check for ALL users with the same domain, so we can get the company ID
-      const domainCheckParams = {
-        TableName: 'Users',
-        FilterExpression: 'contains(Email, :domain)',
-        ExpressionAttributeValues: {
-          ':domain': '@' + emailDomain
-        }
-      };
-      
-      const allDomainUsers = await dynamoDb.scan(domainCheckParams).promise();
-      const existingDomainUsers = allDomainUsers.Items || [];
-      
-      console.log(`Found ${existingDomainUsers.length} users with domain ${emailDomain}`);
-      
-      // Then specifically look for admins with this domain
-      const adminCheckParams = {
-        TableName: 'Users',
-        FilterExpression: 'contains(Email, :domain) AND (UserRole = :adminRole OR UserRole = :accountAdminRole) AND UserAccess = :access',
-        ExpressionAttributeValues: {
-          ':domain': '@' + emailDomain,
-          ':adminRole': 'Admin',
-          ':accountAdminRole': 'AccountAdmin',
-          ':access': true // Must be approved admins
-        }
-      };
-      
-      const adminUsers = await dynamoDb.scan(adminCheckParams).promise();
-      const existingAdmins = adminUsers.Items || [];
-      
-      console.log(`Found ${existingAdmins.length} admins with domain ${emailDomain}`);
-      
-      // Determine company ID, user role, and access status
-      let userRole = 'User';
-      let userAccess = false;
-      let finalCompanyId = companyId; // Default to the provided companyId
-      let isNewCompany = false;
-      let adminEmailAddresses = [];
-      
-      if (existingDomainUsers.length > 0) {
-        // Existing company - use the first user's company ID
-        finalCompanyId = existingDomainUsers[0].CompanyId;
-        console.log(`Using existing company ID: ${finalCompanyId}`);
-        
-        // Store admin emails for notification
-        adminEmailAddresses = existingAdmins.map(admin => admin.Email || admin.email).filter(Boolean);
-        console.log(`Admin emails to notify: ${adminEmailAddresses.join(', ')}`);
-        
-        // Check if there's an admin in this company
-        if (existingAdmins.length > 0) {
-          // Regular user in existing company with admin(s)
-          userRole = 'User';
-          // Users need admin approval
-          userAccess = false;
-          console.log(`User will join existing company as: ${userRole}`);
+        // Save user data to localStorage (should already be saved in authService.login)
+        if (response.user) {
+          localStorage.setItem('user', JSON.stringify(response.user));
+          console.log('User data saved to localStorage:', response.user);
+          setUser(response.user);
         } else {
-          // No admin in this company yet - make this user an admin
-          userRole = 'AccountAdmin';
-          userAccess = false; // Still needs system admin approval
-          console.log(`No admin found for existing company, setting user as: ${userRole}`);
+          console.warn('No user data received from login response');
+
+          // Try to get user data if not provided in the login response
+          try {
+            const userResponse = await authService.getCurrentUser();
+            if (userResponse.success && userResponse.user) {
+              setUser(userResponse.user);
+              localStorage.setItem('user', JSON.stringify(userResponse.user));
+              console.log('User data retrieved and saved to localStorage');
+            }
+          } catch (userError) {
+            console.warn('Failed to fetch user data after login:', userError);
+          }
         }
-      } else {
-        // New company - use the generated company ID
-        userRole = 'AccountAdmin'; // First user becomes admin
-        userAccess = false; // Need system admin approval
-        isNewCompany = true;
-        console.log(`Creating new company with ID: ${finalCompanyId}`);
+
+        // Save tokens to localStorage (should already be saved in authService.login)
+        if (response.tokens) {
+          localStorage.setItem('tokens', JSON.stringify(response.tokens));
+          console.log('Tokens saved to localStorage:', {
+            idToken: response.tokens.idToken ? `${response.tokens.idToken.substring(0, 15)}...` : null,
+            accessToken: response.tokens.accessToken ? 'Present' : null,
+            refreshToken: response.tokens.refreshToken ? 'Present' : null
+          });
+          setIsAuthenticated(true);
+        } else {
+          console.warn('No tokens received from login response');
+          // Check if we have tokens in localStorage that might have been set by the service
+          const idToken = localStorage.getItem('idToken');
+          if (idToken) {
+            console.log('Found token in localStorage, setting authenticated state');
+            setIsAuthenticated(true);
+          } else {
+            setIsAuthenticated(false);
+            throw new Error('No authentication tokens received');
+          }
+        }
+
+        // Make sure to store the token in localStorage
+        if (response.idToken) {
+          localStorage.setItem('idToken', response.idToken);
+          sessionStorage.setItem('idToken', response.idToken); // Backup in sessionStorage
+        }
+
+        // After successful authentication, check for admin status
+        const isUserAdmin = await checkAdminStatus();
+
+        // You might want to update user object to include admin status
+        if (response.user) {
+          setUser({
+            ...response.user,
+            isAdmin: isUserAdmin,
+            role: isUserAdmin ? 'Admin' : 'User'
+          });
+        }
+
+        return { success: true, user: response.user, isAdmin: isUserAdmin };
       }
 
-      // Use stronger bcrypt hashing
-      const passwordHash = await bcrypt.hash(password, 12); // Increased from 10 to 12
+      // If we somehow get here, it's an error
+      throw new Error(response.message || 'Login failed');
+    } catch (err: any) {
+      console.error('Login error:', err);
 
-      // Create the user with the appropriate company ID
-      const params = {
-        TableName: 'Users',
-        Item: {
-          UserId: userId,
-          CompanyId: finalCompanyId,
-          Username: username,
-          Email: email,
-          EmailDomain: emailDomain,
-          PhoneNumber: phoneNumber,
-          PasswordHash: passwordHash,
-          UserRole: userRole,
-          UserAccess: userAccess,
-          CreatedAt: new Date().toISOString()
-        }
-      };
+      // More robust error handling
+      if (err.needsConfirmation) {
+        setError({ message: 'Please confirm your account' });
+        return {
+          success: false,
+          needsConfirmation: true,
+          username
+        };
+      }
 
-      await dynamoDb.put(params).promise();
-      
-      const userData = {
-        id: userId,
-        companyId: finalCompanyId,
-        username,
+      // Handle network errors specifically
+      if (err.message === 'Network Error' || err.code === 'ERR_NETWORK') {
+        setError({
+          message: 'Network error: Cannot connect to authentication service. ' +
+            'Please check your internet connection and try again.'
+        });
+      } else {
+        setError({ message: err.message || 'Login failed' });
+      }
+
+      setIsAuthenticated(false);
+      setUser(null);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const signIn = login;
+
+  const signup = async (username: string, password: string, email: string, companyId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Create attributes object with email and companyId
+      const attributes = {
         email,
-        emailDomain,
-        phoneNumber,
-        role: userRole,
-        adminEmails: adminEmailAddresses // Include admin emails for notification
-      };
-      
-      login(userData);
-
-      console.log(`User created successfully. IsNewCompany: ${isNewCompany}, AdminEmails: ${adminEmailAddresses.join(', ')}`);
-      return { ...userData, isNewCompany };
-    } catch (error: any) {
-      setError(error);
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Confirm signup function
-  const handleConfirmSignUp = async (username: string, code: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Find the user by username
-      const findUserParams = {
-        TableName: 'Users',
-        FilterExpression: 'Username = :username',
-        ExpressionAttributeValues: {
-          ':username': username
-        }
+        'custom:companyId': companyId,
       };
 
-      const userData = await dynamoDb.scan(findUserParams).promise();
-      
-      if (!userData.Items || userData.Items.length === 0) {
-        throw new Error('User not found');
+      const result = await authService.signup(username, password, attributes);
+
+      if (!result.success) {
+        throw new Error(result.message || 'Signup failed');
       }
 
-      const user = userData.Items[0];
-
-      // Update the user's status
-      const params = {
-        TableName: 'Users',
-        Key: {
-          UserId: user.UserId
-        },
-        UpdateExpression: 'set UserAccess = :access',
-        ExpressionAttributeValues: {
-          ':access': true
-        }
+      return {
+        isSignUpComplete: result.isSignUpComplete,
+        userId: result.userId,
+        nextStep: result.nextStep,
+        username
       };
-
-      await dynamoDb.update(params).promise();
-    } catch (error: any) {
-      setError(error);
-      throw error;
+    } catch (err: any) {
+      setError({ message: err.message || 'Signup failed' });
+      throw err;
     } finally {
       setLoading(false);
     }
   };
 
-  // The context value that will be provided
-  const value = {
-    user,
-    login,
-    logout,
-    isAuthenticated: !!user,
-    signIn: handleSignIn,
-    signUp: handleSignUp,
-    confirmSignUp: handleConfirmSignUp,
-    loading,
-    error,
+  const signUp = async (username: string, password: string, attributes: Record<string, string>) => {
+    setLoading(true);
+    setError(null);
+    try {
+      console.log('Signing up user:', username);
+
+      const result = await authService.signup(username, password, attributes);
+
+      // More verbose logging of the complete signup result
+      console.log('Complete signup result from service:', result);
+
+      if (!result.success) {
+        throw new Error(result.message || 'Signup failed');
+      }
+
+      // Store username for confirmation
+      localStorage.setItem('pendingConfirmation', username);
+
+      return {
+        success: true,
+        isSignUpComplete: result.isSignUpComplete || false,
+        userId: result.userId || null,
+        nextStep: result.nextStep || { signUpStep: 'CONFIRM_SIGN_UP' },
+        username
+      };
+    } catch (err: any) {
+      console.error('Error during signup:', err);
+      setError({ message: err.message || 'Signup failed' });
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmUser = async (username: string, code: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await authService.confirmSignup(username, code);
+
+      if (!result.success) {
+        throw new Error(result.message || 'Confirmation failed');
+      }
+
+      return result;
+    } catch (err: any) {
+      setError({ message: err.message || 'Confirmation failed' });
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmSignUp = confirmUser;
+
+  const resendConfirmationCode = async (username: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await authService.resendConfirmationCode(username);
+
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to resend code');
+      }
+
+      return result;
+    } catch (err: any) {
+      setError({ message: err.message || 'Failed to resend code' });
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    setLoading(true);
+    try {
+      await authService.logout();
+      setUser(null);
+      setIsAuthenticated(false);
+      // Use window.location instead of navigate
+      window.location.href = '/login';
+    } catch (err: any) {
+      setError({ message: err.message || 'Logout failed' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      error,
+      isAuthenticated,
+      isAdmin,
+      userRole,
+      login,
+      signup,
+      logout,
+      checkAuth,
+      confirmUser,
+      resendConfirmationCode,
+      signIn,
+      signUp,
+      confirmSignUp,
+      checkAdminStatus
+    }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export { AuthContext };
+// Custom hook to use the auth context
+export const useAuth = () => {
+  const context = React.useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

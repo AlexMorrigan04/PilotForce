@@ -1,28 +1,34 @@
-export type BookingStatus = 'scheduled' | 'in-progress' | 'completed' | 'cancelled' | 'pending';
+export type BookingStatus = 'pending' | 'scheduled' | 'completed' | 'cancelled';
 
 export interface Booking {
   id: string;
-  BookingId?: string; // Some bookings use BookingId instead of id
+  BookingId: string;
   UserId: string;
+  CompanyId: string;
+  assetId: string;
+  assetName: string;
+  createdAt: string;
+  flightDate: string;
+  jobTypes: string[];
   jobType?: string;
-  jobName?: string;
+  location: string;
+  status: BookingStatus | string;
+  userName: string;
+  userEmail: string;
+  userPhone: string;
+  companyName: string;
+  notes: string;
+  address?: string;     // Added missing property
+  time?: string;        // Added missing property 
+  serviceOptions?: any;
   serviceType?: string;
-  assetName?: string;
-  companyName?: string;
-  address?: string;
-  flightDate?: string;
-  dateTime?: string;
-  location?: string;
-  status: BookingStatus;
-  notes?: string;
-  createdAt?: string;
-  images?: string[];
-  contactPerson?: string;
-  contactPhone?: string;
-  contactEmail?: string;
-  propertyType?: string;
-  propertySize?: string;
-  time?: string;
+  siteContact: {
+    id?: string;
+    name: string;
+    phone: string;
+    email?: string;
+    isAvailableOnsite?: boolean;
+  };
 }
 
 export interface BookingImage {

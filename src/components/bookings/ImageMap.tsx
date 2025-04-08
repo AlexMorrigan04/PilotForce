@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Map, { Marker, NavigationControl, MapRef, Source, Layer, Popup } from 'react-map-gl';
-import mapboxgl from 'mapbox-gl';
+import Map, { Marker, NavigationControl, MapRef, Source, Layer, Popup, ViewStateChangeEvent, MapLayerMouseEvent } from 'react-map-gl';
+import type * as mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import MapboxLogger from '../../utils/mapboxLogger';
 import GeoTiffUtils from '../../utils/geoTiffUtils';
@@ -193,7 +193,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         // Set metadata and log to console
         setGeoTiffMetadata(metadata);
         console.log("GeoTIFF Metadata:", metadata);
-        MapboxLogger.debug("GeoTIFF info:", metadata);
+        MapboxLogger.log("GeoTIFF info:", metadata);
         
         // Extract corners for proper display
         const [xmin, ymin, xmax, ymax] = bbox;
@@ -466,7 +466,8 @@ export const ImageMap: React.FC<ImageMapProps> = ({
           ctx.fillText('GeoTIFF', 10, 32);
           
           // Add the image to the map as a pattern
-          mapInstance.addImage('geotiff-placeholder', 
+          const mapboxMap = (mapInstance as any).getMap ? (mapInstance as any).getMap() : mapInstance;
+          mapboxMap.addImage('geotiff-placeholder', 
             { width: 64, height: 64, data: new Uint8Array(ctx.getImageData(0, 0, 64, 64).data) },
             { pixelRatio: 1 }
           );
@@ -654,9 +655,12 @@ export const ImageMap: React.FC<ImageMapProps> = ({
   };
 
   // Close popup when clicking elsewhere on the map
-  const handleMapClick = (event: mapboxgl.MapLayerMouseEvent) => {
+  const handleMapClick = (event: MapLayerMouseEvent) => {
     // Check if the click is on a marker
-    const features = mapInstance?.queryRenderedFeatures(event.point, {
+    const map = internalMapRef.current || (externalMapRef?.current as MapRef | null);
+    // Access the underlying Mapbox GL JS map instance using getMap()
+    const mapboxMap = map ? (map as any).getMap() : null;
+    const features = mapboxMap?.queryRenderedFeatures(event.point, {
       layers: ['markers-layer'] // You would need to add this layer if you want this behavior
     });
     
@@ -690,7 +694,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
     >
       <Map
         {...viewState}
-        onMove={evt => setViewState(evt.viewState)}
+        onMove={(evt: ViewStateChangeEvent) => setViewState(evt.viewState)}
         mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
         mapboxAccessToken={mapboxAccessToken}
         style={{ width: '100%', height: '100%' }}
@@ -699,14 +703,14 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         ref={externalMapRef || internalMapRef}
       >
         {/* Image location markers from ImageUploads with more detailed markers */}
-        {imageLocations.map((location, index) => (
+        {imageLocations.map((location, index: number) => (
           <Marker 
             key={`img-${index}`}
             longitude={location.longitude}
             latitude={location.latitude}
             anchor="center"
             scale={0.7}
-            onClick={(e: mapboxgl.MapLayerMouseEvent) => {
+            onClick={(e: MapLayerMouseEvent) => {
               // Prevent click event from propagating to the map
               (e.originalEvent as MouseEvent).stopPropagation();
               setPopupInfo(location);
@@ -767,7 +771,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
                   alt={popupInfo.name || 'Drone image'} 
                   className="w-full object-cover rounded shadow-sm"
                   style={{ maxHeight: '200px' }}
-                  onError={(e) => {
+                  onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
                     (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x200?text=Image+Not+Available';
                   }}
                 />
