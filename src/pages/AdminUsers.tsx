@@ -9,15 +9,30 @@ import * as adminService from '../services/adminService';
 import { validateAmplifyConfig } from '../utils/apiUtils';
 
 interface User {
-  id: string;
-  username: string;
-  email: string;
-  company: string;
-  companyId: string;
-  role: string;
-  status: string;
-  lastLogin: string;
-  isEnabled: boolean;
+  // Original fields
+  id?: string;
+  username?: string;
+  email?: string;
+  company?: string;
+  companyId?: string;
+  role?: string;
+  status?: string;
+  lastLogin?: string;
+  isEnabled?: boolean;
+  
+  // New fields from Cognito response
+  UserId?: string;
+  Username?: string;
+  Email?: string;
+  Name?: string;
+  PhoneNumber?: string;
+  UserRole?: string;
+  Status?: string;
+  CompanyId?: string;
+  CompanyName?: string;
+  CreatedAt?: string;
+  UpdatedAt?: string;
+  Enabled?: boolean;
 }
 
 interface Company {
@@ -63,8 +78,35 @@ const AdminUsers: React.FC = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
+      console.log('Fetching users with filters:', filters);
       const response = await adminService.getAllUsers(filters);
-      setUsers(response.users || []);
+      
+      // Check if response has users array
+      if (!response || !response.users) {
+        console.error('Invalid API response format:', response);
+        throw new Error('Invalid API response format');
+      }
+      
+      // Log all users from the API response
+      console.log('Raw users from API:', response.users);
+      
+      // Map the API response fields to the expected format for the UserTable component
+      const mappedUsers = response.users.map((user: any) => ({
+        id: user.UserId || user.id,
+        username: user.Username || user.username,
+        email: user.Email || user.email,
+        company: user.CompanyName || '',
+        companyId: user.CompanyId || user.companyId,
+        role: user.UserRole || user.role,
+        status: user.Status || user.status,
+        lastLogin: user.LastLogin || user.lastLogin || user.CreatedAt || '',
+        isEnabled: user.Enabled === undefined ? (user.Status !== 'DISABLED') : user.Enabled
+      }));
+      
+      console.log('Mapped users for display:', mappedUsers);
+      setUsers(mappedUsers);
+      console.log(`Fetched ${response.users.length} users`);
+      
       setError(null);
     } catch (err: any) {
       console.error('Error fetching users:', err);
@@ -73,6 +115,8 @@ const AdminUsers: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // Remove deduplication functions since we're only getting users from Cognito now
 
   // Fetch companies for filters
   const fetchCompanies = async () => {
@@ -110,20 +154,31 @@ const AdminUsers: React.FC = () => {
   const filteredUsers = users.filter(user => {
     const searchTermLower = searchTerm.toLowerCase();
     return (
-      user.username.toLowerCase().includes(searchTermLower) ||
-      user.email.toLowerCase().includes(searchTermLower) ||
-      user.company.toLowerCase().includes(searchTermLower) ||
-      user.role.toLowerCase().includes(searchTermLower) ||
-      user.status.toLowerCase().includes(searchTermLower)
+      (user.username && user.username.includes(searchTermLower)) ||
+      (user.email && user.email.includes(searchTermLower)) ||
+      (user.company && user.company.includes(searchTermLower)) ||
+      (user.role && user.role.includes(searchTermLower)) ||
+      (user.status && user.status.includes(searchTermLower))
     );
-  });
+  }).map(user => ({
+    ...user,
+    id: user.id || '', // Ensure id is never undefined
+    username: user.username || '',
+    email: user.email || '',
+    company: user.company || '',
+    companyId: user.companyId || '',
+    role: user.role || '',
+    status: user.status || '',
+    lastLogin: user.lastLogin || '',
+    isEnabled: user.isEnabled !== undefined ? user.isEnabled : false
+  }));
 
   // Handle user selection for bulk actions
   const handleSelectAll = () => {
     if (selectedUsers.length === filteredUsers.length) {
       setSelectedUsers([]);
     } else {
-      setSelectedUsers(filteredUsers.map(user => user.id));
+      setSelectedUsers(filteredUsers.map(user => user.id).filter((id): id is string => id !== undefined));
     }
   };
 
@@ -198,7 +253,7 @@ const AdminUsers: React.FC = () => {
         }
         
         // Update local state
-        setUsers(users.filter(user => !selectedUsers.includes(user.id)));
+        setUsers(users.filter(user => user.id !== undefined && !selectedUsers.includes(user.id)));
         setSelectedUsers([]);
         alert('Users deleted successfully');
       } catch (err: any) {
@@ -224,7 +279,7 @@ const AdminUsers: React.FC = () => {
         
         // Update local state
         setUsers(users.map(user => 
-          selectedUsers.includes(user.id) ? { ...user, isEnabled: false } : user
+          user.id !== undefined && selectedUsers.includes(user.id) ? { ...user, isEnabled: false } : user
         ));
         alert('Users disabled successfully');
       } catch (err: any) {

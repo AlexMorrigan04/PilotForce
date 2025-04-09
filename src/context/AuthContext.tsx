@@ -1,29 +1,10 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useContext } from 'react';
 import * as authService from '../services/authServices';
 import { isAdminFromToken } from '../utils/adminUtils';
-
-// Define the shape of our auth context
-interface AuthContextType {
-  user: any | null;
-  loading: boolean;
-  error: { message: string } | null;
-  isAuthenticated: boolean;
-  isAdmin: boolean;
-  userRole: string;
-  login: (username: string, password: string) => Promise<any>;
-  signup: (username: string, password: string, email: string, companyId: string) => Promise<any>;
-  logout: () => Promise<void>;
-  checkAuth: () => Promise<void>;
-  confirmUser: (username: string, code: string) => Promise<any>;
-  resendConfirmationCode: (username: string) => Promise<any>;
-  signIn: (username: string, password: string) => Promise<any>;
-  signUp: (username: string, password: string, attributes: Record<string, string>) => Promise<any>;
-  confirmSignUp: (username: string, code: string) => Promise<any>;
-  checkAdminStatus: () => Promise<boolean>;
-}
+import { AuthContextType } from '../types/auth';
 
 // Create the context with default values
-export const AuthContext = createContext<AuthContextType>({
+const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   error: null,
@@ -41,6 +22,15 @@ export const AuthContext = createContext<AuthContextType>({
   confirmSignUp: async () => ({}),
   checkAdminStatus: async () => false
 });
+
+// Custom hook to use the auth context
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 // Auth provider component
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -442,29 +432,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       console.log('Signing up user:', username);
 
-      const result = await authService.signup(username, password, attributes);
-
-      // More verbose logging of the complete signup result
-      console.log('Complete signup result from service:', result);
-
-      if (!result.success) {
-        throw new Error(result.message || 'Signup failed');
+      // Ensure API URLs are properly defined
+      if (!process.env.REACT_APP_API_URL) {
+        console.warn('REACT_APP_API_URL environment variable is not defined. Using fallback URL.');
       }
 
-      // Store username for confirmation
-      localStorage.setItem('pendingConfirmation', username);
+      // Try using our authService directly first, with better error handling
+      try {
+        console.log('Attempting signup via authService');
+        const result = await authService.signup(username, password, attributes);
+        
+        console.log('Complete signup result from service:', result);
 
-      return {
-        success: true,
-        isSignUpComplete: result.isSignUpComplete || false,
-        userId: result.userId || null,
-        nextStep: result.nextStep || { signUpStep: 'CONFIRM_SIGN_UP' },
-        username
-      };
+        if (!result.success) {
+          throw new Error(result.message || 'Signup failed');
+        }
+
+        // Store username for confirmation
+        localStorage.setItem('pendingConfirmation', username);
+        localStorage.setItem('signupEmail', attributes.email || '');
+
+        return {
+          success: true,
+          isSignUpComplete: result.isSignUpComplete || false,
+          userId: result.userId || null,
+          nextStep: result.nextStep || { signUpStep: 'CONFIRM_SIGN_UP' },
+          username
+        };
+      } catch (serviceError: any) {
+        console.error('authService signup failed:', serviceError);
+        
+        // Return structured error response for the UI
+        if (serviceError.response?.status === 404) {
+          console.log('API returned 404, attempting direct Cognito signup');
+          // Try direct Cognito signup via service (the service handles this internally)
+          const fallbackResult = await authService.signup(username, password, attributes);
+          
+          if (fallbackResult.success) {
+            localStorage.setItem('pendingConfirmation', username);
+            localStorage.setItem('signupEmail', attributes.email || '');
+            
+            return {
+              success: true,
+              isSignUpComplete: fallbackResult.isSignUpComplete || false,
+              userId: fallbackResult.userId || null,
+              nextStep: fallbackResult.nextStep || { signUpStep: 'CONFIRM_SIGN_UP' },
+              username
+            };
+          }
+        }
+        
+        // Re-throw so the error is caught by the outer catch block
+        throw serviceError;
+      }
     } catch (err: any) {
       console.error('Error during signup:', err);
       setError({ message: err.message || 'Signup failed' });
-      throw err;
+      
+      // Return a structured error response that can be handled by the UI
+      return {
+        success: false,
+        message: err.message || 'An unexpected error occurred during signup',
+        error: err
+      };
     } finally {
       setLoading(false);
     }
@@ -549,11 +579,5 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
-// Custom hook to use the auth context
-export const useAuth = () => {
-  const context = React.useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+// Export the context for direct imports
+export { AuthContext };

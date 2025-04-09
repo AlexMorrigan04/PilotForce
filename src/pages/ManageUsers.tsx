@@ -14,6 +14,24 @@ interface CompanyUser {
   Status: string;
   CreatedAt: string;
   CompanyId: string;
+  // Add new fields from DynamoDB
+  Address?: string;
+  City?: string;
+  State?: string;
+  PostalCode?: string;
+  Country?: string;
+  ProfileImageUrl?: string;
+  Department?: string;
+  Position?: string;
+  PreferredCommunication?: string;
+  DateOfBirth?: string;
+  Bio?: string;
+  Skills?: string[];
+  Certifications?: string[];
+  IsEnabled?: boolean;
+  LastLogin?: string;
+  UpdatedAt?: string;
+  [key: string]: any; // Allow any additional fields from DynamoDB
 }
 
 const ManageUsers: React.FC = () => {
@@ -209,9 +227,9 @@ const ManageUsers: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar userInfo={userInfo ? {
-        username: userInfo.username,
-        email: userInfo.email,
-        name: userInfo.name || userInfo.username // Provide a fallback if name is undefined
+        username: userInfo.username || '',
+        email: userInfo.email || '',
+        name: userInfo.name || userInfo.username || ''
       } : null} />
       
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
@@ -277,8 +295,25 @@ const ManageUsers: React.FC = () => {
                     <tr key={user.UserId} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">
-                            {(user.Name || user.Username || 'U').charAt(0).toUpperCase()}
+                          <div className="flex-shrink-0 h-10 w-10">
+                            {user.ProfileImageUrl ? (
+                              <img 
+                                src={user.ProfileImageUrl} 
+                                alt={`${user.Username}'s profile`} 
+                                className="h-10 w-10 rounded-full"
+                                onError={(e) => {
+                                  // Fallback to initials if image fails to load
+                                  e.currentTarget.style.display = 'none';
+                                  if (e.currentTarget.nextElementSibling) {
+                                    (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex';
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <div className="bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold h-10 w-10">
+                                {(user.Name || user.Username || 'U').charAt(0).toUpperCase()}
+                              </div>
+                            )}
                           </div>
                           <div className="ml-4">
                             <div className="text-sm font-medium text-gray-900">
@@ -287,6 +322,11 @@ const ManageUsers: React.FC = () => {
                             <div className="text-sm text-gray-500">
                               {user.Email}
                             </div>
+                            {user.Department && (
+                              <div className="text-xs text-gray-400">
+                                {user.Department} • {user.Position || 'Staff'}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -328,7 +368,7 @@ const ManageUsers: React.FC = () => {
         
         {isEditing && selectedUser && (
           <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium text-gray-900">Edit User Role</h3>
                 <button 
@@ -361,6 +401,33 @@ const ManageUsers: React.FC = () => {
                   <option value="Manager">Manager</option>
                   <option value="Admin">Admin</option>
                 </select>
+              </div>
+              
+              {/* Add new fields for editing */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="department">
+                  Department
+                </label>
+                <input
+                  id="department"
+                  type="text"
+                  className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  value={selectedUser.Department || ''}
+                  onChange={(e) => setSelectedUser({...selectedUser, Department: e.target.value})}
+                />
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="position">
+                  Position
+                </label>
+                <input
+                  id="position"
+                  type="text"
+                  className="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  value={selectedUser.Position || ''}
+                  onChange={(e) => setSelectedUser({...selectedUser, Position: e.target.value})}
+                />
               </div>
               
               <div className="flex justify-end space-x-3">

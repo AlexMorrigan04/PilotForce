@@ -2,67 +2,111 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AdminNavbar from '../components/AdminNavbar';
-import { FiUsers, FiPieChart, FiAlertTriangle, FiDatabase, FiSettings, FiBriefcase, FiCalendar, FiGrid } from 'react-icons/fi';
+import * as adminService from '../services/adminService';
+import { 
+  FiUsers, FiBriefcase, FiCalendar, FiPieChart, FiSettings, 
+  FiMapPin, FiClock, FiAlertCircle, FiFileText 
+} from 'react-icons/fi';
 
 const AdminDashboard: React.FC = () => {
   const { user, isAdmin } = useAuth();
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [recentUsers, setRecentUsers] = useState<any[]>([]);
+  const [recentBookings, setRecentBookings] = useState<any[]>([]);
   const navigate = useNavigate();
 
   // Stats for the dashboard
   const [stats, setStats] = useState({
-    users: 127,
-    companies: 14,
-    bookings: 358,
-    assets: 89
+    users: 0,
+    companies: 0,
+    bookings: 0,
+    activeBookings: 0
   });
 
   // Verify admin status on component mount
   useEffect(() => {
-    const verifyAdmin = async () => {
-      if (!isAdmin) {
-        setError('You do not have permission to access this page');
-        setTimeout(() => {
-          navigate('/dashboard');
-        }, 2000);
-      }
-    };
-
-    verifyAdmin();
+    if (!isAdmin) {
+      setError('You do not have permission to access this page');
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 2000);
+      return;
+    }
     
-    // Simulate loading data
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-    }, 800);
+    fetchDashboardData();
   }, [isAdmin, navigate]);
+
+  // Fetch real data for the dashboard
+  const fetchDashboardData = async () => {
+    setLoading(true);
+    try {
+      // Fetch users, bookings and calculate stats
+      const [usersResponse, bookingsResponse] = await Promise.all([
+        adminService.getAllUsers(),
+        adminService.getAllBookings()
+      ]);
+      
+      // Get actual data from responses
+      const users = usersResponse.users || [];
+      const bookings = bookingsResponse.bookings || [];
+      
+      // Calculate active bookings
+      const activeBookingCount = bookings.filter((booking: any) => 
+        booking.status === 'confirmed' || booking.status === 'in-progress'
+      ).length;
+      
+      // Set the statistics
+      setStats({
+        users: users.length,
+        companies: new Set(users.map((user: any) => user.CompanyId || user.companyId)).size,
+        bookings: bookings.length,
+        activeBookings: activeBookingCount
+      });
+      
+      // Get recent users and bookings for quick access
+      const sortedUsers = [...users]
+        .sort((a, b) => new Date(b.CreatedAt || 0).getTime() - new Date(a.CreatedAt || 0).getTime())
+        .slice(0, 5);
+        
+      const sortedBookings = [...bookings]
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+        .slice(0, 5);
+      
+      setRecentUsers(sortedUsers);
+      setRecentBookings(sortedBookings);
+    } catch (err: any) {
+      console.error('Error fetching dashboard data:', err);
+      setError(err.message || 'Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Quick actions for admin tasks
   const quickActions = [
     { name: 'Add User', icon: <FiUsers />, path: '/admin/users/add' },
-    { name: 'Add Company', icon: <FiBriefcase />, path: '/admin/companies/add' },
-    { name: 'View Reports', icon: <FiPieChart />, path: '/admin/reports' },
+    { name: 'View Bookings', icon: <FiCalendar />, path: '/admin/bookings' },
+    { name: 'View Resources', icon: <FiFileText />, path: '/admin/resources' },
     { name: 'System Settings', icon: <FiSettings />, path: '/admin/settings' }
   ];
-  
-  // Recent alerts for the admin
-  const recentAlerts = [
-    { id: 1, message: 'New user registration pending approval', time: '10 minutes ago', type: 'info' },
-    { id: 2, message: 'System backup completed successfully', time: '1 hour ago', type: 'success' },
-    { id: 3, message: 'Failed login attempts detected', time: '3 hours ago', type: 'warning' },
-    { id: 4, message: 'Server resource usage approaching limit', time: '5 hours ago', type: 'danger' }
-  ];
+
+  // Format job types from array or string
+  const formatJobTypes = (jobTypes: any): string => {
+    if (!jobTypes) return 'General Booking';
+    if (Array.isArray(jobTypes)) return jobTypes.join(', ');
+    return String(jobTypes);
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
       <AdminNavbar />
       
       <main className="flex-1 container mx-auto px-4 py-8">
-        <header className="mb-8">
+        <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-600">Welcome back, {user?.username || 'Admin'}. Here's what's happening in your system.</p>
-        </header>
+          <p className="text-gray-600">Welcome back, {user?.name || 'Admin'}</p>
+        </div>
 
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
@@ -70,212 +114,227 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {loading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
-          </div>
-        ) : (
-          <>
-            {/* Stats Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              <div className="bg-white rounded-lg shadow p-6 flex items-center">
-                <div className="bg-blue-100 p-3 rounded-full mr-4">
-                  <FiUsers className="h-6 w-6 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-gray-500 text-sm">Total Users</p>
-                  <p className="text-2xl font-bold">{stats.users}</p>
-                </div>
+        {/* Key Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {loading ? (
+            Array(4).fill(0).map((_, i) => (
+              <div key={i} className="bg-white rounded-lg shadow-sm p-6 animate-pulse">
+                <div className="h-8 bg-gray-200 rounded w-2/3 mb-4"></div>
+                <div className="h-5 bg-gray-200 rounded w-1/2"></div>
               </div>
-              
-              <div className="bg-white rounded-lg shadow p-6 flex items-center">
-                <div className="bg-blue-100 p-3 rounded-full mr-4">
-                  <FiBriefcase className="h-6 w-6 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-gray-500 text-sm">Companies</p>
-                  <p className="text-2xl font-bold">{stats.companies}</p>
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-lg shadow p-6 flex items-center">
-                <div className="bg-blue-100 p-3 rounded-full mr-4">
-                  <FiCalendar className="h-6 w-6 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-gray-500 text-sm">Bookings</p>
-                  <p className="text-2xl font-bold">{stats.bookings}</p>
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-lg shadow p-6 flex items-center">
-                <div className="bg-blue-100 p-3 rounded-full mr-4">
-                  <FiGrid className="h-6 w-6 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-gray-500 text-sm">Assets</p>
-                  <p className="text-2xl font-bold">{stats.assets}</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Quick Actions */}
-              <div className="lg:col-span-1">
-                <div className="bg-white rounded-lg shadow">
-                  <div className="p-4 border-b border-gray-200">
-                    <h2 className="font-bold text-lg">Quick Actions</h2>
-                  </div>
-                  <div className="p-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      {quickActions.map((action, index) => (
-                        <button 
-                          key={index}
-                          onClick={() => navigate(action.path)}
-                          className="bg-blue-50 text-blue-600 p-4 rounded-lg flex flex-col items-center justify-center text-center hover:bg-blue-100 transition-colors"
-                        >
-                          <span className="text-2xl mb-2">{action.icon}</span>
-                          <span className="text-sm font-medium">{action.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* System Status */}
-                <div className="bg-white rounded-lg shadow mt-6">
-                  <div className="p-4 border-b border-gray-200">
-                    <h2 className="font-bold text-lg">System Status</h2>
-                  </div>
-                  <div className="p-4">
-                    <div className="mb-4">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm text-gray-600">CPU Usage</span>
-                        <span className="text-sm font-medium text-gray-800">28%</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div className="bg-blue-600 h-2 rounded-full" style={{ width: '28%' }}></div>
-                      </div>
-                    </div>
-                    
-                    <div className="mb-4">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm text-gray-600">Memory Usage</span>
-                        <span className="text-sm font-medium text-gray-800">64%</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div className="bg-blue-600 h-2 rounded-full" style={{ width: '64%' }}></div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm text-gray-600">Storage Usage</span>
-                        <span className="text-sm font-medium text-gray-800">42%</span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div className="bg-blue-600 h-2 rounded-full" style={{ width: '42%' }}></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Recent Alerts and Activity */}
-              <div className="lg:col-span-2">
-                <div className="bg-white rounded-lg shadow">
-                  <div className="p-4 border-b border-gray-200">
-                    <h2 className="font-bold text-lg">Recent Alerts</h2>
-                  </div>
-                  <div className="p-4">
-                    <div className="space-y-4">
-                      {recentAlerts.map(alert => (
-                        <div key={alert.id} className={`p-4 rounded-lg border flex items-start
-                          ${alert.type === 'info' ? 'bg-blue-50 border-blue-200' : 
-                            alert.type === 'success' ? 'bg-blue-50 border-blue-200' :
-                            alert.type === 'warning' ? 'bg-blue-50 border-blue-200' : 
-                            'bg-blue-50 border-blue-200'}`}
-                        >
-                          <div className="p-2 rounded-full mr-4 bg-blue-100 text-blue-600">
-                            <FiAlertTriangle className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-gray-800">{alert.message}</p>
-                            <p className="text-sm text-gray-500">{alert.time}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Recent Activity */}
-                <div className="bg-white rounded-lg shadow mt-6">
-                  <div className="p-4 border-b border-gray-200">
-                    <h2 className="font-bold text-lg">Recent Activity</h2>
-                  </div>
-                  <div className="p-4">
-                    <ul className="divide-y divide-gray-200">
-                      <li className="py-3">
-                        <div className="flex items-center">
-                          <span className="bg-blue-100 text-blue-600 p-1 rounded mr-3">
-                            <FiUsers className="h-4 w-4" />
-                          </span>
-                          <div>
-                            <p className="text-sm font-medium text-gray-800">New user registered</p>
-                            <p className="text-xs text-gray-500">John Smith • 23 minutes ago</p>
-                          </div>
-                        </div>
-                      </li>
-                      <li className="py-3">
-                        <div className="flex items-center">
-                          <span className="bg-blue-100 text-blue-600 p-1 rounded mr-3">
-                            <FiCalendar className="h-4 w-4" />
-                          </span>
-                          <div>
-                            <p className="text-sm font-medium text-gray-800">New booking created</p>
-                            <p className="text-xs text-gray-500">Acme Inc. • 1 hour ago</p>
-                          </div>
-                        </div>
-                      </li>
-                      <li className="py-3">
-                        <div className="flex items-center">
-                          <span className="bg-blue-100 text-blue-600 p-1 rounded mr-3">
-                            <FiBriefcase className="h-4 w-4" />
-                          </span>
-                          <div>
-                            <p className="text-sm font-medium text-gray-800">New company added</p>
-                            <p className="text-xs text-gray-500">TechSolutions Ltd • 3 hours ago</p>
-                          </div>
-                        </div>
-                      </li>
-                      <li className="py-3">
-                        <div className="flex items-center">
-                          <span className="bg-blue-100 text-blue-600 p-1 rounded mr-3">
-                            <FiGrid className="h-4 w-4" />
-                          </span>
-                          <div>
-                            <p className="text-sm font-medium text-gray-800">Asset updated</p>
-                            <p className="text-xs text-gray-500">Drone X-500 • 5 hours ago</p>
-                          </div>
-                        </div>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </main>
-      
-      <footer className="bg-white border-t border-gray-200 py-4">
-        <div className="container mx-auto px-4">
-          <p className="text-sm text-gray-500 text-center">
-            PilotForce Admin Dashboard © {new Date().getFullYear()} | <span className="text-blue-600">System Status: Operational</span>
-          </p>
+            ))
+          ) : (
+            <>
+              <StatCard 
+                title="Total Users" 
+                value={stats.users} 
+                icon={<FiUsers className="w-6 h-6" />}
+                color="blue"
+                path="/admin/users"
+              />
+              <StatCard 
+                title="Companies" 
+                value={stats.companies} 
+                icon={<FiBriefcase className="w-6 h-6" />}
+                color="indigo"
+                path="/admin/companies"
+              />
+              <StatCard 
+                title="Total Bookings" 
+                value={stats.bookings} 
+                icon={<FiCalendar className="w-6 h-6" />}
+                color="purple"
+                path="/admin/bookings"
+              />
+              <StatCard 
+                title="Active Bookings" 
+                value={stats.activeBookings} 
+                icon={<FiClock className="w-6 h-6" />}
+                color="green"
+                path="/admin/bookings?status=active"
+              />
+            </>
+          )}
         </div>
-      </footer>
+
+        {/* Quick Actions */}
+        <div className="bg-white rounded-lg shadow mb-6">
+          <div className="p-4 border-b border-gray-200">
+            <h2 className="text-lg font-medium text-gray-900">Quick Actions</h2>
+          </div>
+          <div className="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            {quickActions.map((action, index) => (
+              <button
+                key={index}
+                onClick={() => navigate(action.path)}
+                className="flex items-center justify-center p-4 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 transition duration-200"
+              >
+                <span className="mr-2">{action.icon}</span>
+                {action.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent Activity */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          {/* Recent Users */}
+          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="font-bold text-lg text-gray-900">Recent Users</h2>
+              <button 
+                onClick={() => navigate('/admin/users')} 
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                View All
+              </button>
+            </div>
+            <div className="p-4">
+              {loading ? (
+                <div className="animate-pulse space-y-4">
+                  {Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="flex items-center space-x-4">
+                      <div className="rounded-full bg-gray-200 h-10 w-10"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : recentUsers && recentUsers.length > 0 ? (
+                <ul className="divide-y divide-gray-200">
+                  {recentUsers.map((user: any) => (
+                    <li key={user?.UserId || user?.id || `user-${Math.random()}`} className="py-3">
+                      <div className="flex items-center space-x-4">
+                        <div className="flex-shrink-0">
+                          <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-500">
+                            {(user?.Name || user?.Username || 'U').charAt(0).toUpperCase()}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {user?.Name || user?.Username || 'Unknown User'}
+                          </p>
+                          <p className="text-sm text-gray-500 truncate">
+                            {user?.Email || user?.email || 'No email'}
+                          </p>
+                        </div>
+                        <div>
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                            ${((user?.UserRole || user?.role || '').toString().toLowerCase().includes('admin')) ? 
+                              'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                            {user?.UserRole || user?.role || 'User'}
+                          </span>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-center py-4 text-gray-500">No recent users found</p>
+              )}
+            </div>
+          </div>
+          
+          {/* Recent Bookings */}
+          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="font-bold text-lg text-gray-900">Recent Bookings</h2>
+              <button 
+                onClick={() => navigate('/admin/bookings')} 
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                View All
+              </button>
+            </div>
+            <div className="p-4">
+              {loading ? (
+                <div className="animate-pulse space-y-4">
+                  {Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="flex items-center space-x-4">
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                      </div>
+                      <div className="h-8 bg-gray-200 rounded w-20"></div>
+                    </div>
+                  ))}
+                </div>
+              ) : recentBookings && recentBookings.length > 0 ? (
+                <ul className="divide-y divide-gray-200">
+                  {recentBookings.map((booking: any) => (
+                    <li key={booking?.BookingId || booking?.id || `booking-${Math.random()}`} className="py-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {formatJobTypes(booking?.jobTypes) || 
+                             booking?.title || 
+                             `Booking at ${booking?.location?.substring(0, 15) || 'Unknown Location'}`}
+                          </p>
+                          <p className="text-sm text-gray-500 truncate">
+                            {booking?.assetName ? `Asset: ${booking.assetName}` : ''} 
+                            {booking?.flightDate ? ` • ${new Date(booking.flightDate).toLocaleDateString()}` : ''}
+                          </p>
+                        </div>
+                        <div>
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                            ${booking?.status === 'confirmed' ? 'bg-green-100 text-green-800' : 
+                              booking?.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                              'bg-gray-100 text-gray-800'}`}>
+                            {booking?.status || 'Unknown'}
+                          </span>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-center py-4 text-gray-500">No recent bookings found</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+};
+
+// Stat Card Component
+interface StatCardProps {
+  title: string;
+  value: number;
+  icon: React.ReactNode;
+  color: string;
+  path: string;
+}
+
+const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color, path }) => {
+  const navigate = useNavigate();
+  const colorMap: Record<string, string> = {
+    blue: 'bg-blue-500',
+    indigo: 'bg-indigo-500',
+    purple: 'bg-purple-500',
+    green: 'bg-green-500',
+    red: 'bg-red-500',
+    yellow: 'bg-yellow-500'
+  };
+  
+  return (
+    <div 
+      className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-blue-500 cursor-pointer hover:shadow-md transition-shadow"
+      onClick={() => navigate(path)}
+      style={{ borderTopColor: `var(--${color}-500)` }}
+    >
+      <div className="flex items-center">
+        <div className={`p-3 rounded-full ${colorMap[color] || 'bg-blue-500'} text-white mr-4`}>
+          {icon}
+        </div>
+        <div>
+          <p className="text-sm font-medium text-gray-500 uppercase">{title}</p>
+          <p className="text-2xl font-semibold mt-1">{value}</p>
+        </div>
+      </div>
     </div>
   );
 };

@@ -1,0 +1,71 @@
+{
+    "Table": {
+        "AttributeDefinitions": [
+            {
+                "AttributeName": "CompanyId",
+                "AttributeType": "S"
+            },
+            {
+                "AttributeName": "EmailDomain",
+                "AttributeType": "S"
+            }
+        ],
+        "TableName": "Companies",
+        "KeySchema": [
+            {
+                "AttributeName": "CompanyId",
+                "KeyType": "HASH"
+            }
+        ],
+        "TableStatus": "ACTIVE",
+        "CreationDateTime": "2025-03-31T12:40:02.231000+01:00",
+        "ProvisionedThroughput": {
+            "NumberOfDecreasesToday": 0,
+            "ReadCapacityUnits": 0,
+            "WriteCapacityUnits": 0
+        },
+        "TableSizeBytes": 0,
+        "ItemCount": 0,
+        "TableArn": "arn:aws:dynamodb:eu-north-1:229816860983:table/Companies",
+        "TableId": "dd414b96-6bbb-47c5-8ef3-1d892d954751",
+        "BillingModeSummary": {
+            "BillingMode": "PAY_PER_REQUEST",
+            "LastUpdateToPayPerRequestDateTime": "2025-03-31T12:40:02.231000+01:00"
+        },
+        "GlobalSecondaryIndexes": [
+            {
+                "IndexName": "EmailDomainIndex",
+                "KeySchema": [
+                    {
+                        "AttributeName": "EmailDomain",
+                        "KeyType": "HASH"
+                    }
+                ],
+                "Projection": {
+                    "ProjectionType": "ALL"
+                },
+                "IndexStatus": "ACTIVE",
+                "ProvisionedThroughput": {
+                    "NumberOfDecreasesToday": 0,
+                    "ReadCapacityUnits": 0,
+                    "WriteCapacityUnits": 0
+                },
+                "IndexSizeBytes": 0,
+                "ItemCount": 0,
+                "IndexArn": "arn:aws:dynamodb:eu-north-1:229816860983:table/Companies/index/EmailDomainIndex",
+                "WarmThroughput": {
+                    "ReadUnitsPerSecond": 12000,
+                }
+            }
+        ],
+        "TableClassSummary": {
+            "TableClass": "STANDARD"
+        },
+        "DeletionProtectionEnabled": false,
+        "WarmThroughput": {
+            "ReadUnitsPerSecond": 12000,
+            "WriteUnitsPerSecond": 4000,
+            "Status": "ACTIVE"
+        }
+    }
+}

@@ -64,6 +64,18 @@ const CompanySetup: React.FC = () => {
         throw new Error('User or company ID not found');
       }
 
+      // Fix the possible undefined error with user.email
+      const companyData = {
+        company: {
+          Name: companyName,
+          LogoUrl: '',
+          CreatedDate: new Date().toISOString(),
+          CreatedBy: user?.id || '',
+          Status: 'Active',
+          PrimaryDomain: user?.email ? user.email.split('@')[1] || '' : ''
+        }
+      };
+
       // Save company information to Companies table
       const companyParams = {
         TableName: 'Companies',
@@ -74,7 +86,7 @@ const CompanySetup: React.FC = () => {
           CreatedAt: new Date().toISOString(),
           CreatedBy: user.id,
           Status: 'Active',
-          PrimaryDomain: user.email.split('@')[1] || ''
+          PrimaryDomain: user?.email?.split('@')[1] || ''
         }
       };
 

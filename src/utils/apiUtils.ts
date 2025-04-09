@@ -1,7 +1,6 @@
 import { AxiosRequestConfig } from 'axios';
 import { getItem, getUser, getTokens } from './localStorage';
 import { User, Tokens } from '../types/auth';
-import { Amplify } from 'aws-amplify';
 
 // Input sanitization
 export const sanitizeInput = (input: string): string => {
@@ -130,16 +129,16 @@ export const reportInvalidImageToAPI = (
  * @returns The parsed JSON response
  */
 export const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
+  // Create the URL - use the production API URL, not localhost
+  const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+  const url = `${apiUrl}/${endpoint}`;
+  
   // Try to use credentials-based authentication
   const username = localStorage.getItem('auth_username');
   const password = localStorage.getItem('auth_password');
   
   if (username && password) {
     console.log(`Making credentials-based request to ${endpoint} for user: ${username}`);
-    
-    // Create the URL
-    const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
-    const url = `${apiUrl}/${endpoint}`;
     
     // Parse any existing body (if it's a string)
     let existingBody = {};
@@ -236,10 +235,6 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
     throw new Error('No authentication token found');
   }
   
-  // Create the URL
-  const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
-  const url = `${apiUrl}/${endpoint}`;
-  
   // Prepare headers with authentication
   const headers = {
     ...options.headers,
@@ -332,29 +327,159 @@ export const logUserData = () => {
 };
 
 /**
- * Validate if Amplify API configuration is set up correctly
- * Useful for debugging API configuration issues
+ * Validate API configuration and ensure endpoints are accessible
+ * This is a simplified replacement for the amplify configuration check
  */
 export const validateAmplifyConfig = () => {
-  // Get the current config
-  const currentConfig = Amplify.getConfig();
+  // Check that important environment variables are set
+  const apiUrl = process.env.REACT_APP_API_URL || '';
+  const cognitoPoolId = process.env.REACT_APP_USER_POOL_ID || '';
   
-  console.log('Current Amplify Config:', currentConfig);
-  
-  // Check if API configuration exists
-  if (!currentConfig.API || !currentConfig.API.REST) {
-    console.error('API configuration is missing in Amplify');
-    return false;
+  if (!apiUrl) {
+    console.warn('REACT_APP_API_URL is not defined - API calls might fail');
   }
   
-  // Check if PilotForceAPI is configured
-  if (!currentConfig.API.REST.PilotForceAPI) {
-    console.error('PilotForceAPI is not configured in Amplify');
-    return false;
+  if (!cognitoPoolId) {
+    console.warn('REACT_APP_USER_POOL_ID is not defined - authentication might fail');
   }
   
-  console.log('Amplify API configuration validation passed');
+  // Check if we have authentication tokens
+  const hasToken = !!localStorage.getItem('idToken');
+  
+  console.log('API Configuration check:', { 
+    apiUrlConfigured: !!apiUrl,
+    cognitoConfigured: !!cognitoPoolId,
+    hasAuthToken: hasToken
+  });
+  
   return true;
+};
+
+// Define API utility functions that don't rely on Amplify
+export const API = {
+  // Get all users
+  getUsers: async () => {
+    try {
+      return await fetchWithAuth('admin/users', { method: 'GET' });
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      throw error;
+    }
+  },
+  
+  // Get a specific user
+  getUser: async (userId: string) => {
+    try {
+      return await fetchWithAuth(`admin/users/${userId}`, { method: 'GET' });
+    } catch (error) {
+      console.error(`Error fetching user ${userId}:`, error);
+      throw error;
+    }
+  },
+  
+  // Update a user
+  updateUser: async (userId: string, userData: any) => {
+    try {
+      return await fetchWithAuth(`admin/users/${userId}`, { 
+        method: 'PUT',
+        body: JSON.stringify(userData)
+      });
+    } catch (error) {
+      console.error(`Error updating user ${userId}:`, error);
+      throw error;
+    }
+  },
+  
+  // Delete a user
+  deleteUser: async (userId: string) => {
+    try {
+      return await fetchWithAuth(`admin/users/${userId}`, { method: 'DELETE' });
+    } catch (error) {
+      console.error(`Error deleting user ${userId}:`, error);
+      throw error;
+    }
+  },
+  
+  // Toggle user access (enable/disable)
+  toggleUserAccess: async (userId: string, isEnabled: boolean) => {
+    try {
+      return await fetchWithAuth(`admin/users/${userId}/access`, { 
+        method: 'PUT',
+        body: JSON.stringify({ isEnabled })
+      });
+    } catch (error) {
+      console.error(`Error toggling access for user ${userId}:`, error);
+      throw error;
+    }
+  },
+  
+  // Add signup function
+  signup: async (userData: any) => {
+    try {
+      console.log('Attempting signup with data:', {
+        ...userData,
+        password: userData.password ? '********' : undefined
+      });
+      
+      // Make sure we're using the production API URL
+      const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+      const url = `${apiUrl}/signup`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(userData)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Signup failed with status ${response.status}:`, errorText);
+        throw new Error(`Signup failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error during signup:', error);
+      throw error;
+    }
+  },
+  
+  // Add confirmation function
+  confirmSignup: async (username: string, code: string) => {
+    try {
+      console.log(`Confirming signup for user: ${username}`);
+      
+      // Make sure we're using the production API URL
+      const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+      const url = `${apiUrl}/confirm-signup`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username,
+          confirmationCode: code
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Confirmation failed with status ${response.status}:`, errorText);
+        throw new Error(`Confirmation failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error during confirmation:', error);
+      throw error;
+    }
+  }
 };
 
 /**
@@ -364,6 +489,25 @@ export const isMockEnvironment = () => {
   return process.env.REACT_APP_USE_MOCK_API === 'true' || 
          !process.env.REACT_APP_API_ENDPOINT || 
          window.location.hostname === 'localhost';
+};
+
+// Add an environment detection helper
+export const getApiBaseUrl = () => {
+  // Explicitly check for localhost
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    // Check if we have a defined local API URL
+    const localApiUrl = process.env.REACT_APP_LOCAL_API_URL;
+    if (localApiUrl) {
+      console.log(`Using local API URL: ${localApiUrl}`);
+      return localApiUrl;
+    }
+    
+    // If running locally, but the API isn't, make sure we use the production API
+    console.log(`Local development detected, but using production API`);
+  }
+  
+  // Default to production API
+  return process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
 };
 
 export default {

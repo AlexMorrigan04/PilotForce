@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { FiEdit, FiTrash2, FiLock, FiUnlock, FiExternalLink, FiChevronUp, FiChevronDown } from 'react-icons/fi';
+import React from 'react';
+import { FiEdit, FiTrash2, FiEye, FiToggleLeft, FiToggleRight } from 'react-icons/fi';
 
 interface User {
   id: string;
@@ -25,9 +25,6 @@ interface UserTableProps {
   onSelectAll: () => void;
 }
 
-type SortField = 'username' | 'email' | 'company' | 'role' | 'status' | 'lastLogin';
-type SortDirection = 'asc' | 'desc';
-
 const UserTable: React.FC<UserTableProps> = ({
   users,
   loading,
@@ -39,198 +36,180 @@ const UserTable: React.FC<UserTableProps> = ({
   onSelectUser,
   onSelectAll
 }) => {
-  const [sortField, setSortField] = useState<SortField>('username');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-
-  const handleSort = (field: SortField) => {
-    if (field === sortField) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
+  // Format date strings for display
+  const formatDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    } catch (e) {
+      return dateString;
     }
   };
 
-  const sortedUsers = [...users].sort((a, b) => {
-    const aValue = a[sortField];
-    const bValue = b[sortField];
+  // Get status badge style based on status
+  const getStatusBadgeStyle = (status: string) => {
+    if (!status) return 'bg-gray-100 text-gray-800';
     
-    if (aValue === bValue) return 0;
-    
-    // Special handling for dates
-    if (sortField === 'lastLogin') {
-      // Special handling for 'Never' in lastLogin
-      if (aValue === 'Never') return sortDirection === 'asc' ? 1 : -1;
-      if (bValue === 'Never') return sortDirection === 'asc' ? -1 : 1;
-      
-      if (aValue !== 'Never' && bValue !== 'Never') {
-        const aDate = new Date(aValue);
-        const bDate = new Date(bValue);
-        const result = aDate < bDate ? -1 : 1;
-        return sortDirection === 'asc' ? result : -result;
-      }
-    }
-    
-    const result = aValue < bValue ? -1 : 1;
-    return sortDirection === 'asc' ? result : -result;
-  });
-
-  const getSortIcon = (field: SortField) => {
-    if (sortField !== field) return null;
-    return sortDirection === 'asc' ? <FiChevronUp className="inline ml-1" /> : <FiChevronDown className="inline ml-1" />;
+    const statusLower = status.toLowerCase();
+    if (statusLower === 'confirmed') return 'bg-green-100 text-green-800';
+    if (statusLower === 'enabled') return 'bg-green-100 text-green-800';
+    if (statusLower === 'disabled') return 'bg-red-100 text-red-800';
+    if (statusLower === 'unconfirmed') return 'bg-yellow-100 text-yellow-800';
+    return 'bg-gray-100 text-gray-800';
   };
 
-  const renderSortableHeader = (field: SortField, label: string) => (
-    <th 
-      scope="col" 
-      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-      onClick={() => handleSort(field)}
-    >
-      {label} {getSortIcon(field)}
-    </th>
-  );
-
-  const getStatusBadgeClass = (status: string, isEnabled: boolean) => {
-    if (!isEnabled) return 'bg-red-100 text-red-800 border-red-200';
+  // Get role badge style based on role
+  const getRoleBadgeStyle = (role: string) => {
+    if (!role) return 'bg-gray-100 text-gray-800';
     
-    switch (status.toLowerCase()) {
-      case 'active':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'inactive':
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      case 'suspended':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'pending':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
+    const roleLower = role.toLowerCase();
+    if (roleLower.includes('admin')) return 'bg-purple-100 text-purple-800';
+    if (roleLower.includes('manager')) return 'bg-blue-100 text-blue-800';
+    return 'bg-indigo-100 text-indigo-800';
   };
+
+  if (loading) {
+    return (
+      <div className="p-4 flex justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (users.length === 0) {
+    return (
+      <div className="p-8 text-center">
+        <p className="text-gray-500">No users found matching your criteria.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <th className="px-3 py-3 text-left">
               <div className="flex items-center">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2"
-                  checked={selectedUsers.length === users.length && users.length > 0}
+                  className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                  checked={selectedUsers.length > 0 && selectedUsers.length === users.length}
                   onChange={onSelectAll}
                 />
-                <span className="sr-only">Select All</span>
               </div>
             </th>
-            {renderSortableHeader('username', 'User')}
-            {renderSortableHeader('company', 'Company')}
-            {renderSortableHeader('role', 'Role')}
-            {renderSortableHeader('status', 'Status')}
-            {renderSortableHeader('lastLogin', 'Last Login')}
-            <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Username
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Email
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Company ID
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Role
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Status
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Last Login
+            </th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Enabled
+            </th>
+            <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
               Actions
             </th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
-          {loading ? (
-            <tr>
-              <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
-                <div className="flex justify-center items-center space-x-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-600"></div>
-                  <span>Loading users...</span>
-                </div>
-              </td>
-            </tr>
-          ) : sortedUsers.length === 0 ? (
-            <tr>
-              <td colSpan={7} className="px-6 py-4 text-center text-sm text-gray-500">
-                No users found
-              </td>
-            </tr>
-          ) : (
-            sortedUsers.map(user => (
-              <tr key={user.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
+          {users.map((user) => (
+            <tr key={user.id} className="hover:bg-gray-50">
+              <td className="px-3 py-4 whitespace-nowrap">
+                <div className="flex items-center">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                    className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                     checked={selectedUsers.includes(user.id)}
                     onChange={() => onSelectUser(user.id)}
                   />
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <div className="ml-4">
-                      <div className="text-sm font-medium text-gray-900">{user.username}</div>
-                      <div className="text-sm text-gray-500">{user.email}</div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {user.company}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {user.role === 'Admin' ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      Admin
-                    </span>
-                  ) : (
-                    user.role
-                  )}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(user.status, user.isEnabled)}`}>
-                    {!user.isEnabled ? 'Disabled' : user.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {user.lastLogin}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                </div>
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap">
+                <div className="text-sm font-medium text-gray-900">{user.username || 'N/A'}</div>
+                <div className="text-xs text-gray-500">ID: {user.id}</div>
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap">
+                <div className="text-sm text-gray-900">{user.email || 'N/A'}</div>
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap">
+                <div className="text-sm text-gray-900">{user.companyId || 'N/A'}</div>
+                {user.company && (
+                  <div className="text-xs text-gray-500">{user.company}</div>
+                )}
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap">
+                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getRoleBadgeStyle(user.role)}`}>
+                  {user.role || 'User'}
+                </span>
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap">
+                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeStyle(user.status)}`}>
+                  {user.status || 'Unknown'}
+                </span>
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                {formatDate(user.lastLogin)}
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                {user.isEnabled ? (
+                  <span className="text-green-500 font-medium">Yes</span>
+                ) : (
+                  <span className="text-red-500 font-medium">No</span>
+                )}
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
+                <div className="flex items-center justify-end space-x-2">
                   <button
                     onClick={() => onViewDetails(user.id)}
-                    className="text-blue-600 hover:text-blue-900 mr-3"
-                    title="View User Details"
+                    className="text-blue-600 hover:text-blue-900"
+                    title="View details"
                   >
-                    <FiExternalLink />
+                    <FiEye className="h-5 w-5" />
                   </button>
                   <button
                     onClick={() => onEdit(user.id)}
-                    className="text-blue-600 hover:text-blue-900 mr-3"
-                    title="Edit User"
+                    className="text-indigo-600 hover:text-indigo-900"
+                    title="Edit user"
                   >
-                    <FiEdit />
+                    <FiEdit className="h-5 w-5" />
                   </button>
-                  {user.isEnabled ? (
-                    <button 
-                      onClick={() => onToggleAccess(user.id, false)}
-                      className="text-blue-600 hover:text-blue-900 mr-3" 
-                      title="Disable User"
-                    >
-                      <FiLock />
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={() => onToggleAccess(user.id, true)}
-                      className="text-blue-600 hover:text-blue-900 mr-3" 
-                      title="Enable User"
-                    >
-                      <FiUnlock />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => onToggleAccess(user.id, !user.isEnabled)}
+                    className={user.isEnabled ? "text-orange-600 hover:text-orange-900" : "text-green-600 hover:text-green-900"}
+                    title={user.isEnabled ? "Disable user" : "Enable user"}
+                  >
+                    {user.isEnabled ? (
+                      <FiToggleRight className="h-5 w-5" />
+                    ) : (
+                      <FiToggleLeft className="h-5 w-5" />
+                    )}
+                  </button>
                   <button
                     onClick={() => onDelete(user.id)}
-                    className="text-blue-600 hover:text-blue-900"
-                    title="Delete User"
+                    className="text-red-600 hover:text-red-900"
+                    title="Delete user"
                   >
-                    <FiTrash2 />
+                    <FiTrash2 className="h-5 w-5" />
                   </button>
-                </td>
-              </tr>
-            ))
-          )}
+                </div>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

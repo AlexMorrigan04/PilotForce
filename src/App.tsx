@@ -21,6 +21,7 @@ import AdminAssets from './pages/AdminAssets';
 import AdminResources from './pages/AdminResources';
 import AdminBookingDetails from './pages/AdminBookingDetails';
 import AdminBookingUpload from './pages/AdminBookingUpload';
+import AdminCompanies from './pages/AdminCompanies';
 
 // Protected route component that redirects to login if not authenticated
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -160,6 +161,36 @@ function AppRoutes() {
         </AdminProtectedRoute>
       } />
       
+      <Route path="/admin/companies" element={
+        <AdminProtectedRoute>
+          <AdminCompanies />
+        </AdminProtectedRoute>
+      } />
+      
+      <Route path="/admin/companies/add" element={
+        <AdminProtectedRoute>
+          <div>Add Company Page (Placeholder)</div>
+        </AdminProtectedRoute>
+      } />
+      
+      <Route path="/admin/companies/edit/:id" element={
+        <AdminProtectedRoute>
+          <div>Edit Company Page (Placeholder)</div>
+        </AdminProtectedRoute>
+      } />
+      
+      <Route path="/admin/companies/details/:id" element={
+        <AdminProtectedRoute>
+          <div>Company Details Page (Placeholder)</div>
+        </AdminProtectedRoute>
+      } />
+      
+      <Route path="/admin/companies/:id/users" element={
+        <AdminProtectedRoute>
+          <div>Company Users Page (Placeholder)</div>
+        </AdminProtectedRoute>
+      } />
+      
       {/* Add placeholder routes for other admin pages */}
       {['/admin/companies', '/admin/bookings', '/admin/assets', '/admin/reports', 
         '/admin/alerts', '/admin/data', '/admin/security', '/admin/settings'].map(path => (
@@ -178,11 +209,11 @@ function AppRoutes() {
 
 function App() {
   return (
-    <Router>
-      <AuthProvider>
+    <AuthProvider>
+      <Router>
         <AppRoutes />
-      </AuthProvider>
-    </Router>
+      </Router>
+    </AuthProvider>
   );
 }
 

@@ -1,0 +1,8 @@
+{
+  "x-amazon-apigateway-integration": {
+    "type": "aws_proxy",
+    "httpMethod": "POST",
+    "uri": "arn:aws:apigateway:eu-north-1:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-north-1:229816860983:function:pilotforce_company_management/invocations",
+    "timeoutInMillis": 29000
+  }
+}

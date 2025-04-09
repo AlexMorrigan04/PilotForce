@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { getApiEndpoint } from '../utils/cognitoUtils';
 import cognitoService from './cognitoService';
+import { API, getApiBaseUrl } from '../utils/apiUtils';
+import { AUTH_ENDPOINTS, logEndpoint } from '../utils/endpoints';
 
 // Get the API endpoint from environment variables or use the default
 const API_URL = getApiEndpoint();
@@ -345,8 +347,11 @@ export const signup = async (
     console.log('Sending signup request with attributes:', JSON.stringify(validAttributes, null, 2));
     
     try {
-      // Send signup request to the API
-      const response = await authApi.post('/signup', signupData);
+      // Use direct API URL to ensure proper endpoint connection
+      const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+      
+      // Send signup request to the API with complete URL
+      const response = await axios.post(`${apiUrl}/signup`, signupData);
       
       // Log the complete response for debugging
       console.log('Signup API complete response:', {
@@ -391,8 +396,10 @@ export const signup = async (
         } : 'No response'
       });
       
-      // For CORS issues during development, attempt direct Cognito signup
-      if (apiError.message === 'Network Error' || apiError.code === 'ERR_NETWORK') {
+      // Fall back to Cognito direct signup for any API error (404, network, etc.)
+      if (apiError.message === 'Network Error' || 
+          apiError.code === 'ERR_NETWORK' || 
+          apiError.response?.status === 404) {
         console.log('Attempting direct Cognito signup as fallback');
         
         // Use our dedicated Cognito service that properly handles SECRET_HASH
@@ -447,33 +454,61 @@ export const confirmSignup = async (
     console.log(`Confirming signup for: ${username} via API Gateway`);
     
     try {
-      // NOTE: Changed from /auth/confirm to /confirm-user
-      const response = await authApi.post('/confirm-user', {
+      // Fix the API endpoint URL to use the full URL instead of relative path
+      const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+      console.log(`Using confirmation endpoint: ${apiUrl}/confirm-user`);
+      
+      const response = await axios.post(`${apiUrl}/confirm-user`, {
         username,
         confirmationCode,
       });
+      
+      console.log('Confirmation API response:', response);
       
       return {
         ...response.data,
         success: true
       };
     } catch (apiError: any) {
-      // For CORS issues, attempt direct Cognito confirmation
-      if (apiError.message === 'Network Error' || apiError.code === 'ERR_NETWORK') {
+      console.warn('API Gateway confirmation failed, error:', apiError.message);
+      
+      // For CORS issues or 404, attempt direct Cognito confirmation
+      if (apiError.message === 'Network Error' || 
+          apiError.code === 'ERR_NETWORK' || 
+          apiError.response?.status === 404) {
         console.log('Attempting direct Cognito confirmation as fallback');
         
-        const result = await cognitoService.cognitoConfirmSignUp(username, confirmationCode);
-        
-        if (result.success) {
+        // Try the alternate endpoint format
+        try {
+          const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+          console.log(`Trying alternate confirmation endpoint: ${apiUrl}/auth/confirm`);
+          
+          const altResponse = await axios.post(`${apiUrl}/auth/confirm`, {
+            username,
+            confirmationCode
+          });
+          
+          console.log('Alternate confirmation endpoint response:', altResponse);
           return {
             success: true,
-            message: result.message
+            message: 'Account confirmed successfully'
           };
-        } else {
-          throw new Error(result.message || 'Confirmation failed');
+        } catch (altError) {
+          console.warn('Alternate confirmation endpoint failed:', altError);
+          
+          // Fall back to direct Cognito confirmation
+          console.log('Falling back to direct Cognito confirmation');
+          const result = await cognitoService.cognitoConfirmSignUp(username, confirmationCode);
+          if (result.success) {
+            return {
+              success: true,
+              message: result.message
+            };
+          } else {
+            throw new Error(result.message || 'Confirmation failed');
+          }
         }
       }
-      
       throw apiError;
     }
   } catch (error: any) {
@@ -509,7 +544,6 @@ export const confirmSignUp = async (username: string, code: string) => {
     
     // Try to confirm using API Gateway
     const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
-    
     const response = await axios.post(`${apiUrl}/auth/confirm`, {
       username: username,
       confirmationCode: code
@@ -534,14 +568,12 @@ export const confirmSignUp = async (username: string, code: string) => {
     // Handle specific error cases
     if (axios.isAxiosError(error)) {
       const errorMessage = error.response?.data?.message || error.message;
-      
       if (error.response?.status === 400 && errorMessage.includes('Invalid verification code')) {
         return {
           success: false,
           message: 'The verification code you entered is invalid. Please try again.'
         };
       }
-      
       return {
         success: false,
         message: errorMessage
@@ -657,14 +689,11 @@ export const checkAuthentication = async () => {
 export const refreshToken = async () => {
   try {
     const refreshToken = localStorage.getItem('refreshToken');
-    
     if (!refreshToken) {
       console.warn('No refresh token available');
       return { success: false, message: 'No refresh token available' };
     }
-    
     console.log('Attempting to refresh token with API');
-    
     const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/refresh-token', {
       method: 'POST',
       headers: {
@@ -672,14 +701,12 @@ export const refreshToken = async () => {
       },
       body: JSON.stringify({ refreshToken })
     });
-    
     if (!response.ok) {
       console.warn('Token refresh failed:', response.status);
       return { success: false, message: `Token refresh failed: ${response.status}` };
     }
     
     const data = await response.json();
-    
     if (data.success && data.idToken) {
       // Store the new tokens
       localStorage.setItem('idToken', data.idToken);
@@ -718,7 +745,6 @@ export const getCurrentUser = async (): Promise<AuthResponse> => {
     
     // Process the response
     let parsedData: any = response.data;
-    
     if (response.data.body && typeof response.data.body === 'string') {
       try {
         parsedData = JSON.parse(response.data.body);
@@ -764,7 +790,6 @@ export const getCurrentUser = async (): Promise<AuthResponse> => {
         // Force new login if refresh fails
       }
     }
-    
     console.error('Get user error:', error);
     
     // Try to get user from cache
@@ -836,6 +861,6 @@ export default {
   resendConfirmationCode,
   checkAuthentication,
   getCurrentUser,
+  logout,
   refreshTokens,
-  logout
 };

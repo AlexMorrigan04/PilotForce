@@ -54,10 +54,6 @@ const AdminNavbar: React.FC = () => {
 
   return (
     <nav className="bg-blue-600 text-white shadow-lg">
-      {/* Admin badge to clearly distinguish from user interface */}
-      <div className="absolute top-0 right-0 bg-blue-800 text-white text-xs uppercase font-bold tracking-wider px-2 py-1">
-        Admin Area
-      </div>
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
