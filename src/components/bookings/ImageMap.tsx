@@ -1,22 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Map, { Marker, NavigationControl, MapRef, Source, Layer, Popup, ViewStateChangeEvent, MapLayerMouseEvent } from 'react-map-gl';
-import type * as mapboxgl from 'mapbox-gl';
+import * as mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import MapboxLogger from '../../utils/mapboxLogger';
 import GeoTiffUtils from '../../utils/geoTiffUtils';
-// Import geotiff library for direct GeoTIFF parsing
 import { fromUrl } from 'geotiff';
+import { 
+  normalizeGeoTiffUrl, 
+  generateAlternativeGeoTiffUrls, 
+  analyzeS3Url 
+} from '../../utils/geoTiffNormalizer';
+import { 
+  createGeoTiffDiagnosticReport, 
+  testGeoTiffUrl 
+} from '../../utils/geoTiffDiagnostic';
 
 interface ImageMapProps {
   imageLocations: { 
     url: string; 
     latitude: number; 
     longitude: number;
-    // Add optional additional properties that might be available from ImageUploads
     name?: string;
     metadata?: any;
     altitude?: number;
     heading?: number;
+    timestamp?: string;
+    cameraModel?: string;
+    droneModel?: string;
   }[];
   bookingId: string;
   mapboxAccessToken: string;
@@ -24,6 +34,7 @@ interface ImageMapProps {
   geoTiffUrl?: string | null;
   onMapLoad?: (event: any) => void;
   mapRef?: React.RefObject<MapRef>;
+  geoTiffResources?: any[];
 }
 
 export const ImageMap: React.FC<ImageMapProps> = ({
@@ -33,7 +44,8 @@ export const ImageMap: React.FC<ImageMapProps> = ({
   geoTiffFilename,
   geoTiffUrl,
   onMapLoad,
-  mapRef: externalMapRef
+  mapRef: externalMapRef,
+  geoTiffResources = []
 }) => {
   const [viewState, setViewState] = useState({
     longitude: -2.587910,
@@ -45,19 +57,10 @@ export const ImageMap: React.FC<ImageMapProps> = ({
   const [geoTiffError, setGeoTiffError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [mapInstance, setMapInstance] = useState<mapboxgl.Map | null>(null);
-  
-  // Add state for enlarged map view
   const [isEnlarged, setIsEnlarged] = useState(false);
-  
   const internalMapRef = useRef<MapRef>(null);
-  
-  // Store GeoTIFF bounding box information for proper positioning
   const [geoTiffBounds, setGeoTiffBounds] = useState<[number, number, number, number] | null>(null);
-  
-  // Add state for GeoTIFF metadata
   const [geoTiffMetadata, setGeoTiffMetadata] = useState<any>(null);
-  
-  // Add state for popup management
   const [popupInfo, setPopupInfo] = useState<{
     latitude: number;
     longitude: number;
@@ -65,14 +68,15 @@ export const ImageMap: React.FC<ImageMapProps> = ({
     name?: string;
     heading?: number;
     altitude?: number;
+    timestamp?: string;
+    cameraModel?: string;
+    droneModel?: string;
   } | null>(null);
-  
-  // Center map on image locations if available
+
   useEffect(() => {
     if (imageLocations.length > 0) {
       const avgLat = imageLocations.reduce((sum, loc) => sum + loc.latitude, 0) / imageLocations.length;
       const avgLng = imageLocations.reduce((sum, loc) => sum + loc.longitude, 0) / imageLocations.length;
-      
       setViewState({
         latitude: avgLat,
         longitude: avgLng,
@@ -81,41 +85,124 @@ export const ImageMap: React.FC<ImageMapProps> = ({
     }
   }, [imageLocations]);
 
-  const handleMapLoad = (event: any) => {
-    MapboxLogger.log("Map loaded successfully");
-    setMapLoaded(true);
-    
-    // Store the raw mapbox-gl instance for direct access
-    const map = event.target;
-    setMapInstance(map);
-    
-    // Call external onMapLoad if provided
-    if (onMapLoad) {
-      onMapLoad(event);
+  useEffect(() => {
+    if (geoTiffResources && geoTiffResources.length > 0) {
+      console.log('📊 ImageMap: Received GeoTIFF resources:', geoTiffResources);
+      MapboxLogger.log(`Received ${geoTiffResources.length} GeoTIFF resources from FlightDetails component`);
+      geoTiffResources.forEach((resource, index) => {
+        console.log(`📊 GeoTIFF ${index + 1} URL:`, resource.url || resource.presignedUrl);
+        console.log(`📊 GeoTIFF ${index + 1} Name:`, resource.name || resource.FileName);
+      });
+    }
+  }, [geoTiffResources]);
+
+  useEffect(() => {
+    if (mapInstance && geoTiffUrl && geoTiffFilename) {
+      console.log('📊 ImageMap: GeoTIFF URL available on map load:', geoTiffUrl);
+      MapboxLogger.log('GeoTIFF URL is available on map load');
+      addGeoTiff(geoTiffUrl);
+    }
+  }, [mapInstance, geoTiffUrl, geoTiffFilename]);
+
+  useEffect(() => {
+    if (mapInstance && geoTiffResources?.length > 0) {
+      console.log('📊 ImageMap: Received GeoTIFF resources:', geoTiffResources);
+      MapboxLogger.log(`Received ${geoTiffResources.length} GeoTIFF resources from FlightDetails component`);
+      
+      geoTiffResources.forEach((resource, index) => {
+        const url = resource.url || resource.presignedUrl;
+        const name = resource.name || resource.FileName;
+        console.log(`📊 GeoTIFF ${index + 1} URL: ${url}`);
+        console.log(`📊 GeoTIFF ${index + 1} Name: ${name}`);
+      });
+      
+      if (mapInstance.loaded() && !geoTiffLoaded) {
+        const firstGeoTiff = geoTiffResources[0];
+        const url = firstGeoTiff.url || firstGeoTiff.presignedUrl;
+        if (url) {
+          console.log('📊 Loading first GeoTiff from resources');
+          addGeoTiff(url);
+        }
+      }
+    }
+  }, [mapInstance, geoTiffResources]);
+
+  const addGeoTiff = async (url: string) => {
+    console.log('📊 addGeoTiff called with:', url ? `${url.substring(0, 50)}...` : 'undefined URL');
+    if (!url) return;
+
+    try {
+      const normalizedUrl = normalizeGeoTiffUrl(url);
+      console.log('📊 Normalized GeoTiff URL:', normalizedUrl ? `${normalizedUrl.substring(0, 50)}...` : 'undefined URL');
+      
+      const isValid = await testGeoTiffUrl(normalizedUrl);
+      
+      if (!isValid) {
+        console.warn('📊 GeoTiff URL failed validation, trying alternative URLs');
+        
+        const alternativeUrls = generateAlternativeGeoTiffUrls(normalizedUrl);
+        console.log(`📊 Generated ${alternativeUrls.length} alternative URLs to try`);
+        
+        let validUrl = null;
+        for (const altUrl of alternativeUrls) {
+          console.log(`📊 Trying alternative URL: ${altUrl.substring(0, 100)}...`);
+          const altIsValid = await testGeoTiffUrl(altUrl);
+          if (altIsValid) {
+            console.log('📊 Alternative URL is valid, using it');
+            validUrl = altUrl;
+            break;
+          }
+        }
+        
+        if (validUrl) {
+          addRasterLayer(validUrl);
+          return;
+        }
+        
+        console.error('📊 None of the GeoTiff URLs are valid');
+        
+        try {
+          const report = await createGeoTiffDiagnosticReport(normalizedUrl);
+          
+          const validUrlFromReport = report.alternativeUrlsResults.find(result => result.isValid);
+          if (validUrlFromReport) {
+            console.log('📊 Found valid URL in diagnostic report:', validUrlFromReport.url);
+            addRasterLayer(validUrlFromReport.url);
+            return;
+          }
+          
+          setGeoTiffError('Failed to load GeoTiff: URL not accessible. Presigned URL may have expired.');
+        } catch (diagnosticError) {
+          console.error('📊 Error during diagnostic:', diagnosticError);
+          setGeoTiffError('Failed to load GeoTiff: URL not accessible');
+        }
+      } else {
+        console.log('📊 GeoTiff URL is valid');
+        addRasterLayer(normalizedUrl);
+      }
+    } catch (error) {
+      console.error('📊 Error in addGeoTiff:', error);
+      setGeoTiffError(`Failed to load GeoTiff: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
-  // Function to add GeoTiff to the map
-  const addGeoTiffToMap = async (url = geoTiffUrl) => {
-    if (!mapLoaded || !mapInstance || !url) {
-      MapboxLogger.warn("Cannot add GeoTIFF: Map not loaded or URL not available");
-      return;
-    }
+  const addRasterLayer = async (url: string) => {
+    console.log('📊 Adding raster layer with URL:', url ? `${url.substring(0, 50)}...` : 'undefined URL');
     
-    setIsLoading(true);
-    MapboxLogger.log(`Adding GeoTIFF to map: ${url}`);
+    if (!mapInstance || !url) return;
     
     try {
-      // Clean up any existing GeoTIFF layers/sources
+      setIsLoading(true);
+      setGeoTiffError(null);
+      
       if (mapInstance.getLayer('geotiff-layer')) {
         mapInstance.removeLayer('geotiff-layer');
       }
       
-      if (mapInstance.getSource('geotiff-source')) {
-        mapInstance.removeSource('geotiff-source');
+      if (mapInstance.getSource('geotiff')) {
+        mapInstance.removeSource('geotiff');
       }
       
-      // Also clean up fallback visualization if it exists
       if (mapInstance.getLayer('geotiff-area-outline')) {
         mapInstance.removeLayer('geotiff-area-outline');
       }
@@ -124,529 +211,262 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         mapInstance.removeLayer('geotiff-area-fill');
       }
       
-      if (mapInstance.getLayer('geotiff-area-pattern')) {
-        mapInstance.removeLayer('geotiff-area-pattern');
-      }
-      
       if (mapInstance.getSource('geotiff-area')) {
         mapInstance.removeSource('geotiff-area');
       }
       
-      // Parse the GeoTIFF directly to get its metadata and bounding box
+      let geoTiffAdded = false;
+      
       try {
-        MapboxLogger.log("Loading GeoTIFF metadata...");
+        console.log('📊 Attempting to load and parse GeoTIFF directly...');
         
-        // Load the GeoTIFF and get its metadata
         const tiff = await fromUrl(url);
         const image = await tiff.getImage();
         
-        // Get dimensions and bounding box
         const width = image.getWidth();
         const height = image.getHeight();
         const bbox = image.getBoundingBox();
         
-        // Extract more metadata
-        const metadata: any = {
+        console.log('📊 GeoTIFF dimensions:', width, 'x', height);
+        console.log('📊 GeoTIFF bounding box:', bbox);
+        
+        const metadata = {
           width,
           height,
           bbox,
-          samplesPerPixel: image.getSamplesPerPixel(),
           resolution: image.getResolution(),
-          origin: image.getOrigin(),
         };
-        
-        // Try to get additional GeoTIFF tags that might contain camera direction info
-        try {
-          const fileDirectory = image.getFileDirectory();
-          metadata.fileDirectory = fileDirectory;
-          
-          // Extract GeoTIFF keys which might contain direction/orientation info
-          const geoKeys = image.getGeoKeys();
-          if (geoKeys) {
-            metadata.geoKeys = geoKeys;
-          }
-          
-          // Try to extract EXIF data which might have camera orientation
-          if (fileDirectory.ExifIFD) {
-            metadata.exif = fileDirectory.ExifIFD;
-          }
-          
-          // Look for any GPS related tags
-          const gpsInfo = Object.keys(fileDirectory)
-            .filter(key => key.startsWith('GPS'))
-            .reduce((obj, key) => {
-              obj[key] = fileDirectory[key];
-              return obj;
-            }, {} as any);
-            
-          if (Object.keys(gpsInfo).length > 0) {
-            metadata.gps = gpsInfo;
-          }
-          
-          // We no longer need to extract coordinates from GeoTIFF
-          // We'll use the coordinates from imageLocations instead
-          
-        } catch (metadataError) {
-          MapboxLogger.warn("Could not extract extended metadata", metadataError);
-        }
-        
-        // Set metadata and log to console
         setGeoTiffMetadata(metadata);
-        console.log("GeoTIFF Metadata:", metadata);
-        MapboxLogger.log("GeoTIFF info:", metadata);
         
-        // Extract corners for proper display
-        const [xmin, ymin, xmax, ymax] = bbox;
-        
-        // Store the bounds for reference
         setGeoTiffBounds(bbox);
         
-        // Read the raster data
-        const rasterData = await image.readRasters();
+        const rasters = await image.readRasters();
         const samplesPerPixel = image.getSamplesPerPixel();
         
-        // Create RGBA array for the image
-        const rgba = new Uint8ClampedArray(width * height * 4);
-        
-        // Check if rasterData is an array before trying to access indices
-        if (Array.isArray(rasterData)) {
-          // Fill the RGBA array based on the number of bands in the GeoTIFF
-          for (let i = 0; i < width * height; i++) {
-            if (samplesPerPixel === 1) {
-              // Grayscale image
-              const val = rasterData[0][i];
-              rgba[i * 4] = val;     // R
-              rgba[i * 4 + 1] = val; // G
-              rgba[i * 4 + 2] = val; // B
-              rgba[i * 4 + 3] = 255; // Alpha
-            } else if (samplesPerPixel >= 3) {
-              // RGB or RGBA image
-              rgba[i * 4] = rasterData[0][i];     // R
-              rgba[i * 4 + 1] = rasterData[1][i]; // G
-              rgba[i * 4 + 2] = rasterData[2][i]; // B
-              rgba[i * 4 + 3] = rasterData[3] ? rasterData[3][i] : 255; // Alpha
-            }
-          }
-        } else {
-          // Handle the case where rasterData is ArrayBuffer (unlikely but possible)
-          throw new Error('Unexpected raster data format: received ArrayBuffer instead of an array');
-        }
-        
-        // Create an ImageData object
-        const imageData = new ImageData(rgba, width, height);
-        
-        // Convert to canvas
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
+        
         if (!ctx) {
           throw new Error('Could not get canvas context');
         }
         
-        // Put the image data on the canvas
-        ctx.putImageData(imageData, 0, 0);
+        const imageData = ctx.createImageData(width, height);
         
-        // Create a blob URL from the canvas
-        const canvasDataURL = canvas.toDataURL('image/png');
-        
-        // Add the image to the map
-        mapInstance.addSource('geotiff-source', {
-          type: 'image',
-          url: canvasDataURL,
-          coordinates: [
-            [xmin, ymax], // Top-left
-            [xmax, ymax], // Top-right
-            [xmax, ymin], // Bottom-right
-            [xmin, ymin], // Bottom-left
-          ]
-        });
-        
-        // Add a raster layer to display the GeoTIFF
-        mapInstance.addLayer({
-          id: 'geotiff-layer',
-          type: 'raster',
-          source: 'geotiff-source',
-          paint: {
-            'raster-opacity': 0.9,
-            'raster-resampling': 'linear',
+        if (samplesPerPixel === 1) {
+          for (let i = 0; i < width * height; i++) {
+            const val = rasters[0][i];
+            imageData.data[i * 4] = val;
+            imageData.data[i * 4 + 1] = val;
+            imageData.data[i * 4 + 2] = val;
+            imageData.data[i * 4 + 3] = 255;
           }
-        });
-        
-        // Fit the map view to the GeoTIFF bounds
-        mapInstance.fitBounds(
-          [[xmin, ymin], [xmax, ymax]], 
-          { padding: 50, animate: true }
-        );
-        
-        // Also update our state to match
-        const centerLng = (xmin + xmax) / 2;
-        const centerLat = (ymin + ymax) / 2;
-        
-        setViewState({
-          longitude: centerLng,
-          latitude: centerLat,
-          zoom: mapInstance.getZoom()
-        });
-        
-        // Success!
-        setGeoTiffLoaded(true);
-        setGeoTiffError(null);
-        MapboxLogger.log("GeoTIFF added successfully");
-        
-      } catch (geotiffError) {
-        MapboxLogger.error("Error processing GeoTIFF:", geotiffError);
-        
-        // Calculate fallback coordinates for visualization
-        let coordinates: [[number, number], [number, number], [number, number], [number, number]];
-        
-        if (imageLocations.length > 0) {
-          // If we have image locations, use their bounds (with some padding)
-          const lngs = imageLocations.map(loc => loc.longitude);
-          const lats = imageLocations.map(loc => loc.latitude);
-          
-          const minLng = Math.min(...lngs) - 0.002;
-          const maxLng = Math.max(...lngs) + 0.002;
-          const minLat = Math.min(...lats) - 0.002;
-          const maxLat = Math.max(...lats) + 0.002;
-          
-          coordinates = [
-            [minLng, maxLat], // top-left (NW)
-            [maxLng, maxLat], // top-right (NE)
-            [maxLng, minLat], // bottom-right (SE)
-            [minLng, minLat]  // bottom-left (SW)
-          ];
-        } else {
-          // Fallback to viewport coordinates with a reasonable area
-          coordinates = [
-            [viewState.longitude - 0.02, viewState.latitude + 0.02], // top-left
-            [viewState.longitude + 0.02, viewState.latitude + 0.02], // top-right
-            [viewState.longitude + 0.02, viewState.latitude - 0.02], // bottom-right
-            [viewState.longitude - 0.02, viewState.latitude - 0.02]  // bottom-left
-          ];
+        } else if (samplesPerPixel >= 3) {
+          for (let i = 0; i < width * height; i++) {
+            imageData.data[i * 4] = rasters[0][i];
+            imageData.data[i * 4 + 1] = rasters[1][i];
+            imageData.data[i * 4 + 2] = rasters[2][i];
+            imageData.data[i * 4 + 3] = rasters[3] ? rasters[3][i] : 255;
+          }
         }
         
-        // Fall back to a visual representation
-        createFallbackVisualization(coordinates, url);
+        ctx.putImageData(imageData, 0, 0);
+        
+        const canvasDataUrl = canvas.toDataURL('image/png');
+        
+        const [xmin, ymin, xmax, ymax] = bbox;
+        
+        try {
+          mapInstance.addSource('geotiff', {
+            type: 'image',
+            url: canvasDataUrl,
+            coordinates: [
+              [xmin, ymax],
+              [xmax, ymax],
+              [xmax, ymin],
+              [xmin, ymin]
+            ]
+          });
+          
+          mapInstance.addLayer({
+            id: 'geotiff-layer',
+            type: 'raster',
+            source: 'geotiff',
+            paint: {
+              'raster-opacity': 0.8,
+              'raster-resampling': 'linear'
+            }
+          });
+          
+          mapInstance.fitBounds(
+            [[xmin, ymin], [xmax, ymax]],
+            { padding: 50 }
+          );
+          
+          console.log('📊 Successfully added GeoTIFF as image layer');
+          setGeoTiffLoaded(true);
+          setGeoTiffError(null);
+          geoTiffAdded = true;
+        } catch (layerError) {
+          if (layerError instanceof Error && layerError.message && layerError.message.includes('already a source with ID')) {
+            console.log('📊 GeoTIFF is already loaded on the map');
+            setGeoTiffLoaded(true);
+            setGeoTiffError(null);
+            geoTiffAdded = true;
+          } else {
+            throw layerError;
+          }
+        }
+      } catch (directLoadError) {
+        if (!geoTiffAdded) {
+          console.error('📊 Error with direct GeoTIFF loading:', directLoadError);
+          
+          try {
+            console.log('📊 Creating fallback visualization for GeoTIFF area');
+            
+            let bounds: [number, number, number, number];
+            
+            if (imageLocations.length > 0) {
+              const minLat = Math.min(...imageLocations.map(l => l.latitude));
+              const maxLat = Math.max(...imageLocations.map(l => l.latitude));
+              const minLng = Math.min(...imageLocations.map(l => l.longitude));
+              const maxLng = Math.max(...imageLocations.map(l => l.longitude));
+              
+              bounds = [minLng, minLat, maxLng, maxLat];
+            } else {
+              const center = [viewState.longitude, viewState.latitude];
+              const offset = 0.01;
+              bounds = [
+                center[0] - offset,
+                center[1] - offset,
+                center[0] + offset,
+                center[1] + offset
+              ];
+            }
+            
+            const polygon: GeoJSON.Feature<GeoJSON.Polygon> = {
+              type: 'Feature',
+              properties: {},
+              geometry: {
+                type: 'Polygon',
+                coordinates: [
+                  [
+                    [bounds[0], bounds[3]],
+                    [bounds[2], bounds[3]],
+                    [bounds[2], bounds[1]],
+                    [bounds[0], bounds[1]],
+                    [bounds[0], bounds[3]]
+                  ]
+                ]
+              }
+            };
+            
+            mapInstance.addSource('geotiff-area', {
+              type: 'geojson',
+              data: polygon
+            });
+            
+            mapInstance.addLayer({
+              id: 'geotiff-area-fill',
+              type: 'fill',
+              source: 'geotiff-area',
+              paint: {
+                'fill-color': '#3bb2d0',
+                'fill-opacity': 0.4
+              }
+            });
+            
+            mapInstance.addLayer({
+              id: 'geotiff-area-outline',
+              type: 'line',
+              source: 'geotiff-area',
+              paint: {
+                'line-color': '#3bb2d0',
+                'line-width': 2,
+                'line-dasharray': [2, 1]
+              }
+            });
+            
+            mapInstance.fitBounds(
+              [[bounds[0], bounds[1]], [bounds[2], bounds[3]]],
+              { padding: 50 }
+            );
+            
+            console.log('📊 Added GeoTIFF area visualization with bounds:', bounds);
+            setGeoTiffLoaded(true);
+            setGeoTiffError('The GeoTIFF format cannot be directly displayed in browsers. Showing coverage area visualization. Download the file to view in a GIS application.');
+          } catch (fallbackError) {
+            console.error('📊 Error creating fallback visualization:', fallbackError);
+            setGeoTiffError('Could not display GeoTIFF or create visualization. The file may be inaccessible or in an unsupported format.');
+          }
+        }
       }
     } catch (error) {
-      handleDirectImageLoadError(error, url);
+      console.error('📊 Error in addRasterLayer:', error);
+      setGeoTiffError(`Failed to add GeoTIFF: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Create fallback visualization with the area where the GeoTIFF should be
-  const createFallbackVisualization = (
-    coordinates: [[number, number], [number, number], [number, number], [number, number]],
-    url?: string
-  ) => {
-    if (!mapInstance) return;
+  const debugGeoTiff = async () => {
+    if (!geoTiffUrl) {
+      alert('No GeoTiff URL available to debug');
+      return;
+    }
+    
+    console.log('🔍 DEBUG: Starting GeoTiff diagnostic');
+    console.log('🔍 Original URL:', geoTiffUrl);
+    
+    analyzeS3Url(geoTiffUrl);
     
     try {
-      MapboxLogger.log("Creating fallback visualization for GeoTIFF area");
+      setGeoTiffError('Running diagnostic...');
+      const report = await createGeoTiffDiagnosticReport(geoTiffUrl);
+      console.log('🔍 Diagnostic Report:');
+      console.log(report);
+      setGeoTiffError(`Diagnostic complete. See console for results.`);
       
-      // Create a polygon to visualize the area
-      const polygon: GeoJSON.Feature<GeoJSON.Polygon> = {
-        type: 'Feature',
-        properties: {},
-        geometry: {
-          type: 'Polygon',
-          coordinates: [
-            coordinates.map(coord => coord)
-          ]
-        }
-      };
+      const reportString = JSON.stringify(report, null, 2);
+      const blob = new Blob([reportString], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'geotiff-diagnostic-report.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       
-      // Add polygon to visualize the area
-      mapInstance.addSource('geotiff-area', {
-        type: 'geojson',
-        data: polygon
-      });
-      
-      // Add outline (red dashed line)
-      mapInstance.addLayer({
-        id: 'geotiff-area-outline',
-        type: 'line',
-        source: 'geotiff-area',
-        layout: {},
-        paint: {
-          'line-color': '#FF0000',
-          'line-width': 2,
-          'line-dasharray': [2, 1]
-        }
-      });
-      
-      // Add fill (transparent red)
-      mapInstance.addLayer({
-        id: 'geotiff-area-fill',
-        type: 'fill',
-        source: 'geotiff-area',
-        layout: {},
-        paint: {
-          'fill-color': '#FF0000',
-          'fill-opacity': 0.1
-        }
-      });
-      
-      // Add a pattern to indicate this is where the GeoTIFF would be
-      mapInstance.addLayer({
-        id: 'geotiff-area-pattern',
-        type: 'fill',
-        source: 'geotiff-area',
-        paint: {
-          'fill-pattern': 'geotiff-placeholder',
-          'fill-opacity': 0.8
-        }
-      });
-      
-      // Fit map to the area
-      const sw: [number, number] = [
-        Math.min(coordinates[0][0], coordinates[3][0]), 
-        Math.min(coordinates[2][1], coordinates[3][1])
-      ];
-      const ne: [number, number] = [
-        Math.max(coordinates[1][0], coordinates[2][0]), 
-        Math.max(coordinates[0][1], coordinates[1][1])
-      ];
-      
-      mapInstance.fitBounds([sw, ne], {
-        padding: 50,
-        maxZoom: 18
-      });
-      
-      if (url) {
-        // Set a non-critical error that explains what happened
-        setGeoTiffError(
-          "GeoTIFF file cannot be displayed directly in browser. Showing coverage area instead. " +
-          "You can convert this to a web-friendly format or view in a GIS application."
-        );
-      } else {
-        setGeoTiffError("GeoTIFF area shown, but no valid file URL was provided.");
-      }
-      
-      setGeoTiffLoaded(false);
-      setIsLoading(false);
-      
+      setTimeout(() => {
+        setGeoTiffError(null);
+      }, 5000);
     } catch (error) {
-      MapboxLogger.error("Error creating fallback visualization:", error);
-      setGeoTiffError("Failed to create visualization for GeoTIFF area.");
-      setGeoTiffLoaded(false);
-      setIsLoading(false);
+      console.error('🔍 Error running diagnostic:', error);
+      setGeoTiffError(`Diagnostic error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
-  
-  // Try adding custom pattern to the map when it's loaded
-  useEffect(() => {
-    if (mapLoaded && mapInstance) {
-      // Try to add a pattern for the fallback visualization
-      try {
-        // Create a canvas for the pattern
-        const patternCanvas = document.createElement('canvas');
-        patternCanvas.width = 64;
-        patternCanvas.height = 64;
-        const ctx = patternCanvas.getContext('2d');
-        
-        if (ctx) {
-          // Draw a pattern that indicates "image missing"
-          ctx.strokeStyle = '#FF0000';
-          ctx.lineWidth = 1;
-          
-          // Draw diagonal lines
-          ctx.beginPath();
-          for (let i = -64; i < 64; i += 8) {
-            ctx.moveTo(i, 0);
-            ctx.lineTo(i + 64, 64);
-          }
-          ctx.stroke();
-          
-          // Add "GeoTIFF" text
-          ctx.font = '10px Arial';
-          ctx.fillStyle = '#FF0000';
-          ctx.fillText('GeoTIFF', 10, 32);
-          
-          // Add the image to the map as a pattern
-          const mapboxMap = (mapInstance as any).getMap ? (mapInstance as any).getMap() : mapInstance;
-          mapboxMap.addImage('geotiff-placeholder', 
-            { width: 64, height: 64, data: new Uint8Array(ctx.getImageData(0, 0, 64, 64).data) },
-            { pixelRatio: 1 }
-          );
-        }
-      } catch (error) {
-        MapboxLogger.warn("Could not add pattern for GeoTIFF placeholder:", error);
-      }
-    }
-  }, [mapLoaded, mapInstance]);
 
-  // Handle errors from direct image loading
-  const handleDirectImageLoadError = (error: any, url?: string, coordinates?: [[number, number], [number, number], [number, number], [number, number]]) => {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    MapboxLogger.error("Error adding GeoTIFF to map:", error);
-    
-    // Try alternative approach - use pre-tiled raster source
-    if (url && coordinates && mapInstance) {
-      try {
-        MapboxLogger.log("Trying alternative approach with raster tiles");
-        
-        // Create a polygon around our area of interest
-        const polygon: GeoJSON.Feature<GeoJSON.Polygon> = {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'Polygon',
-            coordinates: [
-              coordinates.map(coord => coord)
-            ]
-          }
-        };
-        
-        // Add polygon to visualize the area
-        mapInstance.addSource('geotiff-area', {
-          type: 'geojson',
-          data: polygon
-        });
-        
-        mapInstance.addLayer({
-          id: 'geotiff-area-outline',
-          type: 'line',
-          source: 'geotiff-area',
-          layout: {},
-          paint: {
-            'line-color': '#FF0000',
-            'line-width': 2,
-            'line-dasharray': [2, 1]
-          }
-        });
-        
-        mapInstance.addLayer({
-          id: 'geotiff-area-fill',
-          type: 'fill',
-          source: 'geotiff-area',
-          layout: {},
-          paint: {
-            'fill-color': '#FF0000',
-            'fill-opacity': 0.1
-          }
-        });
-        
-        // Fit map to the orthophoto bounds
-        const sw: [number, number] = [
-          Math.min(coordinates[0][0], coordinates[3][0]), 
-          Math.min(coordinates[2][1], coordinates[3][1])
-        ];
-        const ne: [number, number] = [
-          Math.max(coordinates[1][0], coordinates[2][0]), 
-          Math.max(coordinates[0][1], coordinates[1][1])
-        ];
-        
-        mapInstance.fitBounds([sw, ne], {
-          padding: 50,
-          maxZoom: 18
-        });
-        
-        setGeoTiffError(`Could not load GeoTIFF directly: ${errorMessage}. Showing estimated coverage area instead.`);
-        setGeoTiffLoaded(false);
-      } catch (fallbackError) {
-        MapboxLogger.error("Fallback approach also failed:", fallbackError);
-        setGeoTiffError(`Failed to load GeoTIFF: ${errorMessage}. Fallback also failed.`);
-        setGeoTiffLoaded(false);
-      }
-    } else {
-      setGeoTiffError(`Failed to load GeoTIFF: ${errorMessage}`);
-      setGeoTiffLoaded(false);
+  const handleMapLoad = (event: any) => {
+    MapboxLogger.log("Map loaded successfully");
+    setMapLoaded(true);
+    const map = event.target;
+    setMapInstance(map);
+    if (geoTiffUrl) {
+      console.log('📊 ImageMap: GeoTIFF URL available on map load:', geoTiffUrl);
+      MapboxLogger.log("GeoTIFF URL is available on map load");
+    } else if (geoTiffResources?.length > 0) {
+      console.log('📊 ImageMap: GeoTIFF resources available on map load:', geoTiffResources.length);
+      MapboxLogger.log(`${geoTiffResources.length} GeoTIFF resources available on map load`);
     }
-    
-    setIsLoading(false);
-  };
-  
-  // Handle image load errors
-  const handleImageLoadError = (url?: string, coordinates?: [[number, number], [number, number], [number, number], [number, number]]) => {
-    MapboxLogger.error("Image failed to load:", url);
-    
-    if (coordinates && mapInstance) {
-      // Create a visual representation of the area where GeoTIFF should be
-      try {
-        const polygon: GeoJSON.Feature<GeoJSON.Polygon> = {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'Polygon',
-            coordinates: [
-              coordinates.map(coord => coord)
-            ]
-          }
-        };
-        
-        mapInstance.addSource('geotiff-area', {
-          type: 'geojson',
-          data: polygon
-        });
-        
-        mapInstance.addLayer({
-          id: 'geotiff-area-outline',
-          type: 'line',
-          source: 'geotiff-area',
-          layout: {},
-          paint: {
-            'line-color': '#FF0000',
-            'line-width': 2,
-            'line-dasharray': [2, 1]
-          }
-        });
-        
-        mapInstance.addLayer({
-          id: 'geotiff-area-fill',
-          type: 'fill',
-          source: 'geotiff-area',
-          layout: {},
-          paint: {
-            'fill-color': '#FF0000',
-            'fill-opacity': 0.1
-          }
-        });
-        
-        // Fit map to the area
-        const sw: [number, number] = [
-          Math.min(coordinates[0][0], coordinates[3][0]), 
-          Math.min(coordinates[2][1], coordinates[3][1])
-        ];
-        const ne: [number, number] = [
-          Math.max(coordinates[1][0], coordinates[2][0]), 
-          Math.max(coordinates[0][1], coordinates[1][1])
-        ];
-        
-        mapInstance.fitBounds([sw, ne], {
-          padding: 50,
-          maxZoom: 18
-        });
-      } catch (error) {
-        MapboxLogger.error("Error creating fallback visualization:", error);
-      }
+    if (onMapLoad) {
+      onMapLoad(event);
     }
-    
-    setGeoTiffError("Failed to load GeoTIFF image. The format may not be directly supported by the browser or CORS settings may be preventing access.");
-    setGeoTiffLoaded(false);
-    setIsLoading(false);
   };
 
-  // Try to add GeoTIFF to map when everything is ready
-  useEffect(() => {
-    if (mapLoaded && mapInstance && (geoTiffUrl) && !geoTiffLoaded) {
-      // Wait a moment to ensure map is fully initialized
-      const timer = setTimeout(() => {
-        MapboxLogger.log("Attempting to add GeoTIFF to map");
-        addGeoTiffToMap();
-      }, 1000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [mapLoaded, mapInstance, geoTiffUrl, geoTiffLoaded]);
-
-  // Toggle enlarged map view
   const toggleEnlargedView = () => {
     setIsEnlarged(!isEnlarged);
-    
-    // Need to notify map to resize after DOM changes
     setTimeout(() => {
       if (mapInstance) {
         mapInstance.resize();
@@ -654,30 +474,23 @@ export const ImageMap: React.FC<ImageMapProps> = ({
     }, 100);
   };
 
-  // Close popup when clicking elsewhere on the map
   const handleMapClick = (event: MapLayerMouseEvent) => {
-    // Check if the click is on a marker
     const map = internalMapRef.current || (externalMapRef?.current as MapRef | null);
-    // Access the underlying Mapbox GL JS map instance using getMap()
     const mapboxMap = map ? (map as any).getMap() : null;
     const features = mapboxMap?.queryRenderedFeatures(event.point, {
-      layers: ['markers-layer'] // You would need to add this layer if you want this behavior
+      layers: ['markers-layer']
     });
-    
-    // If not clicking on a marker, close the popup
     if (!features || features.length === 0) {
       setPopupInfo(null);
     }
   };
 
-  // Add this effect to handle key press events for escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isEnlarged) {
         toggleEnlargedView();
       }
     };
-    
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isEnlarged]);
@@ -702,7 +515,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         onClick={handleMapClick}
         ref={externalMapRef || internalMapRef}
       >
-        {/* Image location markers from ImageUploads with more detailed markers */}
         {imageLocations.map((location, index: number) => (
           <Marker 
             key={`img-${index}`}
@@ -711,16 +523,17 @@ export const ImageMap: React.FC<ImageMapProps> = ({
             anchor="center"
             scale={0.7}
             onClick={(e: MapLayerMouseEvent) => {
-              // Prevent click event from propagating to the map
               (e.originalEvent as MouseEvent).stopPropagation();
               setPopupInfo(location);
             }}
           >
             <div className="relative">
-              {/* Base marker circle */}
-              <div className="w-6 h-6 bg-blue-600 rounded-full border-2 border-white shadow-lg cursor-pointer hover:bg-blue-800 transition-colors" />
-              
-              {/* Direction arrow - properly attached to the marker */}
+              <div 
+                className={`w-6 h-6 rounded-full border-2 border-white shadow-lg cursor-pointer hover:opacity-80 transition-colors ${
+                  location.cameraModel || location.droneModel ? 'bg-green-600' : 'bg-blue-600'
+                }`} 
+                title={location.name || `Image ${index + 1}`}
+              />
               {location.heading !== undefined && (
                 <div 
                   className="absolute top-0 left-0 w-full h-full pointer-events-none"
@@ -745,11 +558,13 @@ export const ImageMap: React.FC<ImageMapProps> = ({
                   </div>
                 </div>
               )}
+              {(location.cameraModel || location.droneModel) && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full border border-white" 
+                     title="Has metadata" />
+              )}
             </div>
           </Marker>
         ))}
-        
-        {/* Popup for displaying image when marker is clicked */}
         {popupInfo && (
           <Popup
             longitude={popupInfo.longitude}
@@ -759,7 +574,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
             closeButton={true}
             closeOnClick={false}
             className="map-image-popup"
-            maxWidth="300px"
+            maxWidth="350px"
           >
             <div className="p-1">
               <h3 className="text-sm font-medium mb-1 text-gray-900">
@@ -776,7 +591,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
                   }}
                 />
               </div>
-              <div className="text-xs text-gray-600 grid grid-cols-2 gap-1">
+              <div className="text-xs text-gray-600 grid grid-cols-2 gap-1 bg-gray-50 p-2 rounded">
                 {popupInfo.heading !== undefined && (
                   <div>
                     <span className="font-medium">Heading:</span> {popupInfo.heading.toFixed(1)}°
@@ -787,7 +602,22 @@ export const ImageMap: React.FC<ImageMapProps> = ({
                     <span className="font-medium">Altitude:</span> {popupInfo.altitude.toFixed(1)}m
                   </div>
                 )}
-                <div className="col-span-2 mt-1">
+                {popupInfo.timestamp && (
+                  <div className="col-span-2">
+                    <span className="font-medium">Time:</span> {new Date(popupInfo.timestamp).toLocaleString()}
+                  </div>
+                )}
+                {popupInfo.cameraModel && (
+                  <div className="col-span-2">
+                    <span className="font-medium">Camera:</span> {popupInfo.cameraModel}
+                  </div>
+                )}
+                {popupInfo.droneModel && (
+                  <div className="col-span-2">
+                    <span className="font-medium">Drone:</span> {popupInfo.droneModel}
+                  </div>
+                )}
+                <div className="col-span-2 mt-2">
                   <a 
                     href={popupInfo.url} 
                     target="_blank" 
@@ -804,12 +634,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
             </div>
           </Popup>
         )}
-        
-        {/* Add zoom controls */}
-        {/* <NavigationControl position="top-right" /> */}
       </Map>
-      
-      {/* Fullscreen toggle button */}
       <button 
         onClick={toggleEnlargedView}
         className={`absolute ${isEnlarged ? 'top-6 right-6' : 'top-4 right-4'} bg-white rounded-md shadow-md p-2 z-30 hover:bg-gray-100`}
@@ -826,8 +651,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
           </svg>
         )}
       </button>
-      
-      {/* GeoTIFF status indicator */}
       {geoTiffUrl && (
         <div className="absolute top-4 left-4 bg-white rounded-md shadow-md p-2 max-w-xs z-10">
           <div className="flex items-center space-x-2">
@@ -865,42 +688,24 @@ export const ImageMap: React.FC<ImageMapProps> = ({
           )}
         </div>
       )}
-      
-      {/* Enhanced Error message with more info and additional options */}
       {geoTiffError && (
         <div className={`absolute ${isEnlarged ? 'bottom-8' : 'bottom-4'} left-4 right-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-md z-10`}>
           <p className="text-sm"><strong>Error:</strong> {geoTiffError}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button 
               className="text-xs bg-red-100 hover:bg-red-200 text-red-800 px-2 py-1 rounded"
-              onClick={() => addGeoTiffToMap()}
+              onClick={() => addGeoTiff(geoTiffUrl || '')}
             >
               Retry
             </button>
             <button 
               className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded flex items-center"
-              onClick={() => window.open(geoTiffUrl || '', '_blank')}
+              onClick={debugGeoTiff}
             >
               <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Download GeoTIFF
-            </button>
-            {/* Add button to view in a specialized web service for GeoTIFFs */}
-            <button 
-              className="text-xs bg-green-100 hover:bg-green-200 text-green-800 px-2 py-1 rounded flex items-center"
-              onClick={() => {
-                const url = geoTiffUrl;
-                if (url) {
-                  const encodedUrl = encodeURIComponent(url);
-                  window.open(`https://geotiff.io/?url=${encodedUrl}`, '_blank');
-                }
-              }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0015.75 2H4.25zM15 5.75a.75.75 0 00-1.5 0v8.5a.75.75 0 001.5 0v-8.5zm-4 4a.75.75 0 00-1.5 0v4.5a.75.75 0 001.5 0v-4.5zm-4-2a.75.75 0 00-1.5 0v6.5a.75.75 0 001.5 0v-6.5z" clipRule="evenodd" />
-              </svg>
-              View in GeoTIFF.io
+              Debug GeoTIFF
             </button>
           </div>
           <p className="text-xs text-gray-600 mt-2">
@@ -909,8 +714,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
           </p>
         </div>
       )}
-      
-      {/* Empty state */}
       {imageLocations.length === 0 && !geoTiffUrl && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-50 bg-opacity-90 z-10">
           <div className="text-center p-4">
@@ -922,8 +725,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
           </div>
         </div>
       )}
-      
-      {/* Global loading overlay */}
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 z-20">
           <div className="bg-white rounded-lg p-4 flex flex-col items-center">

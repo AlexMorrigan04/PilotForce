@@ -19,6 +19,8 @@ interface Resource {
   totalSize: number;
   url?: string;
   fileType?: string;
+  s3Path?: string;
+  type?: string;
 }
 
 interface Booking {
@@ -94,6 +96,25 @@ const AdminResources: React.FC = () => {
     }
   }, [selectedBookingId]);
 
+  // Add polling for resources updates
+  useEffect(() => {
+    if (selectedBookingId) {
+      // Initial fetch
+      fetchResourcesForBooking(selectedBookingId);
+      
+      // Set up a polling interval (every 10 seconds) to check if resources appear
+      const intervalId = setInterval(() => {
+        console.log('[AdminResources] Polling for resources updates');
+        fetchResourcesForBooking(selectedBookingId);
+      }, 10000); // 10 seconds
+      
+      return () => {
+        // Clean up the interval when component unmounts or selectedBookingId changes
+        clearInterval(intervalId);
+      };
+    }
+  }, [selectedBookingId]);
+
   // Fetch all bookings
   const fetchBookings = async () => {
     try {
@@ -153,7 +174,9 @@ const AdminResources: React.FC = () => {
         createdAt: resource.CreatedAt || resource.createdAt,
         createdBy: resource.CreatedBy || resource.createdBy,
         fileCount: resource.FileCount || resource.fileCount || 0,
-        totalSize: resource.TotalSize || resource.totalSize || 0
+        totalSize: resource.TotalSize || resource.totalSize || 0,
+        s3Path: resource.S3Path || resource.s3Path || '',
+        type: resource.Type || resource.type || 'folder'
       }));
       
       setResources(mappedResources);
@@ -169,28 +192,65 @@ const AdminResources: React.FC = () => {
   // Fetch resources for a specific booking
   const fetchResourcesForBooking = async (bookingId: string) => {
     setLoading(true);
+    console.log('%c[AdminResources] Fetching resources for booking', 'background:#3498db;color:white;padding:4px;border-radius:4px;', bookingId);
+    
     try {
       const response = await adminService.getBookingResources(bookingId);
-      if (!response || !response.resources) {
-        throw new Error('Invalid resource data received');
+      
+      // Check if response exists (could be undefined if there was an error but we returned empty resources)
+      if (!response) {
+        console.warn(`[AdminResources] No response data for booking ${bookingId}, using empty array`);
+        setResources([]);
+        setError(null);
+        return;
       }
       
-      // Map the API response to Resource interface
-      const mappedResources = response.resources.map((resource: any) => ({
-        id: resource.ResourceId || resource.id,
-        bookingId: resource.BookingId || resource.bookingId,
-        folderName: resource.FolderName || resource.folderName,
-        createdAt: resource.CreatedAt || resource.createdAt,
-        createdBy: resource.CreatedBy || resource.createdBy,
-        fileCount: resource.FileCount || resource.fileCount || 0,
-        totalSize: resource.TotalSize || resource.totalSize || 0
-      }));
+      console.log('[AdminResources] Resources response:', response);
       
+      // Handle different response formats
+      let resourcesArray = [];
+      if (Array.isArray(response)) {
+        resourcesArray = response;
+        console.log('[AdminResources] Response is an array:', resourcesArray);
+      } else if (response.resources && Array.isArray(response.resources)) {
+        resourcesArray = response.resources;
+        console.log('[AdminResources] Found resources array in response:', resourcesArray);
+      } else {
+        console.warn('[AdminResources] Invalid resource data structure:', response);
+        setResources([]);
+        setError(null);
+        return;
+      }
+      
+      console.log('[AdminResources] Raw resources:', resourcesArray);
+      
+      // Map the API response to Resource interface, handling different field name formats
+      const mappedResources = resourcesArray.map((resource: any) => {
+        const mappedResource = {
+          id: resource.ResourceId || resource.id || `resource-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          bookingId: resource.BookingId || resource.bookingId || bookingId,
+          folderName: resource.FolderName || resource.folderName || 'Unnamed Folder',
+          createdAt: resource.CreatedAt || resource.createdAt || new Date().toISOString(),
+          createdBy: resource.CreatedBy || resource.createdBy || 'System',
+          fileCount: resource.FileCount || resource.fileCount || 0,
+          totalSize: resource.TotalSize || resource.totalSize || 0,
+          s3Path: resource.S3Path || resource.s3Path || '',
+          type: resource.Type || resource.type || 'folder'
+        };
+        
+        console.log('[AdminResources] Mapped resource:', mappedResource);
+        return mappedResource;
+      });
+      
+      console.log('[AdminResources] All mapped resources:', mappedResources);
       setResources(mappedResources);
       setError(null);
     } catch (err: any) {
-      console.error(`Error fetching resources for booking ${bookingId}:`, err);
-      setError('Failed to load booking resources: ' + err.message);
+      console.error(`[AdminResources] Error fetching resources for booking ${bookingId}:`, err);
+      // Set resources to empty array even on error to prevent UI from breaking
+      setResources([]);
+      // Show a more user-friendly error
+      setError('Could not load resources. This may happen if the booking has no resources yet.');
     } finally {
       setLoading(false);
     }
@@ -215,59 +275,94 @@ const AdminResources: React.FC = () => {
     }
   };
 
-  // Upload a resource for a booking
-  const handleUploadResource = async (e: React.FormEvent) => {
+  // Replace file upload with folder creation functionality
+  const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!selectedBookingId) {
-      setError('Please select a booking for this resource');
+      setError('Please select a booking for this folder');
       return;
     }
     
-    if (!file) {
-      setError('Please select a file to upload');
+    if (!newFolderName.trim()) {
+      setError('Please enter a folder name');
       return;
     }
     
-    setUploadingFile(true);
-    setUploadProgress(0);
+    setLoading(true);
     setError(null);
     
     try {
-      // Simulated progress updates
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
+      console.log('%c[AdminResources] Creating folder', 'background:#2ecc71;color:white;padding:4px;border-radius:4px;', {
+        folderName: newFolderName,
+        bookingId: selectedBookingId
+      });
+      
+      const result = await adminService.createResourceFolder(selectedBookingId, newFolderName);
+      console.log('[AdminResources] Folder creation response:', result);
+      
+      if (result && (result.success || result.folderId)) {
+        setSuccess('Folder created successfully!');
+        
+        // Create a new folder object to add to the resources array
+        const newFolder = {
+          id: result.folderId || `folder-${Date.now()}`,
+          bookingId: selectedBookingId,
+          folderName: newFolderName,
+          createdAt: new Date().toISOString(),
+          createdBy: 'Current User',
+          fileCount: 0,
+          totalSize: 0,
+          s3Path: result.s3Path || `booking_${selectedBookingId}/${result.folderId || 'temp'}/`,
+          type: 'folder'
+        };
+        
+        console.log('[AdminResources] Adding new folder to state:', newFolder);
+        
+        // Add the new folder to the resources array
+        setResources(current => {
+          const updatedResources = [...current, newFolder];
+          console.log('[AdminResources] Updated resources array:', updatedResources);
+          return updatedResources;
         });
-      }, 300);
-      
-      await adminService.uploadBookingResource(selectedBookingId, file, resourceType);
-      
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-      
-      setSuccess('Resource uploaded successfully!');
-      setTimeout(() => setSuccess(null), 3000);
-      
-      // Reset form and fetch updated resources
-      setFile(null);
-      setShowUploadModal(false);
-      
-      // Refetch resources for the current booking
-      if (selectedBookingId) {
-        fetchResourcesForBooking(selectedBookingId);
+        
+        // Reset form and close modal
+        setNewFolderName('');
+        setCreateFolderModal(false);
+        
+        // Refresh resources after a short delay to ensure backend sync
+        console.log('[AdminResources] Scheduling refresh of resources');
+        setTimeout(() => {
+          console.log('[AdminResources] Refreshing resources after folder creation');
+          fetchResourcesForBooking(selectedBookingId);
+        }, 1500);
       } else {
-        fetchResources();
+        throw new Error('Failed to create folder: No success response from server');
       }
     } catch (err: any) {
-      console.error('Error uploading resource:', err);
-      setError('Failed to upload resource: ' + err.message);
+      console.error('[AdminResources] Error creating folder:', err);
+      
+      // More descriptive error message for debugging
+      let errorMsg = 'Failed to create folder. ';
+      
+      if (err.message) {
+        errorMsg += err.message;
+      }
+      
+      if (err.response) {
+        errorMsg += ` Server returned ${err.response.status}: ${JSON.stringify(err.response.data)}`;
+      }
+      
+      setError(errorMsg);
+      
+      // Implement retry logic for network errors
+      if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
+        setTimeout(() => {
+          setError('Connection error. Would you like to retry?');
+        }, 1000);
+      }
     } finally {
-      setUploadingFile(false);
+      setLoading(false);
     }
   };
 
@@ -397,48 +492,6 @@ const AdminResources: React.FC = () => {
   const [createFolderModal, setCreateFolderModal] = useState<boolean>(false);
   const [newFolderName, setNewFolderName] = useState<string>('');
 
-  // Replace file upload with folder creation functionality
-  const handleCreateFolder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!selectedBookingId) {
-      setError('Please select a booking for this folder');
-      return;
-    }
-    
-    if (!newFolderName.trim()) {
-      setError('Please enter a folder name');
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // API call to create a folder
-      await adminService.createResourceFolder(selectedBookingId, newFolderName);
-      
-      setSuccess('Folder created successfully!');
-      setTimeout(() => setSuccess(null), 3000);
-      
-      // Reset form and fetch updated resources
-      setNewFolderName('');
-      setCreateFolderModal(false);
-      
-      // Refetch resources for the current booking
-      if (selectedBookingId) {
-        fetchResourcesForBooking(selectedBookingId);
-      } else {
-        fetchResources();
-      }
-    } catch (err: any) {
-      console.error('Error creating folder:', err);
-      setError('Failed to create folder: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Modify the view to show folder cards instead of file cards
   const renderFoldersGrid = () => (
     <div className="p-6">
@@ -558,6 +611,23 @@ const AdminResources: React.FC = () => {
       </table>
     </div>
   );
+
+  // Debug panel for resources
+  const DebugResourcesPanel = () => {
+    // Only show in development mode
+    if (process.env.NODE_ENV !== 'development') return null;
+    
+    return (
+      <div className="mt-4 p-4 bg-gray-100 rounded-lg border border-gray-300">
+        <h3 className="text-sm font-bold mb-2">Resources Debug Panel (Dev Only)</h3>
+        <div className="overflow-x-auto">
+          <pre className="text-xs whitespace-pre-wrap">
+            {JSON.stringify(resources, null, 2)}
+          </pre>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
@@ -704,6 +774,9 @@ const AdminResources: React.FC = () => {
             </div>
           ) : viewMode === 'grid' ? renderFoldersGrid() : renderFoldersList()}
         </div>
+
+        {/* Debug Panel */}
+        {process.env.NODE_ENV === 'development' && <DebugResourcesPanel />}
       </main>
 
       {/* Create Folder Modal */}

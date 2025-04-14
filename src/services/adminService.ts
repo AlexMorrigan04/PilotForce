@@ -1,5 +1,24 @@
 import { API } from '../utils/apiUtils';
 import { ADMIN_ENDPOINTS, API_BASE_URL } from '../utils/endpoints';
+import api from './api';
+
+// Define proper types for progress event
+interface ProgressEvent {
+  loaded: number;
+  total?: number;
+}
+
+// Define types for resources
+interface Resource {
+  id: string;
+  resourceUrl: string;
+  resourceType: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  uploadedAt: string;
+  thumbnailUrl?: string;
+}
 
 /**
  * Fetch all users with optional filtering
@@ -275,152 +294,35 @@ export const getAllAssets = async (filters = {}) => {
  */
 
 /**
- * Fetch all bookings with optional filtering
+ * Fetch all bookings
  */
-export const getAllBookings = async (filters = {}) => {
-  try {
-    // Build query parameters for filtering
-    const queryParams = new URLSearchParams();
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value) queryParams.append(key, value as string);
-    });
-
-    // Use bookings endpoint
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings` + 
-      (queryParams.toString() ? `?${queryParams.toString()}` : '');
-    
-    console.log('Fetching bookings from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch bookings: ${response.status}`);
-    }
-
-    const data = await response.json();
-    console.log('Raw booking data received:', data);
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        console.log('Parsing response body');
-        const parsedData = JSON.parse(data.body);
-        console.log('Parsed body:', parsedData);
-        return parsedData;
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error('Error fetching bookings:', error);
-    // Return a minimal valid response structure in case of error
-    return { bookings: [] };
-  }
+export const getAllBookings = async () => {
+  const response = await api.get('/admin/bookings');
+  return response.data;
 };
 
 /**
  * Get a specific booking by ID
  */
 export const getBookingById = async (bookingId: string) => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}`;
-    console.log('Fetching booking details from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch booking: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error(`Error fetching booking ${bookingId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Delete a booking by ID
- */
-export const deleteBooking = async (bookingId: string) => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}`;
-    console.log('Deleting booking from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to delete booking: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error deleting booking ${bookingId}:`, error);
-    throw error;
-  }
+  const response = await api.get(`/admin/bookings/${bookingId}`);
+  return response.data;
 };
 
 /**
  * Update booking status
  */
 export const updateBookingStatus = async (bookingId: string, status: string) => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}/status`;
-    console.log(`Updating booking status to ${status} at:`, apiUrl);
+  const response = await api.put(`/admin/bookings/${bookingId}/status`, { status });
+  return response.data;
+};
 
-    const response = await fetch(apiUrl, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to update booking status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error updating status for booking ${bookingId}:`, error);
-    throw error;
-  }
+/**
+ * Delete a booking by ID
+ */
+export const deleteBooking = async (bookingId: string) => {
+  const response = await api.delete(`/admin/bookings/${bookingId}`);
+  return response.data;
 };
 
 /**
@@ -428,46 +330,8 @@ export const updateBookingStatus = async (bookingId: string, status: string) => 
  */
 
 /**
- * Get resources for a booking
- */
-export const getBookingResources = async (bookingId: string) => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}/resources`;
-    console.log('Fetching booking resources from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch booking resources: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error(`Error fetching resources for booking ${bookingId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Get all resources
+ * Get all resources with optional filtering
+ * @param filters Optional filters to apply
  */
 export const getAllResources = async (filters = {}) => {
   try {
@@ -483,31 +347,8 @@ export const getAllResources = async (filters = {}) => {
     
     console.log('Fetching resources from:', apiUrl);
 
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch resources: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
+    const response = await api.get(apiUrl);
+    return response.data;
   } catch (error) {
     console.error('Error fetching resources:', error);
     throw error;
@@ -515,60 +356,103 @@ export const getAllResources = async (filters = {}) => {
 };
 
 /**
- * Upload a resource for a booking
+ * Get resources for a specific booking
+ * @param bookingId The ID of the booking
+ * @returns List of resources for the booking
  */
-export const uploadBookingResource = async (bookingId: string, file: File, resourceType: string) => {
+export const getBookingResources = async (bookingId: string) => {
   try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}/resources`;
-    console.log('Uploading booking resource to:', apiUrl);
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('resourceType', resourceType);
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        // Note: Don't set Content-Type here as it will be automatically set with the FormData boundary
-      },
-      body: formData
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to upload resource: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
+    const response = await api.get(`/admin/bookings/${bookingId}/resources`);
+    return response.data;
   } catch (error) {
-    console.error(`Error uploading resource for booking ${bookingId}:`, error);
+    console.error('Error getting booking resources:', error);
     throw error;
   }
 };
 
 /**
- * Delete a booking resource
+ * Create a folder for resources within a booking
+ * @param bookingId The booking ID
+ * @param folderName The name of the folder to create
+ */
+export const createResourceFolder = async (bookingId: string, folderName: string) => {
+  try {
+    const response = await api.post(`/admin/bookings/${bookingId}/folders`, {
+      folderName
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error creating folder for booking ${bookingId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Upload a resource file for a booking
+ * @param bookingId The booking ID
+ * @param file The file to upload
+ * @param onProgress Optional progress callback
+ */
+export const uploadBookingResource = async (
+  bookingId: string,
+  file: File,
+  onProgress?: (progress: number) => void
+) => {
+  try {
+    console.log(`Starting upload for booking ${bookingId}, file: ${file.name}`);
+    
+    // Create form data to send the file
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('fileName', file.name);
+    formData.append('contentType', file.type || 'application/octet-stream');
+    
+    // Determine the resource type based on file extension or MIME type
+    let resourceType = 'file';
+    if (file.type.startsWith('image/')) {
+      resourceType = 'image';
+    } else if (file.name.match(/\.(tif|tiff)$/i)) {
+      resourceType = 'geotiff';
+    }
+    formData.append('resourceType', resourceType);
+    
+    // Log the request details for debugging
+    console.log(`Uploading to /admin/bookings/${bookingId}/resources`);
+    console.log(`File type: ${file.type}, Resource type: ${resourceType}`);
+    
+    // Use a simplified approach to avoid issues with multipart/form-data
+    const response = await api.post(`/admin/bookings/${bookingId}/resources`, formData, {
+      headers: {
+        // Don't set Content-Type header - let the browser set it with the boundary
+      },
+      onUploadProgress: (progressEvent: any) => {
+        if (onProgress && progressEvent.total) {
+          // Calculate the upload percentage
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          console.log(`Upload progress: ${percentCompleted}%`);
+          onProgress(percentCompleted);
+        }
+      }
+    });
+    
+    console.log('Upload response:', response);
+    
+    return response.data;
+  } catch (error) {
+    console.error('Upload error details:', error);
+    throw error;
+  }
+};
+
+/**
+ * Delete a specific resource from a booking
+ * @param bookingId The booking ID
+ * @param resourceId The resource ID
  */
 export const deleteBookingResource = async (bookingId: string, resourceId: string) => {
   try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}/resources/${resourceId}`;
-    console.log('Deleting resource from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to delete resource: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
+    const response = await api.delete(`/admin/bookings/${bookingId}/resources/${resourceId}`);
+    return response.data;
   } catch (error) {
     console.error(`Error deleting resource ${resourceId} from booking ${bookingId}:`, error);
     throw error;
@@ -576,139 +460,80 @@ export const deleteBookingResource = async (bookingId: string, resourceId: strin
 };
 
 /**
- * Create a resource folder for a booking
+ * Get a download URL for a resource
+ * @param bookingId The booking ID
+ * @param resourceId The resource ID
  */
-export const createResourceFolder = async (bookingId: string, folderName: string) => {
+export const getResourceDownloadUrl = async (bookingId: string, resourceId: string) => {
   try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}/folders`;
-    console.log('Creating resource folder at:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ folderName })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to create folder: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error creating resource folder for booking ${bookingId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Delete a resource folder
- */
-export const deleteResourceFolder = async (bookingId: string, folderId: string) => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}/folders/${folderId}`;
-    console.log('Deleting folder from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to delete folder: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error deleting folder ${folderId} from booking ${bookingId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Get files within a resource folder
- */
-export const getFolderFiles = async (bookingId: string, folderId: string) => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}/folders/${folderId}/files`;
-    console.log('Fetching folder files from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch folder files: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error(`Error fetching files for folder ${folderId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Get download URL for a resource
- */
-export const getResourceDownloadUrl = async (bookingId: string, resourceId: string): Promise<string> => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/bookings/${bookingId}/resources/${resourceId}/download`;
-    console.log('Getting resource download URL from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to get download URL: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.url) {
-      return data.url;
-    } else if (data.body && typeof data.body === 'string') {
-      try {
-        const parsedBody = JSON.parse(data.body);
-        return parsedBody.url || '';
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return '';
-      }
-    }
-    
-    return '';
+    const response = await api.get(`/admin/bookings/${bookingId}/resources/${resourceId}/download`);
+    return response.data.downloadUrl;
   } catch (error) {
     console.error(`Error getting download URL for resource ${resourceId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Get a pre-signed URL for direct S3 upload
+ * @param fileName The S3 key/path for the file
+ * @param contentType The MIME type of the file
+ */
+export const getS3UploadUrl = async (fileName: string, contentType: string) => {
+  try {
+    const response = await api.get(
+      `/admin/s3-upload-url?fileName=${encodeURIComponent(fileName)}&contentType=${encodeURIComponent(contentType)}`
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error getting S3 upload URL:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update a resource record status
+ */
+export const updateResourceRecord = async (
+  bookingId: string,
+  resourceId: string,
+  updateData: { status: string }
+) => {
+  try {
+    const response = await api.put(
+      `/admin/bookings/${bookingId}/resources/${resourceId}`, 
+      updateData
+    );
+    return response.data;
+  } catch (error) {
+    console.error(`Error updating resource record:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Create a resource record (for tracking S3 uploads)
+ */
+export const createResourceRecord = async (
+  bookingId: string, 
+  recordData: {
+    resourceId: string;
+    fileName: string;
+    resourceUrl: string;
+    contentType: string;
+    fileSize: number;
+    resourceType: string;
+    status: string;
+  }
+) => {
+  try {
+    const response = await api.post(
+      `/admin/bookings/${bookingId}/resources`, 
+      recordData
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error creating resource record:', error);
     throw error;
   }
 };
@@ -891,7 +716,8 @@ export const createCompany = async (companyData: any) => {
   }
 };
 
-export default {
+// Create admin service object first, then export it
+const adminService = {
   getAllUsers,
   getAllCompanies,
   getFilteredCompanies,
@@ -907,17 +733,20 @@ export default {
   deleteBooking,
   updateBookingStatus,
   // Resources
-  getBookingResources,
   getAllResources,
+  getBookingResources,
   uploadBookingResource,
   deleteBookingResource,
   createResourceFolder,
-  deleteResourceFolder,
-  getFolderFiles,
   getResourceDownloadUrl,
+  getS3UploadUrl,
+  createResourceRecord,
+  updateResourceRecord,
   // Companies
   getCompany,
   deleteCompany,
   updateCompany,
   createCompany
 };
+
+export default adminService;

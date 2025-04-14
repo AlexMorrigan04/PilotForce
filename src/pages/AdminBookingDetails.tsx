@@ -5,8 +5,9 @@ import AdminNavbar from '../components/AdminNavbar';
 import { 
   FiArrowLeft, FiCalendar, FiClock, FiMapPin, FiUser, 
   FiPackage, FiEdit, FiTrash2, FiUpload, FiDownload, 
-  FiCheckCircle, FiXCircle, FiImage, FiMap 
+  FiCheckCircle, FiXCircle, FiImage, FiMap, FiFile 
 } from 'react-icons/fi';
+import ResourceUploadModal from '../components/admin/ResourceUploadModal';
 import * as adminService from '../services/adminService';
 
 interface BookingDetails {
@@ -45,8 +46,12 @@ const AdminBookingDetails: React.FC = () => {
   const [resources, setResources] = useState<Resource[]>([]);
   const [images, setImages] = useState<Resource[]>([]);
   const [geotiffFiles, setGeotiffFiles] = useState<Resource[]>([]);
+  const [otherFiles, setOtherFiles] = useState<Resource[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
+  const [resourcesUpdated, setResourcesUpdated] = useState<boolean>(false);
+  const [resourcesLoading, setResourcesLoading] = useState<boolean>(false);
   const navigate = useNavigate();
 
   // Verify admin status and load data
@@ -61,7 +66,7 @@ const AdminBookingDetails: React.FC = () => {
     
     if (bookingId) {
       fetchBooking();
-      fetchBookingResources();
+      fetchResources();
     } else {
       setError('No booking ID provided');
     }
@@ -71,6 +76,12 @@ const AdminBookingDetails: React.FC = () => {
   useEffect(() => {
     setImages(resources.filter(r => r.resourceType === 'image' || r.mimeType.startsWith('image/')));
     setGeotiffFiles(resources.filter(r => r.resourceType === 'geotiff' || r.fileName.match(/\.(tif|tiff)$/i)));
+    setOtherFiles(resources.filter(r => 
+      !r.resourceType.includes('image') && 
+      !r.mimeType.startsWith('image/') && 
+      !r.resourceType.includes('geotiff') && 
+      !r.fileName.match(/\.(tif|tiff)$/i)
+    ));
   }, [resources]);
 
   // Fetch booking details
@@ -90,18 +101,31 @@ const AdminBookingDetails: React.FC = () => {
   };
 
   // Fetch booking resources
-  const fetchBookingResources = async () => {
-    if (!bookingId) return;
-    
-    setLoading(true);
+  const fetchResources = async () => {
     try {
-      const response = await adminService.getBookingResources(bookingId);
-      setResources(response.resources || []);
-    } catch (err: any) {
-      console.error(`Error fetching resources for booking ${bookingId}:`, err);
-      setError(err.message || 'Failed to load booking resources');
+      setResourcesLoading(true);
+      console.log(`Fetching resources for booking ${bookingId}`);
+      
+      const response = await adminService.getBookingResources(bookingId || '');
+      
+      console.log('Resources API response:', response);
+      
+      // Handle case where response might be an object with a resources property
+      // or might directly be an array of resources
+      if (Array.isArray(response)) {
+        setResources(response);
+      } else if (response && Array.isArray(response.resources)) {
+        setResources(response.resources);
+      } else {
+        console.warn('Unexpected resources response format:', response);
+        setResources([]);
+      }
+    } catch (error) {
+      console.error('Error fetching resources:', error);
+      setError('Failed to load resources');
+      setResources([]);
     } finally {
-      setLoading(false);
+      setResourcesLoading(false);
     }
   };
 
@@ -145,6 +169,42 @@ const AdminBookingDetails: React.FC = () => {
     }
   };
 
+  // Handle resource deletion
+  const handleDeleteResource = async (resourceId: string) => {
+    if (!bookingId || !resourceId) return;
+    
+    if (window.confirm('Are you sure you want to delete this resource? This action cannot be undone.')) {
+      try {
+        await adminService.deleteBookingResource(bookingId, resourceId);
+        
+        // Update local state by removing the deleted resource
+        setResources(prevResources => prevResources.filter(r => r.id !== resourceId));
+        
+        alert('Resource deleted successfully');
+      } catch (err: any) {
+        console.error(`Error deleting resource:`, err);
+        setError(err.message || 'Failed to delete resource');
+      }
+    }
+  };
+
+  // Handle resource upload complete
+  const handleUploadComplete = () => {
+    // Set the success notification
+    setResourcesUpdated(true);
+    
+    // Short delay before fetching resources to allow S3 consistency
+    setTimeout(() => {
+      // Refresh the resources
+      fetchResources();
+    }, 1000);
+    
+    // Clear the notification after a delay
+    setTimeout(() => {
+      setResourcesUpdated(false);
+    }, 5000);
+  };
+
   // Format file size
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + ' B';
@@ -166,6 +226,13 @@ const AdminBookingDetails: React.FC = () => {
       default:
         return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  const getFileIcon = (mimeType: string, fileName: string) => {
+    if (mimeType.startsWith('image/')) return <FiImage className="h-5 w-5 text-blue-500" />;
+    if (mimeType.startsWith('application/pdf')) return <FiFile className="h-5 w-5 text-red-500" />;
+    if (fileName.match(/\.(tif|tiff)$/i)) return <FiMap className="h-5 w-5 text-green-500" />;
+    return <FiFile className="h-5 w-5 text-gray-500" />;
   };
 
   return (
@@ -200,13 +267,13 @@ const AdminBookingDetails: React.FC = () => {
                 <FiEdit className="mr-2 -ml-1" />
                 Edit Booking
               </Link>
-              <Link
-                to={`/admin/bookings/upload/${bookingId}`}
+              <button
+                onClick={() => setIsUploadModalOpen(true)}
                 className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
               >
                 <FiUpload className="mr-2 -ml-1" />
                 Upload Data
-              </Link>
+              </button>
               <button
                 onClick={handleDeleteBooking}
                 className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
@@ -370,16 +437,36 @@ const AdminBookingDetails: React.FC = () => {
               <div className="bg-white shadow rounded-lg overflow-hidden mt-6">
                 <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                   <h2 className="text-lg font-medium text-gray-900">Resources</h2>
-                  <Link
-                    to={`/admin/bookings/upload/${bookingId}`}
+                  <button
+                    onClick={() => setIsUploadModalOpen(true)}
                     className="inline-flex items-center px-3 py-1.5 border border-transparent rounded-md text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200"
                   >
                     <FiUpload className="mr-1" />
                     Upload New
-                  </Link>
+                  </button>
                 </div>
                 
-                {resources.length === 0 ? (
+                {resourcesUpdated && (
+                  <div className="mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded relative">
+                    <span className="block sm:inline">Resources uploaded successfully!</span>
+                    <button
+                      className="absolute top-0 bottom-0 right-0 px-4 py-3"
+                      onClick={() => setResourcesUpdated(false)}
+                    >
+                      <span className="sr-only">Close</span>
+                      <span className="h-6 w-6">×</span>
+                    </button>
+                  </div>
+                )}
+                
+                {resourcesLoading ? (
+                  <div className="p-6 text-center">
+                    <div className="flex justify-center items-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+                      <span className="ml-3 text-gray-600">Loading resources...</span>
+                    </div>
+                  </div>
+                ) : resources.length === 0 ? (
                   <div className="p-6 text-center text-gray-500">
                     No resources have been uploaded for this booking yet.
                   </div>
@@ -414,7 +501,19 @@ const AdminBookingDetails: React.FC = () => {
                                   </div>
                                 )}
                               </div>
-                              <p className="mt-1 text-xs text-gray-500 truncate">{image.fileName}</p>
+                              <div className="mt-1 flex justify-between items-start">
+                                <p className="text-xs text-gray-500 truncate flex-1">{image.fileName}</p>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault(); 
+                                    e.stopPropagation(); 
+                                    handleDeleteResource(image.id);
+                                  }}
+                                  className="text-red-500 hover:text-red-700 ml-2"
+                                >
+                                  <FiTrash2 size={14} />
+                                </button>
+                              </div>
                             </a>
                           ))}
                         </div>
@@ -423,7 +522,7 @@ const AdminBookingDetails: React.FC = () => {
                     
                     {/* GeoTIFF Files */}
                     {geotiffFiles.length > 0 && (
-                      <div>
+                      <div className="mb-6">
                         <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
                           <FiMap className="mr-2 text-green-500" />
                           GeoTIFF Files ({geotiffFiles.length})
@@ -445,14 +544,70 @@ const AdminBookingDetails: React.FC = () => {
                                   </div>
                                 </div>
                               </div>
-                              <a
-                                href={file.resourceUrl}
-                                download
-                                className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none"
-                              >
-                                <FiDownload className="mr-1" />
-                                Download
-                              </a>
+                              <div className="flex space-x-2">
+                                <a
+                                  href={file.resourceUrl}
+                                  download
+                                  className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none"
+                                >
+                                  <FiDownload className="mr-1" />
+                                  Download
+                                </a>
+                                <button
+                                  onClick={() => handleDeleteResource(file.id)}
+                                  className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none"
+                                >
+                                  <FiTrash2 className="mr-1" />
+                                  Delete
+                                </button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {/* Other Files */}
+                    {otherFiles.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+                          <FiFile className="mr-2 text-gray-500" />
+                          Other Files ({otherFiles.length})
+                        </h3>
+                        <ul className="divide-y divide-gray-200 border-t border-b border-gray-200">
+                          {otherFiles.map(file => (
+                            <li key={file.id} className="py-3 flex justify-between items-center">
+                              <div className="flex items-center">
+                                {getFileIcon(file.mimeType, file.fileName)}
+                                <div className="ml-3">
+                                  <p className="text-sm font-medium text-gray-900">{file.fileName}</p>
+                                  <div className="flex space-x-4 mt-1">
+                                    <span className="text-xs text-gray-500">
+                                      {formatFileSize(file.fileSize)}
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                      {new Date(file.uploadedAt).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex space-x-2">
+                                <a
+                                  href={file.resourceUrl}
+                                  download
+                                  className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none"
+                                >
+                                  <FiDownload className="mr-1" />
+                                  Download
+                                </a>
+                                <button
+                                  onClick={() => handleDeleteResource(file.id)}
+                                  className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none"
+                                >
+                                  <FiTrash2 className="mr-1" />
+                                  Delete
+                                </button>
+                              </div>
                             </li>
                           ))}
                         </ul>
@@ -478,13 +633,13 @@ const AdminBookingDetails: React.FC = () => {
                     Edit Booking
                   </Link>
                   
-                  <Link
-                    to={`/admin/bookings/upload/${bookingId}`}
+                  <button
+                    onClick={() => setIsUploadModalOpen(true)}
                     className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none"
                   >
                     <FiUpload className="mr-2 -ml-1" />
                     Upload Data
-                  </Link>
+                  </button>
                   
                   <button
                     onClick={handleDeleteBooking}
@@ -537,6 +692,14 @@ const AdminBookingDetails: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Resource Upload Modal */}
+      <ResourceUploadModal 
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        bookingId={bookingId || ''}
+        onUploadComplete={handleUploadComplete}
+      />
     </div>
   );
 };

@@ -6,6 +6,9 @@ import App from './App';
 // Import Amplify
 import { Amplify } from 'aws-amplify';
 
+// Use the renamed function
+import { configureAWSSDK } from './utils/awsConfig';
+
 // Direct configuration of Amplify in index.tsx
 Amplify.configure({
   // Auth configuration
@@ -36,6 +39,9 @@ Amplify.configure({
     }
   }
 });
+
+// Configure AWS SDK globally
+configureAWSSDK();
 
 // Fix Content Security Policy at runtime to allow data: URLs in connect-src
 if (typeof document !== 'undefined') {

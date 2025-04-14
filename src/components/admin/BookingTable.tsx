@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { FiEdit, FiTrash2, FiExternalLink, FiChevronUp, FiChevronDown, FiUpload, FiCheckCircle, FiXCircle, FiClock } from 'react-icons/fi';
+import { FiEdit, FiTrash2, FiExternalLink, FiChevronUp, FiChevronDown, FiUpload, FiCheckCircle, FiXCircle, FiClock, FiEye } from 'react-icons/fi';
+import BookingResourcesModal from './BookingResourcesModal';
 
 interface Booking {
   id: string;
@@ -45,6 +46,7 @@ const BookingTable: React.FC<BookingTableProps> = ({
 }) => {
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [viewingResourcesFor, setViewingResourcesFor] = useState<string | null>(null);
 
   const handleSort = (field: SortField) => {
     if (field === sortField) {
@@ -122,6 +124,13 @@ const BookingTable: React.FC<BookingTableProps> = ({
             >
               <FiXCircle />
             </button>
+            <button
+              onClick={() => setViewingResourcesFor(booking.id)}
+              className="text-blue-600 hover:text-blue-900 mr-3"
+              title="View Resources"
+            >
+              <FiEye />
+            </button>
           </>
         );
       case 'confirmed':
@@ -135,6 +144,13 @@ const BookingTable: React.FC<BookingTableProps> = ({
               <FiUpload />
             </button>
             <button
+              onClick={() => setViewingResourcesFor(booking.id)}
+              className="text-blue-600 hover:text-blue-900 mr-3"
+              title="View Resources"
+            >
+              <FiEye />
+            </button>
+            <button
               onClick={() => onUpdateStatus(booking.id, 'completed')}
               className="text-green-600 hover:text-green-900 mr-3"
               title="Mark as Completed"
@@ -145,126 +161,147 @@ const BookingTable: React.FC<BookingTableProps> = ({
         );
       case 'completed':
         return (
-          <button
-            onClick={() => onUploadData(booking.id)}
-            className="text-blue-600 hover:text-blue-900 mr-3"
-            title="Upload Additional Data"
-          >
-            <FiUpload />
-          </button>
+          <>
+            <button
+              onClick={() => onUploadData(booking.id)}
+              className="text-blue-600 hover:text-blue-900 mr-3"
+              title="Upload Additional Data"
+            >
+              <FiUpload />
+            </button>
+            <button
+              onClick={() => setViewingResourcesFor(booking.id)}
+              className="text-blue-600 hover:text-blue-900 mr-3"
+              title="View Resources"
+            >
+              <FiEye />
+            </button>
+          </>
         );
       default:
-        return null;
+        return (
+          <button
+            onClick={() => setViewingResourcesFor(booking.id)}
+            className="text-blue-600 hover:text-blue-900 mr-3"
+            title="View Resources"
+          >
+            <FiEye />
+          </button>
+        );
     }
   };
 
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2"
-                  checked={selectedBookings.length === bookings.length && bookings.length > 0}
-                  onChange={onSelectAll}
-                />
-                <span className="sr-only">Select All</span>
-              </div>
-            </th>
-            {renderSortableHeader('companyName', 'Company')}
-            {renderSortableHeader('username', 'User')}
-            {renderSortableHeader('date', 'Date')}
-            {renderSortableHeader('type', 'Type')}
-            {renderSortableHeader('status', 'Status')}
-            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Location
-            </th>
-            <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {loading ? (
+    <>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
             <tr>
-              <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
-                <div className="flex justify-center items-center space-x-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-600"></div>
-                  <span>Loading bookings...</span>
-                </div>
-              </td>
-            </tr>
-          ) : sortedBookings.length === 0 ? (
-            <tr>
-              <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
-                No bookings found
-              </td>
-            </tr>
-          ) : (
-            sortedBookings.map(booking => (
-              <tr key={booking.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <div className="flex items-center">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                    checked={selectedBookings.includes(booking.id)}
-                    onChange={() => onSelectBooking(booking.id)}
+                    className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2"
+                    checked={selectedBookings.length === bookings.length && bookings.length > 0}
+                    onChange={onSelectAll}
                   />
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  {booking.companyName}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {booking.username}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <div>{new Date(booking.date).toLocaleDateString()}</div>
-                  <div className="text-xs">{booking.time}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {booking.type}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(booking.status)}`}>
-                    {booking.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {booking.location}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  {getStatusActions(booking)}
-                  <button
-                    onClick={() => onViewDetails(booking.id)}
-                    className="text-blue-600 hover:text-blue-900 mr-3"
-                    title="View Booking Details"
-                  >
-                    <FiExternalLink />
-                  </button>
-                  <button
-                    onClick={() => onEdit(booking.id)}
-                    className="text-blue-600 hover:text-blue-900 mr-3"
-                    title="Edit Booking"
-                  >
-                    <FiEdit />
-                  </button>
-                  <button
-                    onClick={() => onDelete(booking.id)}
-                    className="text-blue-600 hover:text-blue-900"
-                    title="Delete Booking"
-                  >
-                    <FiTrash2 />
-                  </button>
+                  <span className="sr-only">Select All</span>
+                </div>
+              </th>
+              {renderSortableHeader('companyName', 'Company')}
+              {renderSortableHeader('username', 'User')}
+              {renderSortableHeader('date', 'Date')}
+              {renderSortableHeader('type', 'Type')}
+              {renderSortableHeader('status', 'Status')}
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Location
+              </th>
+              <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {loading ? (
+              <tr>
+                <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
+                  <div className="flex justify-center items-center space-x-2">
+                    <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-600"></div>
+                    <span>Loading bookings...</span>
+                  </div>
                 </td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
+            ) : sortedBookings.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
+                  No bookings found
+                </td>
+              </tr>
+            ) : (
+              sortedBookings.map(booking => (
+                <tr key={booking.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                      checked={selectedBookings.includes(booking.id)}
+                      onChange={() => onSelectBooking(booking.id)}
+                    />
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {booking.companyName}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {booking.username}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div>{new Date(booking.date).toLocaleDateString()}</div>
+                    <div className="text-xs">{booking.time}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {booking.type}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(booking.status)}`}>
+                      {booking.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {booking.location}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    {getStatusActions(booking)}
+                    <button
+                      onClick={() => onEdit(booking.id)}
+                      className="text-blue-600 hover:text-blue-900 mr-3"
+                      title="Edit Booking"
+                    >
+                      <FiEdit />
+                    </button>
+                    <button
+                      onClick={() => onDelete(booking.id)}
+                      className="text-blue-600 hover:text-blue-900"
+                      title="Delete Booking"
+                    >
+                      <FiTrash2 />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Resources Viewing Modal */}
+      {viewingResourcesFor && (
+        <BookingResourcesModal
+          bookingId={viewingResourcesFor}
+          isOpen={!!viewingResourcesFor}
+          onClose={() => setViewingResourcesFor(null)}
+        />
+      )}
+    </>
   );
 };
 

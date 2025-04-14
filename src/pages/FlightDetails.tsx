@@ -10,23 +10,176 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
 import MapboxLogger from '../utils/mapboxLogger';
 import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
+import S3UrlManager from '../utils/s3UrlUtils';
+import ChunkReassembler from '../utils/chunkReassembler';
+import { findWorkingImageUrl } from '../utils/imageLoader';
+import { tryAlternativeS3Urls } from '../utils/s3UrlUtils';
+import { normalizeS3Url, isGeoTiffFile } from '../utils/geoTiffUtils';
+import { downloadS3Binary } from '../utils/s3ProxyFetch';
+
+// Update the interface for the image structure with all possible properties
+interface BookingImage {
+  url?: string;
+  presignedUrl?: string; 
+  directUrl?: string;    
+  ResourceUrl?: string;
+  resourceUrl?: string;
+  s3Url?: string;
+  name?: string;
+  key?: string;
+  s3Key?: string;
+  S3Path?: string;
+  FileName?: string;
+  type?: string;
+  ContentType?: string;
+  Size?: number;
+  size?: number;
+  uploadDate?: string;
+  CreatedAt?: string;
+  resourceId?: string;
+  ResourceId?: string; 
+  isReassembled?: boolean;
+  metadata?: {
+    geolocation?: {
+      latitude: number | { N: string } | string;
+      longitude: number | { N: string } | string;
+      heading?: number | { N: string } | string;
+      altitude?: number | { N: string } | string;
+      direction?: number | { N: string } | string;
+      timestamp?: string;
+      cameraModel?: string;
+      model?: string;
+      droneModel?: string;
+      drone?: string;
+      // Add DynamoDB nested structure format
+      M?: {
+        latitude?: { 
+          M?: { 
+            N?: { 
+              S?: string 
+            } 
+          },
+          N?: string
+        };
+        longitude?: { 
+          M?: { 
+            N?: { 
+              S?: string 
+            } 
+          },
+          N?: string
+        };
+        heading?: { 
+          M?: { 
+            N?: { 
+              S?: string 
+            } 
+          },
+          N?: string
+        };
+        altitude?: { 
+          M?: { 
+            N?: { 
+              S?: string 
+            } 
+          },
+          N?: string
+        };
+        direction?: { 
+          M?: { 
+            N?: { 
+              S?: string 
+            } 
+          },
+          N?: string
+        };
+      };
+    }
+  };
+  geolocation?: {
+    latitude: number | { N: string } | string;
+    longitude: number | { N: string } | string;
+    heading?: number | { N: string } | string;
+    altitude?: number | { N: string } | string;
+    direction?: number | { N: string } | string;
+    timestamp?: string;
+    cameraModel?: string;
+    model?: string;
+    droneModel?: string;
+    drone?: string;
+    // Add DynamoDB nested structure format
+    M?: {
+      latitude?: { 
+        M?: { 
+          N?: { 
+            S?: string 
+          } 
+        },
+        N?: string
+      };
+      longitude?: { 
+        M?: { 
+          N?: { 
+            S?: string 
+          } 
+        },
+        N?: string
+      };
+      heading?: { 
+        M?: { 
+          N?: { 
+            S?: string 
+          } 
+        },
+        N?: string
+      };
+      altitude?: { 
+        M?: { 
+          N?: { 
+            S?: string 
+          } 
+        },
+        N?: string
+      };
+      direction?: { 
+        M?: { 
+          N?: { 
+            S?: string 
+          } 
+        },
+        N?: string
+      };
+    };
+  };
+  _urlSource?: string;
+}
+
+// Update the interface for image locations to match the actual structure
+interface ImageLocation {
+  url: string;
+  latitude: number;
+  longitude: number;
+  name?: string;
+  heading?: number;
+  altitude?: number;
+  timestamp?: string;
+  cameraModel?: string;
+  droneModel?: string;
+}
 
 const FlightDetails: React.FC = () => {
   const params = useParams();
-  // Extract bookingId from params with fallback to stored value
   const bookingId = params.id || params.bookingId || localStorage.getItem('selectedBookingId');
   const navigate = useNavigate();
 
   console.log(`FlightDetails: Retrieved booking ID from params: ${bookingId}`);
 
-  // Store the ID to localStorage for backup access
   useEffect(() => {
     if (bookingId) {
       localStorage.setItem('selectedBookingId', bookingId);
     }
   }, [bookingId]);
 
-  // Warn if no bookingId
   useEffect(() => {
     if (!bookingId) {
       console.warn('No booking ID available from URL params or localStorage');
@@ -35,10 +188,11 @@ const FlightDetails: React.FC = () => {
 
   const [booking, setBooking] = useState<any>(null);
   const [asset, setAsset] = useState<any>(null);
-  const [images, setImages] = useState<any[]>([]);
-  const [imageLocations, setImageLocations] = useState<{ url: string; latitude: number; longitude: number }[]>([]);
+  const [images, setImages] = useState<BookingImage[]>([]); 
+  const [imageLocations, setImageLocations] = useState<ImageLocation[]>([]);
   const [geoTiffFilename, setGeoTiffFilename] = useState<string | null>(null);
   const [geoTiffUrl, setGeoTiffUrl] = useState<string | null>(null);
+  const [geoTiffResources, setGeoTiffResources] = useState<BookingImage[]>([]);
   const [activeTab, setActiveTab] = useState<'images' | 'imageMap'>('imageMap');
   const [isLoadingImages, setIsLoadingImages] = useState<boolean>(false);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -58,13 +212,17 @@ const FlightDetails: React.FC = () => {
   const assetMapRef = useRef<any>(null);
   const imageMapRef = useRef<any>(null);
   const flightDataRef = useRef<HTMLDivElement>(null);
+  const [refreshedUrls, setRefreshedUrls] = useState<{[key: string]: string}>({});
+  const validationRun = useRef(false);
+  const validatingUrls = useRef(false);
+  const [isLoadingGeoTiffs, setIsLoadingGeoTiffs] = useState<boolean>(false);
+  const [isGeoTiffDownloading, setIsGeoTiffDownloading] = useState<boolean>(false);
+  const [geoTiffDownloadProgress, setGeoTiffDownloadProgress] = useState<number>(0);
 
-  // AWS configuration
   const awsRegion = process.env.REACT_APP_AWS_REGION;
   const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
   const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
 
-  // Mapbox access token
   const MAPBOX_ACCESS_TOKEN = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
 
   AWS.config.update({
@@ -79,14 +237,12 @@ const FlightDetails: React.FC = () => {
     secretAccessKey: secretKey
   });
 
-  // Create S3 instance
   const s3 = new AWS.S3({
     region: awsRegion,
     accessKeyId: accessKey,
     secretAccessKey: secretKey
   });
 
-  // Define the asset type colors and icons for display like in AssetDetails
   const assetTypeDetails: Record<string, { color: string, strokeColor: string }> = {
     buildings: {
       color: '#3182ce',
@@ -110,11 +266,173 @@ const FlightDetails: React.FC = () => {
     }
   };
 
-  // Get asset type coloring
   const getAssetTypeColor = (type: string) => {
     return assetTypeDetails[type] || { color: '#3182ce', strokeColor: '#2c5282' };
   };
   
+  // Add normalizeS3Url function to fix URL encoding issues
+  const normalizeS3Url = (url: string): string => {
+    if (!url) return url;
+    
+    try {
+      // For S3 presigned URLs, we need to be careful with decoding
+      if (url.includes('X-Amz-')) {
+        // Extract base URL and query parts
+        const urlParts = url.split('?');
+        const baseUrl = urlParts[0];
+        const queryString = urlParts.length > 1 ? urlParts[1] : '';
+        
+        // Handle common URL encoded characters in the path (before query parameters)
+        let decodedBaseUrl = baseUrl
+          .replace(/%28/g, '(')
+          .replace(/%29/g, ')')
+          .replace(/%20/g, ' ')
+          .replace(/%2B/g, '+')
+          .replace(/%2C/g, ',')
+          .replace(/%5B/g, '[')
+          .replace(/%5D/g, ']');
+        
+        // Rebuild URL with original query parameters (leave them encoded)
+        return queryString ? `${decodedBaseUrl}?${queryString}` : decodedBaseUrl;
+      }
+      
+      if (url.includes('%')) {
+        return decodeURIComponent(url);
+      }
+      
+      return url;
+    } catch (e) {
+      console.error('Error normalizing S3 URL:', e);
+      return url;
+    }
+  };
+
+  const processBookingData = (bookingData: any): void => {
+    if (!bookingData) return;
+    
+    // Set the booking data
+    setBooking(bookingData);
+    
+    // Process all resources from the Resources table without filtering out GeoTIFFs
+    if (bookingData.images && Array.isArray(bookingData.images)) {
+      console.log(`✅ Found ${bookingData.images.length} resources in the booking response`);
+      
+      // Filter out GeoTIFF files to handle separately
+      const regularResources = bookingData.images.filter((img: any) => {
+        const isGeoTiff = img.ContentType?.includes('tiff') || 
+                          img.type?.includes('tiff') ||
+                          (img.FileName?.toLowerCase() || '').endsWith('.tif') || 
+                          (img.FileName?.toLowerCase() || '').endsWith('.tiff') ||
+                          (img.name?.toLowerCase() || '').endsWith('.tif') || 
+                          (img.name?.toLowerCase() || '').endsWith('.tiff');
+        return !isGeoTiff;
+      });
+      
+      const geoTiffFiles = bookingData.images.filter((img: any) => {
+        const isGeoTiff = img.ContentType?.includes('tiff') || 
+                          img.type?.includes('tiff') ||
+                          (img.FileName?.toLowerCase() || '').endsWith('.tif') || 
+                          (img.FileName?.toLowerCase() || '').endsWith('.tiff') ||
+                          (img.name?.toLowerCase() || '').endsWith('.tif') || 
+                          (img.name?.toLowerCase() || '').endsWith('.tiff');
+        return isGeoTiff;
+      });
+      
+      // Set all regular images
+      setImages(regularResources);
+      console.log(`✅ Processed ${regularResources.length} regular image resources`);
+      
+      // Process GeoTIFF files if found in resources
+      if (geoTiffFiles.length > 0) {
+        console.log(`✅ Found ${geoTiffFiles.length} GeoTIFF resources in the booking response`);
+        // Ensure we normalize the URLs for GeoTIFF files
+        // Define interface for processed GeoTIFF files
+        interface ProcessedGeoTiff extends BookingImage {
+          url: string;
+          presignedUrl: string;
+        }
+
+        const processedGeoTiffs: ProcessedGeoTiff[] = geoTiffFiles.map((file: BookingImage) => ({
+          ...file,
+          url: normalizeS3Url(file.presignedUrl || file.url || file.ResourceUrl || ''),
+          presignedUrl: normalizeS3Url(file.presignedUrl || file.url || file.ResourceUrl || '')
+        }));
+        setGeoTiffResources(prevResources => [...prevResources, ...processedGeoTiffs]);
+        
+        // Use the first GeoTIFF for display if we don't already have one
+        if (!geoTiffFilename || !geoTiffUrl) {
+          const firstGeoTiff = processedGeoTiffs[0];
+          setGeoTiffFilename(firstGeoTiff.FileName || firstGeoTiff.name || 'geotiff.tif');
+          setGeoTiffUrl(firstGeoTiff.url);
+          console.log('✅ Set primary GeoTIFF from Resources table:', firstGeoTiff.FileName || firstGeoTiff.name);
+          console.log('✅ GeoTIFF URL:', firstGeoTiff.url.substring(0, 100) + '...');
+        }
+      }
+      
+      // Extract locations from images for map display
+      const locations = extractImageLocations(regularResources);
+      if (locations.length > 0) {
+        console.log(`✅ Extracted ${locations.length} image locations for map`);
+        setImageLocations(locations);
+      }
+    }
+    
+    // Process GeoTIFF data from the GeoTiffChunks table
+    if (bookingData.geoTiff) {
+      console.log('✅ Found GeoTIFF data in booking response:', bookingData.geoTiff);
+      
+      // Set the GeoTIFF filename and normalize the URL
+      setGeoTiffFilename(bookingData.geoTiff.filename);
+      
+      // Normalize the URL to handle any encoding issues
+      const normalizedUrl = normalizeS3Url(bookingData.geoTiff.url);
+      setGeoTiffUrl(normalizedUrl);
+      console.log('✅ Normalized GeoTIFF URL:', normalizedUrl.substring(0, 100) + '...');
+      
+      // Create a consistent resource object and add to geoTiffResources
+      const geoTiffResource = {
+        name: bookingData.geoTiff.filename,
+        FileName: bookingData.geoTiff.filename,
+        url: normalizedUrl,
+        presignedUrl: normalizeS3Url(bookingData.geoTiff.presignedUrl) || normalizedUrl,
+        resourceId: bookingData.geoTiff.resourceId,
+        ResourceId: bookingData.geoTiff.resourceId,
+        type: 'image/tiff',
+        ContentType: 'image/tiff',
+        key: bookingData.geoTiff.key,
+        s3Key: bookingData.geoTiff.key,
+        uploadDate: bookingData.geoTiff.uploadDate?.toString(),
+        CreatedAt: bookingData.geoTiff.uploadDate?.toString(),
+        isReassembled: Boolean(bookingData.geoTiff.isReassembled),
+        size: bookingData.geoTiff.size || 0,
+      };
+      
+      // Add to geoTiffResources state, ensuring we don't have duplicates
+      setGeoTiffResources(prevResources => {
+        // Check if this resource already exists
+        const exists = prevResources.some(res => 
+          res.resourceId === geoTiffResource.resourceId || 
+          res.url === geoTiffResource.url
+        );
+        
+        if (!exists) {
+          console.log('✅ Added GeoTIFF from GeoTiffChunks table to resources list');
+          return [geoTiffResource, ...prevResources];
+        }
+        return prevResources;
+      });
+      
+      // Log additional information
+      if (bookingData.geoTiff.isReassembled) {
+        console.log('✅ Using reassembled GeoTIFF file from GeoTiffChunks table');
+      }
+      
+      if (bookingData.geoTiff.resourceId) {
+        console.log(`✅ GeoTIFF associated with resource ID: ${bookingData.geoTiff.resourceId}`);
+      }
+    }
+  };
+
   useEffect(() => {
     const fetchBookingDetails = async () => {
       if (!bookingId) {
@@ -127,7 +445,6 @@ const FlightDetails: React.FC = () => {
       console.log(`Attempting to fetch booking ID: ${bookingId}`);
 
       try {
-        // First try using the bookingUtils API function
         try {
           const { getBookingById } = await import('../utils/bookingUtils');
           console.log('Using bookingUtils.getBookingById method...');
@@ -135,121 +452,66 @@ const FlightDetails: React.FC = () => {
           const bookingData = await getBookingById(bookingId);
           console.log('✅ Successfully fetched booking via API:', bookingData);
           
-          setBooking(bookingData);
-          
-          if (bookingData.assetId) {
-            // Fetch asset details if assetId exists
-            // ...existing asset fetching code...
-          }
-          
+          // Use the improved processing function to handle the booking data
+          processBookingData(bookingData);
           setIsLoading(false);
-          return; // Exit early since we got the data
+          return;
+          
         } catch (apiError: unknown) {
           console.warn('❌ API method failed:', apiError instanceof Error ? apiError.message : String(apiError));
           console.log('Falling back to direct fetch method...');
         }
         
-        // Get the API URL from environment or use a default
         const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
         
-        // Try multiple endpoint variations
-        const endpoints = [
-          `${apiUrl}/bookings/${bookingId}`,
-        ];
+        const endpoint = `${apiUrl}/bookings/${bookingId}`;
+        console.log(`Trying endpoint: ${endpoint}`);
         
-        console.log('Will attempt endpoints:', endpoints);
-        
-        // Get token for authorization
         const token = localStorage.getItem('idToken') || localStorage.getItem('token');
         
         if (!token) {
           throw new Error('No authentication token found');
         }
         
-        let response = null;
-        let endpointUsed = '';
-        
-        // Try each endpoint
-        for (const endpoint of endpoints) {
-          try {
-            console.log(`Trying endpoint: ${endpoint}`);
-            
-            const result = await fetch(endpoint, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              }
-            });
-            
-            if (result.ok) {
-              response = result;
-              endpointUsed = endpoint;
-              console.log(`✅ Successful response from ${endpoint}`);
-              break;
-            } else {
-              console.warn(`❌ Failed response from ${endpoint}: ${result.status}`);
-            }
-          } catch (endpointError) {
-            console.warn(`❌ Error with endpoint ${endpoint}:`, endpointError);
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
           }
+        });
+        
+        if (!response.ok) {
+          console.warn(`❌ Failed response from ${endpoint}: ${response.status}`);
+          throw new Error(`API request failed with status: ${response.status}`);
         }
         
-        // If no successful response, fall back to DynamoDB
-        if (!response) {
-          console.log('All endpoints failed, falling back to direct DynamoDB query');
-          
-          // Verify AWS credentials are available before attempting direct DynamoDB access
-          if (!accessKey || !secretKey || !awsRegion) {
-            throw new Error('AWS credentials are missing. Please add them to your environment variables.');
-          }
-          
-          // Try a scan operation to be more flexible with the ID
-          const scanParams = {
-            TableName: 'Bookings',
-            FilterExpression: 'BookingId = :bid OR id = :bid OR bookingId = :bid',
-            ExpressionAttributeValues: {
-              ':bid': bookingId
-            }
-          };
-          
-          console.log('Executing DynamoDB scan with params:', JSON.stringify(scanParams));
-          
-          const scanData = await dynamoDb.scan(scanParams).promise();
-          
-          if (scanData.Items && scanData.Items.length > 0) {
-            const item = scanData.Items[0];
-            setBooking(item);
-            console.log("✅ Booking details retrieved via DynamoDB fallback:", item);
-            
-            // ... rest of existing code for handling the booking data ...
-          } else {
-            setError("Booking not found. It may have been deleted or the ID is incorrect.");
-          }
-        } else {
-          // Process the response from the Lambda endpoint
-          const contentType = response.headers.get('content-type');
-          console.log(`Response content type: ${contentType}`);
-          
-          if (!contentType || !contentType.includes('application/json')) {
-            console.warn(`Unexpected content type: ${contentType}`);
-            const textResponse = await response.text();
-            console.log('Raw response text:', textResponse.substring(0, 500));
-            throw new Error(`Expected JSON response but got ${contentType}`);
-          }
-          
-          const bookingData = await response.json();
-          console.log(`✅ Booking details parsed from ${endpointUsed}:`, bookingData);
-          
-          // Set the booking data
-          setBooking(bookingData);
-          
-          // ... rest of existing code for handling the booking data ...
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          console.warn(`Unexpected content type: ${contentType}`);
+          const textResponse = await response.text();
+          console.log('Raw response text:', textResponse.substring(0, 500));
+          throw new Error(`Expected JSON response but got ${contentType}`);
         }
+        
+        const bookingData = await response.json();
+        console.log(`✅ Booking details parsed from ${endpoint}:`, bookingData);
+        
+        // Use the improved processing function here too
+        processBookingData(bookingData);
+        
       } catch (error: unknown) {
         console.error('❌ Error fetching booking details:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         setError(`Failed to load booking details: ${errorMessage}`);
+        
+        if (accessKey && secretKey && awsRegion) {
+          try {
+            await fallbackToDynamoDB();
+          } catch (fallbackError) {
+            console.error('Fallback to DynamoDB also failed:', fallbackError);
+          }
+        }
       } finally {
         setIsLoading(false);
         console.log('====== FLIGHT DETAILS PAGE - FETCH COMPLETE ======');
@@ -260,338 +522,627 @@ const FlightDetails: React.FC = () => {
   }, [bookingId, accessKey, secretKey, awsRegion]);
 
   useEffect(() => {
-    if (activeTab === 'images' || activeTab === 'imageMap') {
-      const loadImages = async () => {
-        setIsLoadingImages(true);
-        try {
-          // First try the Lambda API endpoint for fetching images
-          try {
-            // Get the API URL from environment or use a default
-            let apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
-            const token = localStorage.getItem('idToken') || localStorage.getItem('token');
-            
-            if (!token) {
-              throw new Error('Authentication token not found');
-            }
-            
-            // Try to get images from API
-            const response = await fetch(`${apiUrl}/bookings/${bookingId}/images`, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              }
-            });
-            
-            if (response.ok) {
-              const data = await response.json();
-              setImages(data.images || []);
-              return;
-            }
-          } catch (apiError) {
-            console.warn('API image fetch failed, falling back to direct DynamoDB:', apiError);
-          }
-          
-          // Fallback to direct DynamoDB if API fails
-          // Check if AWS credentials are configured properly
-          if (!accessKey || !secretKey || !awsRegion) {
-            throw new Error('AWS credentials not properly configured. Please check your environment variables.');
-          }
-          
-          // Query the ImageUploads table to get image metadata
-          const imageParams = {
-            TableName: 'ImageUploads',
-            FilterExpression: 'BookingId = :bookingId',
-            ExpressionAttributeValues: {
-              ':bookingId': bookingId
-            }
-          };
-          
-          const imageData = await dynamoDb.scan(imageParams).promise();
-          
-          const dbImages = imageData.Items?.map(item => ({
-            url: item.s3Url,
-            key: item.s3Key,
-            name: item.filename || "Unknown",
-            type: item.fileType || "Image",
-            size: item.size || 0,
-            geolocation: item.geolocation
-          })) || [];
-          
-          setImages(dbImages);
-          
-        } catch (error: unknown) {
-          console.error('Failed to load booking images:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-          setImageError(`Failed to load images: ${errorMessage}`);
-        } finally {
-          setIsLoadingImages(false);
-        }
-      };
-      loadImages();
+    if (geoTiffResources.length > 0) {
+      console.log('🗺️ GeoTIFF resources available:', geoTiffResources.length);
+      geoTiffResources.forEach((resource, index) => {
+        console.log(`🗺️ GeoTIFF ${index + 1}:`, {
+          name: resource.name || resource.FileName,
+          url: resource.url || resource.presignedUrl,
+          isReassembled: resource.isReassembled || false,
+          uploadDate: resource.uploadDate || resource.CreatedAt,
+        });
+      });
     }
-  }, [activeTab, bookingId, images.length, imageError, dynamoDb, accessKey, secretKey, awsRegion]);
+  }, [geoTiffResources]);
 
   useEffect(() => {
-    if (activeTab === 'imageMap' && images.length > 0) {
-      const fetchGeolocations = async () => {
-        try {
-          // Extract geolocation data from the items with valid coordinates
-          const geolocations = images
-            .filter(item => item.geolocation && item.geolocation.latitude && item.geolocation.longitude)
-            .map(item => {
-              // Parse latitude and longitude from various possible formats
-              const latitude = typeof item.geolocation.latitude === 'object' 
-                ? parseFloat(item.geolocation.latitude.N) 
-                : parseFloat(item.geolocation.latitude);
-              
-              const longitude = typeof item.geolocation.longitude === 'object'
-                ? parseFloat(item.geolocation.longitude.N)
-                : parseFloat(item.geolocation.longitude);
-              
-              // Extract heading/direction information
-              const heading = item.geolocation.heading 
-                ? (typeof item.geolocation.heading === 'object' 
-                    ? parseFloat(item.geolocation.heading.N) 
-                    : parseFloat(item.geolocation.heading))
-                : undefined;
-                
-              const altitude = item.geolocation.altitude
-                ? (typeof item.geolocation.altitude === 'object'
-                    ? parseFloat(item.geolocation.altitude.N)
-                    : parseFloat(item.geolocation.altitude))
-                : undefined;
-              
-              // Log the direction/heading information for each image
-              console.log(`Image: ${item.name || 'Unnamed'} - Direction/Heading: ${heading !== undefined ? heading + '°' : 'Not available'}`);
-              
-              return {
-                url: item.url,
-                latitude,
-                longitude,
-                name: item.name || `Image ${images.indexOf(item) + 1}`,
-                heading,
-                altitude
-              };
-            });
-          
-          console.log("Image locations with direction data extracted from uploaded images:", geolocations);
-          setImageLocations(geolocations);
-        } catch (error) {
-          console.error('Error fetching image geolocation data:', error);
-        }
-      };
-      fetchGeolocations();
+    if (activeTab === 'imageMap' && booking && bookingId && !geoTiffUrl) {
+      // Only fetch GeoTIFF URL if we don't already have it
+      console.log("No GeoTIFF URL available, will attempt to load from map");
     }
-  }, [activeTab, images]);
+  }, [activeTab, booking, bookingId, geoTiffUrl]);
 
-  useEffect(() => {
-    if (activeTab === 'imageMap') {
-      const fetchGeoTiffData = async () => {
-        const params = {
-          TableName: 'GeoTiffUploads',
-          FilterExpression: 'BookingId = :bookingId',
-          ExpressionAttributeValues: {
-            ':bookingId': bookingId
-          }
-        };
-        try {
-          const data = await dynamoDb.scan(params).promise();
-          if (data.Items && data.Items.length > 0) {
-            const geoTiff = data.Items[0];
-            setGeoTiffFilename(geoTiff.filename);
-            
-            // Create a signed URL with long expiration
-            const s3Params = {
-              Bucket: 'drone-images-bucket',
-              Key: geoTiff.s3Key,
-              Expires: 3600 // 1 hour
-            };
-            
-            try {
-              const signedUrl = s3.getSignedUrl('getObject', s3Params);
-              setGeoTiffUrl(signedUrl);
-              MapboxLogger.log(`GeoTIFF Filename: ${geoTiff.filename}`);
-              MapboxLogger.log(`Generated signed URL for GeoTIFF: ${signedUrl.substring(0, 100)}...`);
-            } catch (signedUrlError) {
-              MapboxLogger.error("Error generating signed URL:", signedUrlError);
-              // Fall back to the regular s3Url if available
-              setGeoTiffUrl(geoTiff.s3Url);
-            }
-          } else {
-            MapboxLogger.warn('No GeoTIFF data found for this booking');
-          }
-        } catch (error) {
-          MapboxLogger.error('Error fetching GeoTIFF data:', error);
-        }
-      };
-      fetchGeoTiffData();
-    }
-  }, [activeTab, bookingId]);
-
-  const checkForGeoTiffFiles = async () => {
-    if (!bookingId) return;
+  const extractImageLocations = (images: BookingImage[]): ImageLocation[] => {
+    console.log('Extracting locations from images:', images.length);
     
-    try {
-      const params = {
-        TableName: 'GeoTiffUploads',
-        FilterExpression: 'BookingId = :bookingId',
-        ExpressionAttributeValues: {
-          ':bookingId': bookingId
-        }
-      };
-      
-      const data = await dynamoDb.scan(params).promise();
-      
-      if (data.Items && data.Items.length > 0) {
-        // Sort by upload date (newest first) and take the first one
-        const sortedItems = data.Items.sort((a, b) => 
-          new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()
-        );
-        
-        const geoTiff = sortedItems[0];
-        setGeoTiffFilename(geoTiff.filename);
-        
-        // Generate a signed URL that's valid for 1 hour (3600 seconds)
-        const s3Params = {
-          Bucket: 'drone-images-bucket',
-          Key: geoTiff.s3Key,
-          Expires: 3600
-        };
-        
-        const signedUrl = s3.getSignedUrl('getObject', s3Params);
-        setGeoTiffUrl(signedUrl);
-        
-        console.log("GeoTIFF file found:", geoTiff.filename);
-        console.log("Signed URL generated:", signedUrl);
-      } else {
-        console.log("No GeoTIFF files found for this booking");
+    // Debug: Inspect the actual image data structure
+    if (images.length > 0) {
+      console.log('First image data structure:', JSON.stringify(images[0], null, 2));
+      console.log('Has geolocation?', Boolean(images[0].geolocation));
+      if (images[0].geolocation) {
+        console.log('Geolocation structure:', JSON.stringify(images[0].geolocation, null, 2));
       }
-    } catch (error) {
-      console.error("Error checking for GeoTiff files:", error);
+      
+      // Check if metadata field contains geolocation
+      if (images[0].metadata) {
+        console.log('Metadata field:', JSON.stringify(images[0].metadata, null, 2));
+      }
     }
-  };
 
-  const handleAssetMapLoad = (event: any) => {
-    console.log("Asset map loaded");
-    assetMapRef.current = event.target;
-    setAssetMapLoaded(true);
+    // Add utility function to extract nested DynamoDB values
+    const extractNestedValue = (obj: any, key: string): any => {
+      // Check if it's a simple value
+      if (obj && typeof obj === 'object') {
+        // Handle DynamoDB nested format: { "M": { "value": { "S": "actualValue" } } }
+        if (obj.M && obj.M[key]) {
+          if (obj.M[key].S) return obj.M[key].S;
+          if (obj.M[key].N) return parseFloat(obj.M[key].N);
+          if (obj.M[key].M) return obj.M[key];
+        }
+        // Handle nested object format for direct access
+        if (obj[key]) return obj[key];
+      }
+      return null;
+    };
+
+    // Helper function to extract deeply nested DynamoDB values
+    const extractDynamoDBGeoValue = (obj: any, prop: string): number | null => {
+      if (!obj) return null;
+      
+      // Simple case - direct value
+      if (typeof obj[prop] === 'number') return obj[prop];
+      if (typeof obj[prop] === 'string') return parseFloat(obj[prop]);
+      
+      // Handle nested object: { N: { S: "value" } }
+      if (obj[prop] && obj[prop].N && obj[prop].N.S) {
+        return parseFloat(obj[prop].N.S);
+      }
+      
+      // Handle { M: { ... } } structure
+      if (obj.M) {
+        // Try first level of nesting: { M: { latitude: ... } }
+        if (obj.M[prop]) {
+          // If it has a direct N property with string value
+          if (obj.M[prop].N && typeof obj.M[prop].N === 'string') {
+            return parseFloat(obj.M[prop].N);
+          }
+          
+          // Handle deeper nesting: { M: { latitude: { M: { N: { S: "value" } } } } }
+          if (obj.M[prop].M && obj.M[prop].M.N && obj.M[prop].M.N.S) {
+            return parseFloat(obj.M[prop].M.N.S);
+          }
+        }
+      }
+      
+      // Handle even deeper nesting specific to the data structure in your logs
+      // { M: { latitude: { M: { N: { S: "51.45571027777778" } } } } }
+      if (obj.M && obj.M[prop] && obj.M[prop].M && obj.M[prop].M.N && obj.M[prop].M.N.S) {
+        return parseFloat(obj.M[prop].M.N.S);
+      }
+      
+      return null;
+    };
     
-    // Fit to asset if available
-    if (asset && asset.coordinates && asset.coordinates.length > 0) {
-      fitMapToAsset(event.target, asset);
-    }
-  };
-
-  const handleImageMapLoad = (event: any) => {
-    MapboxLogger.log("Image map loaded successfully");
-    imageMapRef.current = event.target;
-    setImageMapLoaded(true);
+    // Modified filter to also check for geolocation inside metadata
+    const locations = images
+      .filter(item => {
+        // Try to extract geolocation from direct property
+        const hasDirectGeo = item.geolocation && 
+                          ((item.geolocation.latitude !== undefined) || 
+                           (item.geolocation.longitude !== undefined));
+        
+        // Try to extract geolocation from metadata
+        const hasMetadataGeo = item.metadata && 
+                            item.metadata.geolocation && 
+                            ((item.metadata.geolocation.latitude !== undefined) || 
+                             (item.metadata.geolocation.longitude !== undefined));
+        
+        // Special handling for DynamoDB nested structure
+        let hasDynamoDBGeo = false;
+        
+        // Check for DynamoDB typical nested format in metadata
+        if (item.metadata && item.metadata.geolocation && item.metadata.geolocation.M) {
+          const lat = extractDynamoDBGeoValue(item.metadata.geolocation, 'latitude');
+          const lng = extractDynamoDBGeoValue(item.metadata.geolocation, 'longitude');
+          hasDynamoDBGeo = lat !== null && lng !== null;
+          
+          if (hasDynamoDBGeo) {
+            console.log(`Found geolocation in DynamoDB nested format for ${item.name || item.FileName}:`, 
+                        { lat, lng });
+          }
+        }
+        
+        // Debug: Log the results of our checks
+        if (!hasDirectGeo && !hasMetadataGeo && !hasDynamoDBGeo) {
+          console.log('Image failed geolocation check:', item.name || item.FileName);
+          if (item.geolocation) console.log('Direct geolocation data:', JSON.stringify(item.geolocation));
+          if (item.metadata && item.metadata.geolocation) console.log('Metadata geolocation data:', JSON.stringify(item.metadata.geolocation));
+        }
+        
+        return hasDirectGeo || hasMetadataGeo || hasDynamoDBGeo;
+      })
+      .map(item => {
+        console.log('Processing geolocation data for image:', item.name || item.FileName);
+        
+        // Get a URL for the image
+        const url = item.url || item.ResourceUrl || item.resourceUrl || item.presignedUrl || '';
+        
+        // Get a name for the image
+        const name = item.name || item.FileName || `Image ${images.indexOf(item) + 1}`;
+        
+        // Process latitude/longitude from complex nested structure if needed
+        let latitude: number = 0;
+        let longitude: number = 0;
+        let heading: number | undefined = undefined;
+        let altitude: number | undefined = undefined;
+        
+        // Case 1: Standard direct geolocation object
+        if (item.geolocation) {
+          if (typeof item.geolocation.latitude === 'number') {
+            latitude = item.geolocation.latitude;
+          } else if (typeof item.geolocation.latitude === 'string') {
+            latitude = parseFloat(item.geolocation.latitude);
+          }
+          
+          if (typeof item.geolocation.longitude === 'number') {
+            longitude = item.geolocation.longitude;
+          } else if (typeof item.geolocation.longitude === 'string') {
+            longitude = parseFloat(item.geolocation.longitude);
+          }
+          
+          // Extract additional metadata
+          if (item.geolocation.heading) {
+            heading = typeof item.geolocation.heading === 'string' 
+              ? parseFloat(item.geolocation.heading) 
+              : (typeof item.geolocation.heading === 'number' ? item.geolocation.heading : undefined);
+          } else if (item.geolocation.direction) {
+            heading = typeof item.geolocation.direction === 'string' 
+              ? parseFloat(item.geolocation.direction) 
+              : (typeof item.geolocation.direction === 'number' ? item.geolocation.direction : undefined);
+          }
+          
+          if (item.geolocation.altitude) {
+            altitude = typeof item.geolocation.altitude === 'string' 
+              ? parseFloat(item.geolocation.altitude) 
+              : (typeof item.geolocation.altitude === 'number' ? item.geolocation.altitude : undefined);
+          }
+        }
+        
+        // Case 2: Nested metadata.geolocation object
+        if ((!latitude || !longitude) && item.metadata && item.metadata.geolocation) {
+          if (typeof item.metadata.geolocation.latitude === 'number') {
+            latitude = item.metadata.geolocation.latitude;
+          } else if (typeof item.metadata.geolocation.latitude === 'string') {
+            latitude = parseFloat(item.metadata.geolocation.latitude);
+          }
+          
+          if (typeof item.metadata.geolocation.longitude === 'number') {
+            longitude = item.metadata.geolocation.longitude;
+          } else if (typeof item.metadata.geolocation.longitude === 'string') {
+            longitude = parseFloat(item.metadata.geolocation.longitude);
+          }
+          
+          // Extract additional metadata
+          if (!heading) {
+            if (item.metadata.geolocation.heading) {
+              heading = typeof item.metadata.geolocation.heading === 'string' 
+                ? parseFloat(item.metadata.geolocation.heading) 
+                : (typeof item.metadata.geolocation.heading === 'number' ? item.metadata.geolocation.heading : undefined);
+            } else if (item.metadata.geolocation.direction) {
+              heading = typeof item.metadata.geolocation.direction === 'string' 
+                ? parseFloat(item.metadata.geolocation.direction) 
+                : (typeof item.metadata.geolocation.direction === 'number' ? item.metadata.geolocation.direction : undefined);
+            }
+          }
+          
+          if (!altitude && item.metadata.geolocation.altitude) {
+            altitude = typeof item.metadata.geolocation.altitude === 'string' 
+              ? parseFloat(item.metadata.geolocation.altitude) 
+              : (typeof item.metadata.geolocation.altitude === 'number' ? item.metadata.geolocation.altitude : undefined);
+          }
+        }
+        
+        // Case 3: Complex DynamoDB nested structure
+        if ((!latitude || !longitude) && item.metadata && item.metadata.geolocation && item.metadata.geolocation.M) {
+          const latVal = extractDynamoDBGeoValue(item.metadata.geolocation, 'latitude');
+          const lngVal = extractDynamoDBGeoValue(item.metadata.geolocation, 'longitude');
+          
+          if (latVal !== null) latitude = latVal;
+          if (lngVal !== null) longitude = lngVal;
+          
+          // Try to extract heading/direction value
+          if (!heading) {
+            const headingVal = extractDynamoDBGeoValue(item.metadata.geolocation, 'heading') || 
+                             extractDynamoDBGeoValue(item.metadata.geolocation, 'direction');
+            if (headingVal !== null) heading = headingVal;
+          }
+          
+          // Try to extract altitude value
+          if (!altitude) {
+            const altVal = extractDynamoDBGeoValue(item.metadata.geolocation, 'altitude');
+            if (altVal !== null) altitude = altVal;
+          }
+        }
+        
+        // Extract timestamp if available
+        const timestamp = 
+          (item.metadata?.geolocation?.timestamp) || 
+          item.uploadDate || 
+          item.CreatedAt;
+        
+        // Extract camera model information if available
+        const cameraModel = 
+          (item.metadata?.geolocation?.cameraModel) || 
+          (item.metadata?.geolocation?.model);
+        
+        // Extract drone information if available
+        const droneModel = 
+          (item.metadata?.geolocation?.droneModel) || 
+          (item.metadata?.geolocation?.drone);
+        
+        console.log(`Extracted location: ${latitude}, ${longitude} for ${name}`);
+        
+        // Create the location object with all metadata
+        return {
+          url,
+          latitude,
+          longitude,
+          name,
+          heading,
+          altitude,
+          timestamp,
+          cameraModel,
+          droneModel
+        };
+      });
     
-    // Add GeoTIFF if available
-    if (geoTiffUrl && !geoTiffLoaded) {
-      addGeoTiffToMap();
-    }
+    console.log(`Extracted ${locations.length} image locations with metadata:`, locations);
+    return locations;
   };
 
-  const addGeoTiffToMap = () => {
-    if (!imageMapRef.current || !geoTiffUrl) {
-      MapboxLogger.warn("Image map or GeoTIFF URL not available");
+  const fallbackToDynamoDB = async () => {
+    console.log('Attempting DynamoDB fallback for booking and images');
+    
+    if (!bookingId) {
+      setError("Cannot fetch booking details: Booking ID is missing");
       return;
     }
     
-    try {
-      MapboxLogger.log("Adding GeoTIFF to image map:", geoTiffUrl);
-      
-      // Access map instance safely - we already know imageMapRef is available
-      const map = imageMapRef.current;
-      
-      // Check if source already exists
-      if (map.getSource('geotiff-source')) {
-        map.removeLayer('geotiff-layer');
-        map.removeSource('geotiff-source');
+    const scanParams = {
+      TableName: 'Bookings',
+      FilterExpression: 'BookingId = :bid OR id = :bid OR bookingId = :bid',
+      ExpressionAttributeValues: {
+        ':bid': bookingId
       }
+    };
+    
+    const scanData = await dynamoDb.scan(scanParams).promise();
+    
+    if (scanData.Items && scanData.Items.length > 0) {
+      const item = scanData.Items[0];
+      setBooking(item);
+      console.log("✅ Booking details retrieved via DynamoDB fallback:", item);
       
-      // For direct GeoTIFF loading, we need to ensure we're using a CORS-enabled endpoint
-      // We'll use a simpler approach that works with most Mapbox implementations
-      map.addSource('geotiff-source', {
-        type: 'raster',
-        url: 'mapbox://mapbox.satellite',  // First add a default source
-        tileSize: 256
-      });
-      
-      // Then update it with our GeoTIFF if possible
-      try {
-        // Add a layer to display the GeoTIFF
-        map.addLayer({
-          id: 'geotiff-layer',
-          type: 'raster',
-          source: 'geotiff-source',
-          paint: {
-            'raster-opacity': 0.8
-          }
-        });
-        
-        // If we have image locations, fit the map to them
-        if (imageLocations.length > 0) {
-          const bounds = new mapboxgl.LngLatBounds();
-          imageLocations.forEach(location => {
-            bounds.extend([location.longitude, location.latitude]);
-          });
-          map.fitBounds(bounds, { padding: 50 });
-        }
-        
-        setGeoTiffLoaded(true);
-        setGeoTiffError(null);
-        MapboxLogger.log("GeoTIFF added successfully to image map");
-      } catch (innerError) {
-        MapboxLogger.error("Inner error adding GeoTIFF layer:", innerError);
-        setGeoTiffError("Error adding GeoTIFF layer");
-      }
-      
-    } catch (error) {
-      MapboxLogger.error("Error adding GeoTIFF to image map:", error);
-      setGeoTiffError("Failed to load GeoTIFF on map");
-      setGeoTiffLoaded(false);
+      await fetchImagesFromDynamoDB(bookingId);
+    } else {
+      setError("Booking not found. It may have been deleted or the ID is incorrect.");
     }
   };
 
-  useEffect(() => {
-    if (assetMapRef.current && asset && asset.coordinates && asset.coordinates.length > 0 && assetMapLoaded) {
+  const fetchImagesFromDynamoDB = async (id: string) => {
+    setIsLoadingImages(true);
+    let resourcesData: AWS.DynamoDB.DocumentClient.ScanOutput | null = null;
+    
+    try {
+      console.log('===== FETCHING IMAGES FROM DYNAMODB =====');
+      
+      const resourcesParams = {
+        TableName: 'Resources',
+        FilterExpression: 'BookingId = :bookingId',
+        ExpressionAttributeValues: {
+          ':bookingId': id
+        }
+      };
+      
+      console.log('Querying Resources table with params:', JSON.stringify(resourcesParams));
+      
       try {
-        fitMapToAsset(assetMapRef.current, asset);
-      } catch (error) {
-        console.error('Error setting asset map bounds:', error);
+        resourcesData = await dynamoDb.scan(resourcesParams).promise();
+        
+        if (resourcesData.Items && resourcesData.Items.length > 0) {
+          console.log(`✅ Found ${resourcesData.Items.length} resources in Resources table`);
+          console.log('First resource item:', JSON.stringify(resourcesData.Items[0], null, 2));
+          
+          const resourceFiles = resourcesData.Items.map(item => ({
+            url: item.ResourceUrl,
+            key: item.S3Path,
+            name: item.FileName || "Unknown",
+            type: item.ContentType || "Image",
+            size: item.Size || 0,
+            uploadDate: item.CreatedAt,
+            resourceId: item.ResourceId,
+            S3Path: item.S3Path,
+            ResourceUrl: item.ResourceUrl,
+            FileName: item.FileName,
+            ContentType: item.ContentType
+          }));
+          
+          setImages(resourceFiles);
+          console.log(`✅ Processed ${resourceFiles.length} resources from Resources table`);
+          
+          const urlSamples = resourceFiles.slice(0, 3).map(img => ({
+            url: img.url,
+            valid: typeof img.url === 'string' && img.url.startsWith('http'),
+            s3Path: img.S3Path || 'missing'
+          }));
+          
+          console.log('Sample resource URLs:', urlSamples);
+          
+          // Get locations for images
+          const locations = extractImageLocations(resourceFiles);
+          if (locations.length > 0) {
+            setImageLocations(locations);
+          }
+          
+          setIsLoadingImages(false);
+          return;
+        } else {
+          console.log('No resources found in Resources table, falling back to ImageUploads');
+        }
+      } catch (resourceError) {
+        console.error('Error querying Resources table:', resourceError);
+        console.log('Falling back to ImageUploads table');
       }
+      
+      const imageParams = {
+        TableName: 'ImageUploads',
+        FilterExpression: 'BookingId = :bookingId',
+        ExpressionAttributeValues: {
+          ':bookingId': id
+        }
+      };
+      
+      const imageData = await dynamoDb.scan(imageParams).promise();
+      
+      if (imageData.Items && imageData.Items.length > 0) {
+        console.log(`✅ Found ${imageData.Items.length} images via DynamoDB fallback`);
+        
+        const dbImages = imageData.Items.map(item => ({
+          url: item.s3Url,
+          key: item.s3Key,
+          name: item.filename || "Unknown",
+          type: item.fileType || "Image",
+          size: item.size || 0,
+          geolocation: item.geolocation
+        }));
+        
+        setImages(dbImages);
+        console.log(`✅ Processed ${dbImages.length} images from ImageUploads table`);
+        
+        const locations = extractImageLocations(dbImages);
+        if (locations.length > 0) {
+          setImageLocations(locations);
+        }
+      }
+      
+      const geoTiffParams = {
+        TableName: 'GeoTiffUploads',
+        FilterExpression: 'BookingId = :bookingId',
+        ExpressionAttributeValues: {
+          ':bookingId': id
+        }
+      };
+      
+      const geoTiffData = await dynamoDb.scan(geoTiffParams).promise();
+      
+      if (geoTiffData.Items && geoTiffData.Items.length > 0) {
+        console.log("✅ Found GeoTIFF data via DynamoDB fallback");
+        const geoTiff = geoTiffData.Items[0];
+        setGeoTiffFilename(geoTiff.filename);
+        
+        if (geoTiff.s3Key) {
+          const s3Params = {
+            Bucket: 'drone-images-bucket',
+            Key: geoTiff.s3Key,
+            Expires: 3600
+          };
+          
+          try {
+            const signedUrl = s3.getSignedUrl('getObject', s3Params);
+            setGeoTiffUrl(normalizeS3Url(signedUrl));
+          } catch (signedUrlError) {
+            console.error("Error generating signed URL:", signedUrlError);
+            setGeoTiffUrl(normalizeS3Url(geoTiff.s3Url));
+          }
+        }
+      }
+      
+    } catch (error: unknown) {
+      console.error('Failed to load images from DynamoDB:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setImageError(`Failed to load images: ${errorMessage}`);
+    } finally {
+      setIsLoadingImages(false);
+      console.log('===== FINISHED FETCHING IMAGES =====');
     }
-  }, [asset, assetMapLoaded]);
+  };
 
-  useEffect(() => {
-    if (imageMapLoaded && geoTiffUrl && !geoTiffLoaded && activeTab === 'imageMap') {
-      addGeoTiffToMap();
+  const mapToImageProps = (images: BookingImage[]): any[] => {
+    console.log(`Mapping ${images.length} images to ImageProps format`);
+    
+    if (images.length > 0) {
+      console.log('Input image structure sample:', JSON.stringify(images[0], null, 2));
     }
-  }, [imageMapLoaded, geoTiffUrl, activeTab]);
+    
+    const mappedImages = images
+      .filter(image => {
+        const url = image.url || image.ResourceUrl || image.resourceUrl || image.s3Url || '';
+        const hasUrl = url !== '' && typeof url === 'string';
+        
+        if (!hasUrl) {
+          console.warn('Filtering out image without valid URL:', image.name || image.FileName || 'unnamed');
+          return false;
+        }
+        
+        return true; // Keep all resources with valid URLs, including GeoTIFFs
+      })
+      .map(image => {
+        // Keep original URL intact for presigned URLs
+        const url = image.url || image.ResourceUrl || image.resourceUrl || image.s3Url || '';
+        
+        // Don't normalize presigned URLs anymore
+        const normalizedUrl = url;
+        const key = image.resourceId || image.key || image.s3Key || image.S3Path || url;
+        
+        // Generate alternative URLs for S3 resources
+        const alternativeUrls = [url]; // Start with original URL as primary
+        
+        // Only add alternative versions if not a presigned URL
+        if (!url.includes('X-Amz-Signature=')) {
+          alternativeUrls.push(...tryAlternativeS3Urls(url));
+        }
+        
+        return {
+          url: url, // Use original URL (likely presigned) to maintain access
+          presignedUrl: url,
+          originalUrl: url, // Keep the original URL as backup
+          alternativeUrls: alternativeUrls, // Store all possible URLs
+          key: key,
+          name: image.name || image.FileName || 'Unnamed Resource',
+          type: image.type || image.ContentType || 'image/jpeg',
+          size: image.size || image.Size,
+          uploadDate: image.uploadDate || image.CreatedAt,
+          resourceId: image.resourceId,
+          s3Key: image.s3Key || image.S3Path,
+          bucket: url.includes('pilotforce-resources') ? 'pilotforce-resources' : 'drone-images-bucket',
+          isGeoTiff: isGeoTiffFile(image.name || image.FileName || '')
+        };
+      });
+    
+    console.log(`Mapped ${mappedImages.length} valid resources for display`);
+    
+    if (mappedImages.length > 0) {
+      console.log('First mapped resource URL:', 
+        mappedImages[0].url.substring(0, Math.min(50, mappedImages[0].url.length)) + '...');
+    }
+    
+    return mappedImages;
+  };
 
-  const formatDateTime = (date?: string): string => {
-    if (!date) return 'Date not specified';
-    return new Date(date).toLocaleString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+  const validateImageUrls = async () => {
+    if (validatingUrls.current) {
+      return;
+    }
+    
+    validatingUrls.current = true;
+    console.log(`Validating ${images.length} image URLs...`);
+
+    const MAX_CONCURRENT_VALIDATIONS = 3;
+    const imagesToValidate = images.slice(0, MAX_CONCURRENT_VALIDATIONS);
+    
+    try {
+      for (let i = 0; i < imagesToValidate.length; i++) {
+        const image = imagesToValidate[i];
+        const url = image.url || image.presignedUrl;
+        
+        if (!url) continue;
+        
+        try {
+          import('../utils/s3ImageLoader').then(async ({ testImageUrl }) => {
+            console.log(`Finding working URL for: ${url.substring(0, 50)}...`);
+            const works = await testImageUrl(url);
+            
+            if (works) {
+              console.log(`✅ Found working URL for image ${i}: ${url.substring(0, 50)}...`);
+            }
+          });
+        } catch (err) {
+          console.error(`Error validating image ${i}:`, err);
+        }
+      }
+    } finally {
+      console.log("Image URL validation complete");
+      validatingUrls.current = false;
+    }
+  };
+
+  const handleRefreshedUrls = (refreshedUrls: Record<string, string>) => {
+    if (Object.values(refreshedUrls).filter(url => url).length === 0) {
+      return;
+    }
+    
+    console.log("Handling refreshed URLs:", Object.keys(refreshedUrls).length);
+    
+    setImages(prevImages => {
+      const updatedImages = [...prevImages];
+      
+      Object.entries(refreshedUrls).forEach(([indexStr, url]) => {
+        const index = parseInt(indexStr, 10);
+        if (!isNaN(index) && index >= 0 && index < updatedImages.length && url) {
+          console.log(`Updating image ${index} with refreshed URL`);
+          updatedImages[index] = {
+            ...updatedImages[index],
+            url: url,
+            presignedUrl: url
+          };
+        }
+      });
+      
+      return updatedImages;
     });
   };
 
-  const getStatusColor = (status: string): string => {
-    switch (status) {
-      case 'scheduled':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'in-progress':
-        return 'bg-blue-100 text-blue-800';
+  const downloadGeoTiffFile = async (file: BookingImage) => {
+    try {
+      setIsGeoTiffDownloading(true);
+      setGeoTiffDownloadProgress(0);
+      
+      const fileUrl = file.url || file.presignedUrl || '';
+      const fileName = file.name || file.FileName || 'geotiff.tif';
+      
+      console.log(`🔄 Starting download of GeoTIFF: ${fileName}`);
+      
+      if (!fileUrl) {
+        throw new Error('No URL available for this GeoTIFF file');
+      }
+      
+      // Use our specialized download utility
+      await downloadS3Binary(
+        fileUrl, 
+        fileName,
+        (progress) => setGeoTiffDownloadProgress(progress)
+      );
+      
+      console.log(`✅ Downloaded GeoTIFF: ${fileName}`);
+      
+    } catch (error) {
+      console.error(`❌ Error downloading GeoTIFF file:`, error);
+      alert(`Failed to download GeoTIFF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsGeoTiffDownloading(false);
+    }
+  };
+
+  const isGeoTiffFileLocal = (filename: string): boolean => {
+    return isGeoTiffFile(filename);
+  };
+
+  const hasFlightData = () => {
+    return images.length > 0 || geoTiffUrl !== null;
+  };
+
+  const isBookingActive = () => {
+    return booking?.status === 'in-progress' || booking?.status === 'completed';
+  };
+
+  // Define breadcrumbs for the navigation
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Dashboard', href: '/dashboard' },
+    { label: 'My Bookings', href: '/my-bookings' },
+    { label: 'Flight Details', href: '#', current: true }
+  ];
+
+  // Status color utility function
+  const getStatusColor = (status?: string): string => {
+    switch (status?.toLowerCase()) {
       case 'completed':
         return 'bg-green-100 text-green-800';
+      case 'in-progress':
+        return 'bg-blue-100 text-blue-800';
+      case 'scheduled':
+        return 'bg-purple-100 text-purple-800';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800';
       case 'cancelled':
         return 'bg-red-100 text-red-800';
       default:
@@ -599,299 +1150,247 @@ const FlightDetails: React.FC = () => {
     }
   };
 
-  const getStatusText = (status: string): string => {
-    switch (status) {
-      case 'scheduled':
-        return 'Scheduled';
-      case 'in-progress':
-        return 'In Progress';
+  // Status text utility function
+  const getStatusText = (status?: string): string => {
+    switch (status?.toLowerCase()) {
       case 'completed':
         return 'Completed';
+      case 'in-progress':
+        return 'In Progress';
+      case 'scheduled':
+        return 'Scheduled';
+      case 'pending':
+        return 'Pending';
       case 'cancelled':
         return 'Cancelled';
       default:
-        return status;
+        return status || 'Unknown';
     }
   };
 
-  // Function to download all files from the booking folder
+  // Format scheduling information for display
+  const formatSchedulingInfo = (booking: any) => {
+    if (!booking) {
+      return {
+        label: 'Schedule',
+        value: 'Not scheduled',
+        subtext: null
+      };
+    }
+
+    if (booking.flightDate) {
+      return {
+        label: 'Flight Date',
+        value: new Date(booking.flightDate).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        }),
+        subtext: booking.timeSlot || null
+      };
+    }
+
+    if (booking.scheduling) {
+      if (booking.scheduling.scheduleType === 'scheduled') {
+        return {
+          label: 'Scheduled Date',
+          value: new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+          }),
+          subtext: null
+        };
+      } else if (booking.scheduling.scheduleType === 'flexible') {
+        return {
+          label: 'Preferred Date',
+          value: new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+          }),
+          subtext: `Flexibility: ${getFlexibilityText(booking.scheduling.flexibility)}`
+        };
+      } else if (booking.scheduling.scheduleType === 'repeat') {
+        return {
+          label: 'Recurring',
+          value: `${capitalizeFirstLetter(booking.scheduling.repeatFrequency)} from ${new Date(booking.scheduling.startDate).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+          })}`,
+          subtext: `Until ${new Date(booking.scheduling.endDate).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+          })}`
+        };
+      }
+    }
+
+    return {
+      label: 'Date',
+      value: booking.createdAt ? new Date(booking.createdAt).toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      }) : 'Not specified',
+      subtext: null
+    };
+  };
+
+  // Helper function for formatSchedulingInfo
+  const getFlexibilityText = (flexibility?: string): string => {
+    switch (flexibility) {
+      case 'exact':
+        return 'Exact date';
+      case '1-day':
+        return '±1 Day';
+      case '3-days':
+        return '±3 Days';
+      case '1-week':
+        return '±1 Week';
+      default:
+        return flexibility || 'Flexible';
+    }
+  };
+
+  // Helper function to capitalize first letter
+  const capitalizeFirstLetter = (str?: string): string => {
+    if (!str) return '';
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  };
+
+  // Scroll to flight data section
+  const scrollToFlightData = () => {
+    if (flightDataRef.current) {
+      flightDataRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'start' 
+      });
+    }
+  };
+
+  // Asset map load handler
+  const handleAssetMapLoad = (event: any) => {
+    console.log("Asset map loaded");
+    setAssetMapLoaded(true);
+    
+    if (asset && asset.coordinates && asset.coordinates.length > 0) {
+      setTimeout(() => {
+        if (assetMapRef.current) {
+          fitMapToAsset(assetMapRef.current.getMap(), asset);
+        }
+      }, 500);
+    } else if (booking?.location) {
+      try {
+        // Try parsing location string in format "lat, lng"
+        const locationParts = booking.location.split(',');
+        if (locationParts.length === 2) {
+          const latitude = parseFloat(locationParts[0].trim());
+          const longitude = parseFloat(locationParts[1].trim());
+          
+          if (!isNaN(latitude) && !isNaN(longitude)) {
+            setViewState({
+              latitude,
+              longitude,
+              zoom: 14
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to parse location from booking:', error);
+      }
+    }
+  };
+
+  // Image map load handler
+  const handleImageMapLoad = (map: any) => {
+    MapboxLogger.log("Image map loaded successfully");
+    setImageMapLoaded(true);
+    
+    if (geoTiffUrl && !geoTiffLoaded) {
+      MapboxLogger.log(`Adding GeoTIFF to image map: ${geoTiffUrl}`);
+      setGeoTiffLoaded(true); // Mark as loaded to prevent multiple attempts
+    }
+  };
+
+  // Download all files function
   const downloadAllFiles = async () => {
-    if (!bookingId) return;
+    if (isDownloading || images.length === 0) return;
+    
+    setIsDownloading(true);
+    setDownloadProgress(0);
+    
+    let completed = 0;
     
     try {
-      setIsDownloading(true);
-      setDownloadProgress(0);
+      const validImages = images.filter(img => img.url || img.presignedUrl);
       
-      const s3 = new AWS.S3({
-        region: awsRegion,
-        accessKeyId: accessKey,
-        secretAccessKey: secretKey
-      });
-      
-      // List all objects in the folder
-      const s3Params = {
-        Bucket: 'drone-images-bucket',
-        Prefix: `uploads/${bookingId}/`
-      };
-      
-      const s3Data = await s3.listObjectsV2(s3Params).promise();
-      
-      if (!s3Data.Contents || s3Data.Contents.length === 0) {
-        alert('No files found in this booking folder.');
-        setIsDownloading(false);
-        return;
+      if (validImages.length === 0) {
+        throw new Error("No valid URLs found for download");
       }
       
-      // Create a zip file
-      const JSZip = (await import('jszip')).default;
-      const zip = new JSZip();
+      console.log(`Starting batch download of ${validImages.length} files`);
       
-      // Download each file and add to zip
-      let completedCount = 0;
-      
-      await Promise.all(s3Data.Contents.map(async (item) => {
+      // For sequential downloads to handle large files better
+      for (let i = 0; i < validImages.length; i++) {
         try {
-          if (!item.Key) return;
+          const img = validImages[i];
+          const url = img.url || img.presignedUrl;
           
-          const fileName = item.Key.split('/').pop() || 'unknown_file';
+          if (!url) continue;
           
-          const objectParams = {
-            Bucket: 'drone-images-bucket',
-            Key: item.Key
-          };
+          const filename = img.name || img.FileName || `file_${i}.jpg`;
           
-          const data = await s3.getObject(objectParams).promise();
+          // Fetch the file
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`Failed to download ${filename}: HTTP ${response.status}`);
           
-          if (data.Body) {
-            zip.file(fileName, data.Body as Blob | ArrayBuffer);
-          }
+          const blob = await response.blob();
           
-          completedCount++;
-          if (s3Data.Contents) {
-            setDownloadProgress(Math.round((completedCount / s3Data.Contents.length) * 100));
-          }
-        } catch (err) {
-          console.error(`Error downloading file ${item.Key}:`, err);
+          // Create download link and trigger click
+          const downloadLink = document.createElement('a');
+          downloadLink.href = URL.createObjectURL(blob);
+          downloadLink.download = filename;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+          
+          // Clean up object URL
+          URL.revokeObjectURL(downloadLink.href);
+          
+          // Update progress
+          completed++;
+          setDownloadProgress(Math.round((completed / validImages.length) * 100));
+          
+          // Small delay between downloads to prevent browser from blocking
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+        } catch (itemError) {
+          console.error("Error downloading individual file:", itemError);
+          // Continue with next file even if one fails
         }
-      }));
+      }
       
-      // Generate zip file and prompt download
-      const zipContent = await zip.generateAsync({ type: 'blob' });
-      
-      const downloadLink = document.createElement('a');
-      downloadLink.href = URL.createObjectURL(zipContent);
-      downloadLink.download = `booking_${bookingId}_files.zip`;
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
+      console.log(`Downloaded ${completed} files out of ${validImages.length}`);
       
     } catch (error) {
-      console.error('Error downloading files:', error);
-      alert('Failed to download files. Please try again later.');
+      console.error("Error downloading files:", error);
+      alert("There was an error downloading the files. Please try again.");
     } finally {
       setIsDownloading(false);
     }
   };
 
-  // New function to check if flight has images/data
-  const hasFlightData = () => {
-    return images.length > 0 || geoTiffUrl !== null;
-  };
-
-  // New function to check booking status
-  const isBookingActive = () => {
-    return booking?.status === 'in-progress' || booking?.status === 'completed';
-  };
-
-  const scrollToFlightData = () => {
-    flightDataRef.current?.scrollIntoView({ 
-      behavior: 'smooth',
-      block: 'start'
-    });
-  };
-
-  // Add a function to format scheduling information
-  const formatSchedulingInfo = (booking: any) => {
-    // If no scheduling info is available, use the flightDate
-    if (!booking.scheduling) {
-      return {
-        label: "Scheduled Date",
-        value: new Date(booking.flightDate).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric'
-        })
-      };
-    }
-  
-    const { scheduleType } = booking.scheduling;
-  
-    // Handle different schedule types
-    if (scheduleType === 'scheduled') {
-      return {
-        label: "Scheduled Date",
-        value: new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric'
-        })
-      };
-    } else if (scheduleType === 'flexible') {
-      return {
-        label: "Flexible Date",
-        value: `${new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric'
-        })} (±${booking.scheduling.flexibility.replace('day', 'day').replace('week', 'week')})`,
-        subtext: "Based on your flexibility preferences"
-      };
-    } else if (scheduleType === 'repeat') {
-      const frequency = booking.scheduling.repeatFrequency.charAt(0).toUpperCase() + 
-                        booking.scheduling.repeatFrequency.slice(1);
-      
-      return {
-        label: "Recurring Schedule",
-        value: `${frequency}`,
-        subtext: `From ${new Date(booking.scheduling.startDate).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric'
-        })} to ${new Date(booking.scheduling.endDate).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'short',
-          year: 'numeric'
-        })}`
-      };
-    }
-  
-    // Fallback to flight date if schedule type is not recognized
-    return {
-      label: "Scheduled Date",
-      value: new Date(booking.flightDate).toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric'
-      })
-    };
-  };
-
-  // Breadcrumbs configuration
-  const breadcrumbs: BreadcrumbItem[] = [
-    { name: 'Dashboard', href: '/dashboard', current: false },
-    { name: 'Flights', href: '/my-bookings', current: false },
-    { name: booking?.assetName || 'Flight Details', href: `/flight-details/${bookingId}`, current: true }
-  ];
-
-  if (isLoading) {
-    return (
-      <div className="flex flex-col min-h-screen bg-gray-50">
-        <Navbar />
-        <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">Flight Details</h1>
-            <button
-              onClick={() => navigate('/my-bookings')}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Back to Flights
-            </button>
-          </div>
-            <div className="flex justify-center items-center p-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          </main>
-        <footer className="bg-white border-t border-gray-200 py-4 px-8 mt-auto">
-          <div className="container mx-auto text-center text-gray-500 text-sm">
-            &copy; {new Date().getFullYear()} PilotForce. All rights reserved.
-          </div>
-        </footer>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col min-h-screen bg-gray-50">
-        <Navbar />
-        <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">Flight Details</h1>
-            <button
-              onClick={() => navigate('/my-bookings')}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Back to Flights
-            </button>
-          </div>
-          <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-lg shadow-sm">
-            <h2 className="text-xl font-medium mb-2">Error Loading Flight Details</h2>
-            <p>{error}</p>
-            <div className="mt-4">
-              <button 
-                onClick={() => window.location.reload()}
-                className="bg-red-100 text-red-800 px-4 py-2 rounded-md mr-4 hover:bg-red-200"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
-        </main>
-        <footer className="bg-white border-t border-gray-200 py-4 px-8 mt-auto">
-          <div className="container mx-auto text-center text-gray-500 text-sm">
-            &copy; {new Date().getFullYear()} PilotForce. All rights reserved.
-          </div>
-        </footer>
-      </div>
-    );
-  }
-
-  if (!booking) {
-    return (
-      <div className="flex flex-col min-h-screen bg-gray-50">
-        <Navbar />
-        <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">Flight Details</h1>
-            <button
-              onClick={() => navigate('/my-bookings')}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Back to Flights
-            </button>
-          </div>
-          <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-6 py-4 rounded-lg shadow-sm">
-            <h2 className="text-xl font-medium mb-2">Booking Not Found</h2>
-            <p>The flight booking you're looking for could not be found or may have been deleted.</p>
-          </div>
-        </main>
-        <footer className="bg-white border-t border-gray-200 py-4 px-8 mt-auto">
-          <div className="container mx-auto text-center text-gray-500 text-sm">
-            &copy; {new Date().getFullYear()} PilotForce. All rights reserved.
-          </div>
-        </footer>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar />
       <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
-        {/* Header with Back Button */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Flight Details</h1>
-            <p className="text-gray-600">Viewing details for booking {booking.BookingId || booking.id}</p>
+            <p className="text-gray-600">Viewing details for booking {booking?.BookingId || booking?.id}</p>
           </div>
           <button
             onClick={() => navigate('/my-bookings')}
@@ -904,10 +1403,8 @@ const FlightDetails: React.FC = () => {
           </button>
         </div>
 
-        {/* Add breadcrumbs */}
         <Breadcrumbs items={breadcrumbs} className="mb-6" />
         
-        {/* Booking Overview Card - Moved to top for better hierarchy */}
         <div className="mb-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
             <div className="px-6 py-5 flex items-center justify-between">
@@ -918,26 +1415,25 @@ const FlightDetails: React.FC = () => {
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">{booking.assetName || "Flight Booking"}</h2>
+                  <h2 className="text-xl font-semibold text-gray-900">{booking?.assetName || "Flight Booking"}</h2>
                   <p className="text-sm text-gray-500 mt-1">
-                    {Array.isArray(booking.jobTypes) && booking.jobTypes.length > 0
-                      ? booking.jobTypes.join(', ') 
-                      : booking.jobType || booking.serviceType || 'Not specified'}
+                    {Array.isArray(booking?.jobTypes) && booking?.jobTypes.length > 0
+                      ? booking?.jobTypes.join(', ') 
+                      : booking?.jobType || booking?.serviceType || 'Not specified'}
                   </p>
                 </div>
               </div>
               <div className="flex flex-col items-end">
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
-                  {getStatusText(booking.status)}
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking?.status)}`}>
+                  {getStatusText(booking?.status)}
                 </span>
-                {booking.status === 'pending' && (
+                {booking?.status === 'pending' && (
                   <p className="text-xs text-gray-500 mt-1">Awaiting confirmation</p>
                 )}
               </div>
             </div>
             
             <div className="grid grid-cols-3 border-t border-gray-200">
-              {/* Replace original fixed scheduled date cell with dynamic scheduling info */}
               <div className="px-6 py-4 border-r border-gray-200">
                 {booking && (
                   <>
@@ -953,13 +1449,13 @@ const FlightDetails: React.FC = () => {
               <div className="px-6 py-4 border-r border-gray-200">
                 <p className="text-xs text-gray-500 uppercase font-medium">Site Contact</p>
                 <p className="mt-1 text-sm font-medium">
-                  {booking.siteContact?.name || booking.contactPerson || "Not specified"}
+                  {booking?.siteContact?.name || booking?.contactPerson || "Not specified"}
                 </p>
               </div>
               
               <div className="px-6 py-4">
                 <p className="text-xs text-gray-500 uppercase font-medium">Request Date</p>
-                <p className="mt-1 text-sm font-medium">{booking.createdAt ? new Date(booking.createdAt).toLocaleDateString('en-GB', {
+                <p className="mt-1 text-sm font-medium">{booking?.createdAt ? new Date(booking?.createdAt).toLocaleDateString('en-GB', {
                   day: 'numeric',
                   month: 'short',
                   year: 'numeric'
@@ -967,33 +1463,26 @@ const FlightDetails: React.FC = () => {
               </div>
             </div>
             
-            {/* Action Buttons - Moved here from bottom of details section */}
-            {(booking.status === 'scheduled' || booking.status === 'pending') && (
+            {(booking?.status === 'scheduled' || booking?.status === 'pending') && (
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
                 <div className="flex space-x-3">
-                  {/* <button className="flex-1 bg-red-50 py-2 px-4 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-100 flex items-center justify-center">
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2 2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Cancel
-                  </button> */}
                 </div>
               </div>
             )}
-            {booking.status === 'completed' && (
+            {booking?.status === 'completed' && (
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
                 <button 
                   onClick={scrollToFlightData}
                   className="w-full bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4 4L19 7" />
                   </svg>
                   View Data
                 </button>
               </div>
             )}
-            {booking.status === 'in-progress' && (
+            {booking?.status === 'in-progress' && (
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
                 <button 
                   onClick={scrollToFlightData}
@@ -1009,9 +1498,7 @@ const FlightDetails: React.FC = () => {
           </div>
         </div>
         
-        {/* Two-column layout for flight details and map */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          {/* Left Column (2/3 width) - Detailed Info */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden h-full">
               <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
@@ -1019,7 +1506,6 @@ const FlightDetails: React.FC = () => {
               </div>
               
               <div className="divide-y divide-gray-200">
-                {/* Service Details - Now supports multiple services */}
                 <div className="px-6 py-4">
                   <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
                     <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1027,11 +1513,10 @@ const FlightDetails: React.FC = () => {
                     </svg>
                     Services Booked
                   </h4>
-                  {/* Display multiple job types */}
-                  {Array.isArray(booking.jobTypes) && booking.jobTypes.length > 0 ? (
+                  {Array.isArray(booking?.jobTypes) && booking?.jobTypes.length > 0 ? (
                     <div className="space-y-3">
-                      {booking.jobTypes.map((jobType: string, index: number) => (
-                        <div key={index} className={index !== booking.jobTypes.length - 1 ? "pb-3 border-b border-gray-100" : ""}>
+                      {booking?.jobTypes.map((jobType: string, index: number) => (
+                        <div key={index} className={index !== booking?.jobTypes.length - 1 ? "pb-3 border-b border-gray-100" : ""}>
                           <div className="flex items-center">
                             <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                               <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1041,10 +1526,9 @@ const FlightDetails: React.FC = () => {
                             <p className="ml-3 text-sm font-medium text-gray-700">{jobType}</p>
                           </div>
                           
-                          {/* Show service options if available */}
-                          {booking.serviceOptions && booking.serviceOptions[jobType] && (
+                          {booking?.serviceOptions && booking?.serviceOptions[jobType] && (
                             <div className="mt-2 ml-8 pl-3 border-l-2 border-blue-100">
-                              {Object.entries(booking.serviceOptions[jobType]).map(([optKey, optValue]) => (
+                              {Object.entries(booking?.serviceOptions[jobType]).map(([optKey, optValue]) => (
                                 <div key={optKey} className="text-xs text-gray-600 mt-1">
                                   <span className="font-medium">{optKey.charAt(0).toUpperCase() + optKey.slice(1)}:</span>{' '}
                                   {Array.isArray(optValue) 
@@ -1064,7 +1548,6 @@ const FlightDetails: React.FC = () => {
                   )}
                 </div>
                 
-                {/* Contact Information - Now uses siteContact properly */}
                 <div className="px-6 py-4">
                   <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
                     <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1072,28 +1555,28 @@ const FlightDetails: React.FC = () => {
                     </svg>
                     Contact Information
                   </h4>
-                  {(booking.siteContact || booking.contactPerson || booking.contactPhone || booking.siteContactNumber) ? (
+                  {(booking?.siteContact || booking?.contactPerson || booking?.contactPhone || booking?.siteContactNumber) ? (
                     <div className="bg-white rounded-lg">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <p className="text-xs text-gray-500">Contact Person</p>
                           <p className="text-sm font-medium">
-                            {booking.siteContact?.name || booking.contactPerson || "Not specified"}
+                            {booking?.siteContact?.name || booking?.contactPerson || "Not specified"}
                           </p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500">Phone</p>
                           <p className="text-sm font-medium">
-                            {booking.siteContact?.phone || booking.contactPhone || booking.siteContactNumber || "Not specified"}
+                            {booking?.siteContact?.phone || booking?.contactPhone || booking?.siteContactNumber || "Not specified"}
                           </p>
                         </div>
-                        {(booking.siteContact?.email || booking.contactEmail) && (
+                        {(booking?.siteContact?.email || booking?.contactEmail) && (
                           <div className="col-span-2">
                             <p className="text-xs text-gray-500">Email</p>
-                            <p className="text-sm font-medium">{booking.siteContact?.email || booking.contactEmail}</p>
+                            <p className="text-sm font-medium">{booking?.siteContact?.email || booking?.contactEmail}</p>
                           </div>
                         )}
-                        {booking.siteContact?.isAvailableOnsite && (
+                        {booking?.siteContact?.isAvailableOnsite && (
                           <div className="col-span-2 mt-1">
                             <p className="text-xs flex items-center text-green-600">
                               <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1112,8 +1595,7 @@ const FlightDetails: React.FC = () => {
                   )}
                 </div>
                 
-                {/* Add Schedule Details Section - New section to display detailed scheduling info */}
-                {booking && booking.scheduling && (
+                {booking && booking?.scheduling && (
                   <div className="px-6 py-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
                       <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1131,14 +1613,14 @@ const FlightDetails: React.FC = () => {
                         </div>
                         <div className="ml-3">
                           <p className="text-sm font-medium text-gray-900">
-                            {booking.scheduling.scheduleType === 'scheduled' && 'Specific Date'}
-                            {booking.scheduling.scheduleType === 'flexible' && 'Flexible Date'}
-                            {booking.scheduling.scheduleType === 'repeat' && 'Recurring Schedule'}
+                            {booking?.scheduling.scheduleType === 'scheduled' && 'Specific Date'}
+                            {booking?.scheduling.scheduleType === 'flexible' && 'Flexible Date'}
+                            {booking?.scheduling.scheduleType === 'repeat' && 'Recurring Schedule'}
                           </p>
                           
-                          {booking.scheduling.scheduleType === 'scheduled' && (
+                          {booking?.scheduling.scheduleType === 'scheduled' && (
                             <p className="text-sm text-gray-600 mt-1">
-                              Scheduled for {new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
+                              Scheduled for {new Date(booking?.scheduling.date).toLocaleDateString('en-GB', {
                                 weekday: 'long',
                                 day: 'numeric',
                                 month: 'long',
@@ -1147,10 +1629,10 @@ const FlightDetails: React.FC = () => {
                             </p>
                           )}
                           
-                          {booking.scheduling.scheduleType === 'flexible' && (
+                          {booking?.scheduling.scheduleType === 'flexible' && (
                             <>
                               <p className="text-sm text-gray-600 mt-1">
-                                Preferred date: {new Date(booking.scheduling.date).toLocaleDateString('en-GB', {
+                                Preferred date: {new Date(booking?.scheduling.date).toLocaleDateString('en-GB', {
                                   weekday: 'long',
                                   day: 'numeric',
                                   month: 'long',
@@ -1158,22 +1640,22 @@ const FlightDetails: React.FC = () => {
                                 })}
                               </p>
                               <p className="text-sm text-gray-600 mt-1">
-                                Flexibility: {booking.scheduling.flexibility === 'exact' ? 'Exact date' : 
-                                  booking.scheduling.flexibility === '1-day' ? '±1 Day' :
-                                  booking.scheduling.flexibility === '3-days' ? '±3 Days' :
-                                  booking.scheduling.flexibility === '1-week' ? '±1 Week' : 
-                                  booking.scheduling.flexibility}
+                                Flexibility: {booking?.scheduling.flexibility === 'exact' ? 'Exact date' : 
+                                  booking?.scheduling.flexibility === '1-day' ? '±1 Day' :
+                                  booking?.scheduling.flexibility === '3-days' ? '±3 Days' :
+                                  booking?.scheduling.flexibility === '1-week' ? '±1 Week' : 
+                                  booking?.scheduling.flexibility}
                               </p>
                             </>
                           )}
                           
-                          {booking.scheduling.scheduleType === 'repeat' && (
+                          {booking?.scheduling.scheduleType === 'repeat' && (
                             <>
                               <p className="text-sm text-gray-600 mt-1">
-                                Frequency: {booking.scheduling.repeatFrequency.charAt(0).toUpperCase() + booking.scheduling.repeatFrequency.slice(1)}
+                                Frequency: {booking?.scheduling.repeatFrequency.charAt(0).toUpperCase() + booking?.scheduling.repeatFrequency.slice(1)}
                               </p>
                               <p className="text-sm text-gray-600 mt-1">
-                                Start date: {new Date(booking.scheduling.startDate).toLocaleDateString('en-GB', {
+                                Start date: {new Date(booking?.scheduling.startDate).toLocaleDateString('en-GB', {
                                   weekday: 'long',
                                   day: 'numeric',
                                   month: 'long',
@@ -1181,7 +1663,7 @@ const FlightDetails: React.FC = () => {
                                 })}
                               </p>
                               <p className="text-sm text-gray-600 mt-1">
-                                End date: {new Date(booking.scheduling.endDate).toLocaleDateString('en-GB', {
+                                End date: {new Date(booking?.scheduling.endDate).toLocaleDateString('en-GB', {
                                   weekday: 'long',
                                   day: 'numeric',
                                   month: 'long',
@@ -1196,8 +1678,7 @@ const FlightDetails: React.FC = () => {
                   </div>
                 )}
                 
-                {/* Notes - Only show section if notes exist */}
-                {booking.notes ? (
+                {booking?.notes ? (
                   <div className="px-6 py-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
                       <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1206,12 +1687,11 @@ const FlightDetails: React.FC = () => {
                       Additional Notes
                     </h4>
                     <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-sm whitespace-pre-line">{booking.notes}</p>
+                      <p className="text-sm whitespace-pre-line">{booking?.notes}</p>
                     </div>
                   </div>
                 ) : null}
                 
-                {/* Asset Information (if available) */}
                 {asset && (
                   <div className="px-6 py-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
@@ -1248,7 +1728,6 @@ const FlightDetails: React.FC = () => {
             </div>
           </div>
           
-          {/* Right Column (1/3 width) - Map - Modified to be full height */}
           <div className="h-full flex flex-col">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
               <div className="px-6 py-4 border-b border-gray-200">
@@ -1261,7 +1740,6 @@ const FlightDetails: React.FC = () => {
                 </h3>
               </div>
               
-              {/* Map container that fills available space */}
               <div className="flex-grow relative min-h-[400px]">
                 <Map
                   {...viewState}
@@ -1311,7 +1789,7 @@ const FlightDetails: React.FC = () => {
                     </Source>
                   )}
                   
-                  {(!asset || !asset.coordinates || asset.coordinates.length === 0) && booking.location && (
+                  {(!asset || !asset.coordinates || asset.coordinates.length === 0) && booking?.location && (
                     <Marker 
                       longitude={viewState.longitude} 
                       latitude={viewState.latitude} 
@@ -1324,9 +1802,6 @@ const FlightDetails: React.FC = () => {
                       </div>
                     </Marker>
                   )}
-
-                  {/* Add navigation controls */}
-                  {/* <NavigationControl position="top-right" /> */}
                 </Map>
               </div>
               
@@ -1339,7 +1814,6 @@ const FlightDetails: React.FC = () => {
           </div>
         </div>
         
-        {/* Images and Maps Section - Modified height for better image display */}
         <div 
           ref={flightDataRef} 
           className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6"
@@ -1401,9 +1875,7 @@ const FlightDetails: React.FC = () => {
           </div>
           
           <div className="p-0">
-            {/* Status-based content */}
             {!isBookingActive() ? (
-              // For pending or scheduled bookings
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                 <div className="bg-blue-50 rounded-full p-4 mb-4">
                   <svg className="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1412,32 +1884,66 @@ const FlightDetails: React.FC = () => {
                 </div>
                 <h3 className="text-xl font-medium text-gray-900 mb-2">Flight Not Yet Completed</h3>
                 <p className="text-base text-gray-600 max-w-md">
-                  {booking.status === 'pending' 
+                  {booking?.status === 'pending' 
                     ? "This booking is awaiting confirmation. Once confirmed, we'll schedule the flight date."
-                    : `This flight is scheduled for ${new Date(booking.flightDate).toLocaleDateString()}. Images and data will be available after the flight is completed.`
+                    : `This flight is scheduled for ${new Date(booking?.flightDate).toLocaleDateString()}. Images and data will be available after the flight is completed.`
                   }
                 </p>
                 <div className="mt-6">
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(booking.status)}`}>
-                    {getStatusText(booking.status)}
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(booking?.status)}`}>
+                    {getStatusText(booking?.status)}
                   </span>
                 </div>
               </div>
             ) : hasFlightData() ? (
-              // For completed bookings with data
               <>
                 {activeTab === 'imageMap' && (
-                  <div className="h-[700px]">
+                  <div className="h-[700px] relative">
                     <ImageMap 
                       imageLocations={imageLocations} 
-                      bookingId={booking.id || booking.BookingId}
+                      bookingId={booking?.id || booking?.BookingId}
                       mapboxAccessToken={MAPBOX_ACCESS_TOKEN || ''}
                       geoTiffFilename={geoTiffFilename}
                       geoTiffUrl={geoTiffUrl}
                       onMapLoad={handleImageMapLoad}
                       mapRef={imageMapRef}
+                      geoTiffResources={geoTiffResources} // Pass GeoTIFF resources to ImageMap
                     />
-                    {imageLocations.length === 0 && !geoTiffUrl && (
+                    
+                    {isLoadingGeoTiffs && (
+                      <div className="absolute top-4 right-4 bg-white p-2 rounded shadow">
+                        <div className="flex items-center">
+                          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-500 mr-2"></div>
+                          <span className="text-sm">Loading GeoTIFFs...</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {geoTiffResources.length > 0 && (
+                      <div className="absolute bottom-4 left-4 bg-white p-3 rounded shadow max-w-xs">
+                        <p className="text-xs font-semibold mb-1">GeoTIFF Files ({geoTiffResources.length})</p>
+                        <div className="text-xs text-gray-500 max-h-32 overflow-y-auto">
+                          {geoTiffResources.map((file, index) => (
+                            <div key={index} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-0">
+                              <span className="truncate">
+                                {(file.name || file.FileName || 'Unknown').replace(/^resource_[^_]+_[^_]+_/, '')}
+                              </span>
+                              <button 
+                                onClick={() => downloadGeoTiffFile(file)}
+                                className="ml-2 text-blue-600 hover:text-blue-800"
+                                title="Download GeoTIFF"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {imageLocations.length === 0 && geoTiffResources.length === 0 && !isLoadingGeoTiffs && (
                       <div className="bg-yellow-50 p-4 rounded-md m-4">
                         <div className="flex">
                           <div className="flex-shrink-0">
@@ -1447,8 +1953,31 @@ const FlightDetails: React.FC = () => {
                           </div>
                           <div className="ml-3">
                             <p className="text-sm text-yellow-700">
-                              No geotagged images available for map display.
+                              No geotagged images or GeoTIFF files available.
                             </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* GeoTIFF downloading indicator */}
+                    {isGeoTiffDownloading && (
+                      <div className="absolute bottom-4 right-4 bg-white p-3 rounded shadow">
+                        <div className="flex items-center">
+                          <div className="mr-2 text-blue-600">
+                            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">Downloading GeoTIFF</p>
+                            <div className="mt-1 h-1.5 w-32 bg-gray-200 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-blue-600 rounded-full" 
+                                style={{ width: `${geoTiffDownloadProgress}%` }}
+                              ></div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1474,17 +2003,18 @@ const FlightDetails: React.FC = () => {
                         {images.length > 0 ? (
                           <div className="max-h-[700px] overflow-y-auto custom-scrollbar pr-2">
                             <BookingImageGallery 
-                              images={images} 
+                              images={mapToImageProps(images)} 
                               isLoading={isLoadingImages} 
+                              onRefreshUrls={handleRefreshedUrls}
                             />
                           </div>
                         ) : (
                           <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
                             <svg className="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
-                            <h3 className="text-lg font-medium text-gray-900 mb-1">No Images Available</h3>
-                            <p className="text-gray-500">No images have been uploaded for this flight yet.</p>
+                            <h3 className="text-lg font-medium text-gray-900 mb-1">No Resources Available</h3>
+                            <p className="text-gray-500">No resources have been uploaded for this flight yet.</p>
                           </div>
                         )}
                       </>
@@ -1493,20 +2023,19 @@ const FlightDetails: React.FC = () => {
                 )}
               </>
             ) : (
-              // For completed bookings without data
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                 <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 <h3 className="text-xl font-medium text-gray-900 mb-2">No Flight Data Available</h3>
                 <p className="text-base text-gray-600 max-w-md mb-6">
-                  {booking.status === 'completed' 
+                  {booking?.status === 'completed' 
                     ? "This flight has been completed, but no images or data have been uploaded yet."
                     : "Images and data will be available after the flight is completed and processed."
                   }
                 </p>
                 <div className="p-2 bg-blue-50 rounded-lg text-sm text-blue-800">
-                  <span className="font-medium">Status:</span> {getStatusText(booking.status)}
+                  <span className="font-medium">Status:</span> {getStatusText(booking?.status)}
                 </div>
               </div>
             )}
@@ -1530,15 +2059,12 @@ function fitMapToAsset(target: any, asset: any) {
   }
 
   try {
-    // Create a bounding box from the asset coordinates
     const bounds = new mapboxgl.LngLatBounds();
 
-    // Add all coordinates to the bounds
     asset.coordinates[0].forEach((coord: [number, number]) => {
       bounds.extend(coord);
     });
 
-    // Fit the map to the bounds with some padding
     target.fitBounds(bounds, {
       padding: 50,
       maxZoom: 20

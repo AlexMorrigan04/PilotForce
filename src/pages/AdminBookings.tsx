@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AdminNavbar from '../components/AdminNavbar';
-import { FiCalendar, FiSearch, FiRefreshCw, FiDownload, FiFilter, FiX } from 'react-icons/fi';
+import ResourceUploadModal from '../components/admin/ResourceUploadModal';
+import BookingResourcesModal from '../components/admin/BookingResourcesModal';
+import { FiCalendar, FiSearch, FiRefreshCw, FiDownload, FiFilter, FiX, FiEye, FiUpload, FiTrash2 } from 'react-icons/fi';
 import * as adminService from '../services/adminService';
 import { validateAmplifyConfig } from '../utils/apiUtils';
 
@@ -48,14 +50,17 @@ const AdminBookings: React.FC = () => {
   });
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [showDetailModal, setShowDetailModal] = useState<boolean>(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
+  const [isResourcesModalOpen, setIsResourcesModalOpen] = useState<boolean>(false);
+  const [selectedBookingForUpload, setSelectedBookingForUpload] = useState<string | null>(null);
+  const [selectedBookingForResources, setSelectedBookingForResources] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<boolean>(false);
   const navigate = useNavigate();
 
-  // Verify Amplify configuration
   useEffect(() => {
     validateAmplifyConfig();
   }, []);
 
-  // Verify admin status and load data
   useEffect(() => {
     if (!isAdmin) {
       setError('You do not have permission to access this page');
@@ -64,33 +69,24 @@ const AdminBookings: React.FC = () => {
       }, 2000);
       return;
     }
-    
+
     fetchBookings();
   }, [isAdmin, navigate, filters]);
 
-  // Fetch bookings from API
   const fetchBookings = async () => {
     setLoading(true);
     try {
-      console.log('Fetching bookings with filters:', filters);
-      const response = await adminService.getAllBookings(filters);
-      
-      // Check if response has bookings array
+      const response = await adminService.getAllBookings();
+
       if (!response || !response.bookings) {
-        console.error('Invalid API response format:', response);
         throw new Error('Invalid API response format');
       }
-      
-      // Log the raw data for debugging
-      console.log('Raw bookings from API:', response.bookings);
-      
-      // Map the API response to our Booking interface with fallback ID generation
+
       const mappedBookings = response.bookings.map((booking: any, index: number) => {
-        // Generate a unique ID if one doesn't exist
         const generatedId = booking.BookingId || booking.id || `booking-${Date.now()}-${index}`;
-        
+
         return {
-          id: generatedId, // Use generated ID to ensure we always have one
+          id: generatedId,
           title: booking.jobTypes || `Flight at ${booking.location || 'Unknown Location'}`,
           status: booking.status || 'Pending',
           createdAt: booking.createdAt || new Date().toISOString(),
@@ -111,19 +107,16 @@ const AdminBookings: React.FC = () => {
           emailDomain: booking.emailDomain || ''
         };
       });
-      
-      console.log('Mapped bookings for component:', mappedBookings);
+
       setBookings(mappedBookings);
       setError(null);
     } catch (err: any) {
-      console.error('Error fetching bookings:', err);
       setError(err.message || 'Failed to load bookings');
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle filter changes
   const handleFilterChange = (name: string, value: string) => {
     setFilters(prev => ({
       ...prev,
@@ -131,7 +124,6 @@ const AdminBookings: React.FC = () => {
     }));
   };
 
-  // Clear all filters
   const handleClearFilters = () => {
     setFilters({
       status: '',
@@ -140,7 +132,6 @@ const AdminBookings: React.FC = () => {
     });
   };
 
-  // Filter bookings based on search term
   const filteredBookings = bookings.filter(booking => {
     const searchTermLower = searchTerm.toLowerCase();
     return (
@@ -152,7 +143,6 @@ const AdminBookings: React.FC = () => {
     );
   });
 
-  // Handle booking selection for bulk actions
   const handleSelectAll = () => {
     if (selectedBookings.length === filteredBookings.length) {
       setSelectedBookings([]);
@@ -169,7 +159,6 @@ const AdminBookings: React.FC = () => {
     }
   };
 
-  // Booking management actions
   const handleViewBookingDetails = (bookingId: string) => {
     const booking = bookings.find(b => b.id === bookingId);
     if (booking) {
@@ -178,40 +167,15 @@ const AdminBookings: React.FC = () => {
     }
   };
 
-  const handleUpdateBookingStatus = async (bookingId: string, status: string) => {
-    try {
-      setLoading(true);
-      await adminService.updateBookingStatus(bookingId, status);
-      
-      // Update local state
-      setBookings(bookings.map(booking => 
-        booking.id === bookingId ? { ...booking, status } : booking
-      ));
-      
-      alert(`Booking status updated to ${status}`);
-    } catch (err: any) {
-      console.error('Error updating booking status:', err);
-      setError(err.message || 'Failed to update booking status');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleDeleteBooking = async (bookingId: string) => {
     if (window.confirm('Are you sure you want to delete this booking? This action cannot be undone.')) {
       try {
         setLoading(true);
         await adminService.deleteBooking(bookingId);
-        
-        // Update local state
         setBookings(bookings.filter(booking => booking.id !== bookingId));
-        
-        // Remove from selected bookings if present
         setSelectedBookings(selectedBookings.filter(id => id !== bookingId));
-        
         alert('Booking deleted successfully');
       } catch (err: any) {
-        console.error('Error deleting booking:', err);
         setError(err.message || 'Failed to delete booking');
       } finally {
         setLoading(false);
@@ -219,7 +183,27 @@ const AdminBookings: React.FC = () => {
     }
   };
 
-  // Export bookings to CSV
+  const handleUploadClick = (bookingId: string) => {
+    setSelectedBookingForUpload(bookingId);
+    setIsUploadModalOpen(true);
+  };
+
+  const handleUploadComplete = () => {
+    setUploadSuccess(true);
+    setIsUploadModalOpen(false);
+
+    setTimeout(() => {
+      setUploadSuccess(false);
+    }, 5000);
+
+    fetchBookings();
+  };
+
+  const handleViewResources = (bookingId: string) => {
+    setSelectedBookingForResources(bookingId);
+    setIsResourcesModalOpen(true);
+  };
+
   const handleExportBookings = () => {
     const headers = [
       'ID', 'Job Type', 'Status', 'Location', 'Flight Date', 
@@ -272,20 +256,39 @@ const AdminBookings: React.FC = () => {
     return 'bg-gray-100 text-gray-800';
   };
 
-  // Render title from string or array
-  const renderTitle = (title: string | string[] | undefined): string => {
-    if (!title) return 'No Title';
-    if (Array.isArray(title)) return title.join(', ');
-    return title;
-  };
-
-  // Format JSON data for display
-  const formatJsonData = (data: any): string => {
-    if (!data) return 'None';
-    if (typeof data === 'object') {
-      return JSON.stringify(data, null, 2);
-    }
-    return String(data);
+  const renderTableActions = (booking: Booking) => {
+    return (
+      <div className="flex space-x-2 justify-end">
+        <button
+          onClick={() => handleViewBookingDetails(booking.id)}
+          className="text-blue-600 hover:text-blue-800"
+          title="View Details"
+        >
+          <FiEye size={18} />
+        </button>
+        <button
+          onClick={() => handleViewResources(booking.id)}
+          className="text-indigo-600 hover:text-indigo-800"
+          title="View Resources"
+        >
+          <FiEye size={18} />
+        </button>
+        <button
+          onClick={() => handleUploadClick(booking.id)}
+          className="text-green-600 hover:text-green-800"
+          title="Upload Resources"
+        >
+          <FiUpload size={18} />
+        </button>
+        <button
+          onClick={() => handleDeleteBooking(booking.id)}
+          className="text-red-600 hover:text-red-800"
+          title="Delete Booking"
+        >
+          <FiTrash2 size={18} />
+        </button>
+      </div>
+    );
   };
 
   // Format Service Options data for display in a more user-friendly format
@@ -293,7 +296,7 @@ const AdminBookings: React.FC = () => {
     if (!serviceOptions || Object.keys(serviceOptions).length === 0) {
       return <span className="text-sm">None</span>;
     }
-  
+
     return (
       <div className="space-y-4">
         {Object.entries(serviceOptions).map(([serviceType, options]: [string, any]) => (
@@ -312,7 +315,7 @@ const AdminBookings: React.FC = () => {
                       ))}
                     </div>
                   ) : (
-                    <span className="text-sm">{optionValue}</span>
+                    <span className="text-sm">{String(optionValue)}</span>
                   )}
                 </div>
               ))}
@@ -350,7 +353,19 @@ const AdminBookings: React.FC = () => {
           </div>
         )}
 
-        {/* Booking filters */}
+        {uploadSuccess && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded relative">
+            <span className="block sm:inline">Resources uploaded successfully!</span>
+            <button
+              className="absolute top-0 bottom-0 right-0 px-4 py-3"
+              onClick={() => setUploadSuccess(false)}
+            >
+              <span className="sr-only">Close</span>
+              <FiX className="h-6 w-6" />
+            </button>
+          </div>
+        )}
+
         <div className="bg-white p-4 mb-6 rounded-lg shadow-sm border border-gray-200">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4">
             <h2 className="text-lg font-medium text-gray-800 flex items-center">
@@ -408,7 +423,6 @@ const AdminBookings: React.FC = () => {
           </div>
         </div>
 
-        {/* Booking management controls */}
         <div className="bg-white rounded-lg shadow mb-6">
           <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center">
             <div className="relative w-full sm:w-64 mb-4 sm:mb-0">
@@ -445,7 +459,6 @@ const AdminBookings: React.FC = () => {
             </div>
           )}
           
-          {/* Booking table */}
           <div className="overflow-x-auto">
             {loading ? (
               <div className="p-4 flex justify-center">
@@ -541,18 +554,7 @@ const AdminBookings: React.FC = () => {
                         {formatDate(booking.flightDate)}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => handleViewBookingDetails(booking.id)}
-                          className="text-blue-600 hover:text-blue-900 mr-2"
-                        >
-                          View
-                        </button>
-                        <button
-                          onClick={() => handleDeleteBooking(booking.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
+                        {renderTableActions(booking)}
                       </td>
                     </tr>
                   ))}
@@ -560,30 +562,15 @@ const AdminBookings: React.FC = () => {
               </table>
             )}
           </div>
-          
-          {/* Pagination - could be implemented if needed */}
-          <div className="px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700">
-                  Showing <span className="font-medium">1</span> to <span className="font-medium">{filteredBookings.length}</span> of <span className="font-medium">{filteredBookings.length}</span> results
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       </main>
 
-      {/* Booking Detail Modal */}
       {showDetailModal && selectedBooking && (
         <div className="fixed z-10 inset-0 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            {/* Background overlay */}
             <div className="fixed inset-0 transition-opacity" aria-hidden="true">
               <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={() => setShowDetailModal(false)}></div>
             </div>
-
-            {/* Modal panel */}
             <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full max-h-[90vh] overflow-y-auto">
               <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div className="sm:flex sm:items-start">
@@ -596,7 +583,6 @@ const AdminBookings: React.FC = () => {
                         {selectedBooking.status}
                       </span>
                     </div>
-                    
                     <div className="bg-gray-50 p-4 rounded-lg mb-4">
                       <h4 className="font-medium text-gray-800 mb-2">Basic Information</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -606,7 +592,7 @@ const AdminBookings: React.FC = () => {
                         </div>
                         <div>
                           <p className="text-sm text-gray-500">Job Type</p>
-                          <p className="text-sm font-medium">{renderTitle(selectedBooking.jobTypes)}</p>
+                          <p className="text-sm font-medium">{selectedBooking.jobTypes || 'Not specified'}</p>
                         </div>
                         <div>
                           <p className="text-sm text-gray-500">Date</p>
@@ -622,7 +608,6 @@ const AdminBookings: React.FC = () => {
                         </div>
                       </div>
                     </div>
-
                     <div className="bg-gray-50 p-4 rounded-lg mb-4">
                       <h4 className="font-medium text-gray-800 mb-2">Location</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -636,7 +621,6 @@ const AdminBookings: React.FC = () => {
                         </div>
                       </div>
                     </div>
-
                     <div className="bg-gray-50 p-4 rounded-lg mb-4">
                       <h4 className="font-medium text-gray-800 mb-2">Customer Details</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -658,7 +642,6 @@ const AdminBookings: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    
                     <div className="bg-gray-50 p-4 rounded-lg mb-4">
                       <h4 className="font-medium text-gray-800 mb-2">Company Information</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -672,7 +655,6 @@ const AdminBookings: React.FC = () => {
                         </div>
                       </div>
                     </div>
-
                     <div className="bg-gray-50 p-4 rounded-lg mb-4">
                       <h4 className="font-medium text-gray-800 mb-2">Asset Information</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -686,7 +668,6 @@ const AdminBookings: React.FC = () => {
                         </div>
                       </div>
                     </div>
-
                     {selectedBooking.siteContact && (
                       <div className="bg-gray-50 p-4 rounded-lg mb-4">
                         <h4 className="font-medium text-gray-800 mb-2">Site Contact</h4>
@@ -716,14 +697,12 @@ const AdminBookings: React.FC = () => {
                         </div>
                       </div>
                     )}
-
                     {selectedBooking.notes && (
                       <div className="bg-gray-50 p-4 rounded-lg mb-4">
                         <h4 className="font-medium text-gray-800 mb-2">Notes</h4>
                         <p className="text-sm">{selectedBooking.notes}</p>
                       </div>
                     )}
-
                     {selectedBooking.serviceOptions && Object.keys(selectedBooking.serviceOptions).length > 0 && (
                       <div className="bg-gray-50 p-4 rounded-lg mb-4">
                         <h4 className="font-medium text-gray-800 mb-2">Service Options</h4>
@@ -748,6 +727,19 @@ const AdminBookings: React.FC = () => {
           </div>
         </div>
       )}
+
+      <BookingResourcesModal
+        isOpen={isResourcesModalOpen}
+        onClose={() => setIsResourcesModalOpen(false)}
+        bookingId={selectedBookingForResources || ''}
+      />
+
+      <ResourceUploadModal 
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        bookingId={selectedBookingForUpload || ''}
+        onUploadComplete={handleUploadComplete}
+      />
     </div>
   );
 };

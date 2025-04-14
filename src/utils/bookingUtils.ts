@@ -127,115 +127,154 @@ export const getBookings = async (companyId?: string) => {
 };
 
 /**
- * Get details for a specific booking
- * @param bookingId The booking ID to retrieve
- * @returns Promise with booking details
+ * Fetches booking details by ID from the API or DynamoDB
  */
 export const getBookingById = async (bookingId: string) => {
   try {
-    console.log('===== BOOKING DETAILS FETCH STARTED =====');
-    debugAuthState(); // Log token debug info
+    console.log(`Fetching booking with ID: ${bookingId}`);
     
-    // Clean bookingId to ensure proper format
-    const cleanBookingId = bookingId.trim();
-    console.log(`Using cleaned bookingId: ${cleanBookingId}`);
+    const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+    const endpoint = `${apiUrl}/bookings/${bookingId}`;
     
     // Get authentication token
     const token = localStorage.getItem('idToken') || localStorage.getItem('token');
-    
     if (!token) {
-      console.error('No authentication token found in localStorage');
       throw new Error('Authentication token not found');
     }
     
-    // Ensure token format (no Bearer prefix in header value)
-    const formattedToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    console.log(`Calling API endpoint: ${endpoint}`);
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
     
-    console.log(`Attempting to fetch booking details for ID: ${cleanBookingId}`);
-    console.log(`Using token starting with: ${formattedToken.substring(0, 20)}...`);
+    if (!response.ok) {
+      throw new Error(`API request failed with status: ${response.status}`);
+    }
     
-    // Get the API URL from environment or use a default
-    const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new Error(`Expected JSON response but got ${contentType}`);
+    }
     
-    // The API Gateway is configured for /bookings/{id} so use that as primary endpoint
-    const primaryEndpoint = `${apiUrl}/bookings/${cleanBookingId}`;
-    console.log(`🔍 Primary request endpoint: ${primaryEndpoint}`);
+    const bookingData = await response.json();
+    console.log('Booking data received from API:', bookingData);
     
-    try {
-      const response = await axios.get(primaryEndpoint, {
-        headers: {
-          'Authorization': formattedToken,
-          'Content-Type': 'application/json'
+    // Process and validate the images array if it exists
+    if (bookingData.images && Array.isArray(bookingData.images)) {
+      console.log(`Validating ${bookingData.images.length} images received from API`);
+      
+      // Check for expired S3 URLs and refresh if needed
+      const currentTime = new Date().getTime();
+      // Define interfaces for image objects
+      interface ImageObject {
+        url?: string;
+        ResourceUrl?: string;
+        resourceUrl?: string;
+        s3Url?: string;
+        [key: string]: any;
+      }
+
+      interface S3UrlComponents {
+        expiresSeconds: number;
+        signedDate: Date;
+        expiryTime: number;
+      }
+
+      const needsRefresh: boolean = bookingData.images.some((img: ImageObject): boolean => {
+        const url: string | undefined = img.url || img.ResourceUrl || img.resourceUrl || img.s3Url;
+        if (!url) return false;
+        
+        // Check if URL is a signed S3 URL and might expire soon (within 10 minutes)
+        if (url.includes('X-Amz-Expires') && url.includes('X-Amz-Date')) {
+          const expiresMatch: RegExpMatchArray | null = url.match(/X-Amz-Expires=(\d+)/);
+          const dateMatch: RegExpMatchArray | null = url.match(/X-Amz-Date=(\d{8})T(\d{6})Z/);
+          
+          if (expiresMatch && dateMatch) {
+        const expiresSeconds: number = parseInt(expiresMatch[1], 10);
+        const dateStr: string = `${dateMatch[1]}T${dateMatch[2]}Z`;
+        const signedDate: Date = new Date(
+          parseInt(dateStr.slice(0, 4), 10),
+          parseInt(dateStr.slice(4, 6), 10) - 1,
+          parseInt(dateStr.slice(6, 8), 10),
+          parseInt(dateStr.slice(9, 11), 10),
+          parseInt(dateStr.slice(11, 13), 10),
+          parseInt(dateStr.slice(13, 15), 10)
+        );
+        
+        const expiryTime: number = signedDate.getTime() + (expiresSeconds * 1000);
+        const tenMinutesInMillis: number = 10 * 60 * 1000;
+        
+        // If URL expires within 10 minutes, we should refresh
+        return (expiryTime - currentTime) < tenMinutesInMillis;
+          }
         }
+        
+        return false;
       });
       
-      console.log(`✅ Success with primary endpoint: ${primaryEndpoint}`);
-      console.log(`Response status: ${response.status}`);
-      return response.data;
-    } catch (primaryError) {
-      console.warn(`❌ Primary endpoint failed: ${primaryError instanceof Error ? primaryError.message : String(primaryError)}`);
-      console.log(`Trying fallback endpoints...`);
-      
-      // Set up fallback endpoints
-      const fallbackEndpoints = [
-        `${apiUrl}/get-booking-details/${cleanBookingId}`,     // Lambda direct
-        `${apiUrl}/bookings?BookingId=${cleanBookingId}`,      // Query param uppercase
-        `${apiUrl}/bookings?bookingId=${cleanBookingId}`,      // Query param lowercase
-        `${apiUrl}/bookings?id=${cleanBookingId}`,             // Query param with 'id'
-        `${apiUrl}/bookings/${cleanBookingId}`              // Query param with 'id'
-
-      ];
-      
-      console.log('Will attempt the following fallback endpoints in order:', fallbackEndpoints);
-      
-      let finalError = null;
-      
-      // Try each endpoint until one succeeds
-      for (const endpoint of fallbackEndpoints) {
+      // If any URLs are expiring soon, make a special request to refresh them
+      if (needsRefresh) {
+        console.log("Detected expiring S3 URLs, requesting fresh URLs...");
+        
         try {
-          console.log(`Trying endpoint: ${endpoint}`);
-          
-          // Make API request to the endpoint
-          const response = await axios.get(endpoint, {
+          // Call the endpoint with an additional parameter to request fresh URLs
+          const refreshResponse = await fetch(`${endpoint}?refreshUrls=true`, {
+            method: 'GET',
             headers: {
-              'Authorization': formattedToken,
+              'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             }
           });
           
-          // Log successful response
-          console.log(`✅ Successful response from ${endpoint}`);
-          console.log(`Response status: ${response.status}`);
-          console.log(`Response data type: ${typeof response.data}`);
-          
-          if (typeof response.data === 'object') {
-            console.log('Response data sample:', JSON.stringify(response.data).substring(0, 200) + '...');
+          if (refreshResponse.ok) {
+            const refreshedData = await refreshResponse.json();
+            
+            if (refreshedData.images && Array.isArray(refreshedData.images)) {
+              console.log(`Received ${refreshedData.images.length} images with refreshed URLs`);
+              bookingData.images = refreshedData.images;
+            }
           }
-          
-          console.log('===== BOOKING DETAILS FETCH COMPLETED =====');
-          return response.data;
-        } catch (endpointError) {
-          console.warn(`❌ Failed to fetch from ${endpoint}:`, endpointError instanceof Error ? endpointError.message : String(endpointError));
-          
-          if (axios.isAxiosError(endpointError) && endpointError.response) {
-            console.warn(`  Status: ${endpointError.response.status}`);
-            console.warn(`  Status text: ${endpointError.response.statusText}`);
-            console.warn(`  Data:`, endpointError.response.data);
-          }
-          
-          finalError = endpointError;
-          // Continue to the next endpoint
+        } catch (refreshError) {
+          console.warn("Failed to refresh expiring URLs, will use existing ones:", refreshError);
         }
       }
       
-      // If we get here, all endpoints failed
-      console.error('All endpoints failed to fetch booking details');
-      throw finalError || new Error('Failed to fetch booking details from all endpoints');
+      // Ensure all images have a URL property
+      // Define interface for image objects
+      interface BookingImage {
+        url?: string;
+        ResourceUrl?: string;
+        resourceUrl?: string;
+        s3Url?: string;
+        [key: string]: any;
+      }
+      
+      bookingData.images = bookingData.images.map((img: BookingImage): BookingImage => {
+        // Normalize the URL property across different possible sources
+        const url: string | undefined = img.url || img.ResourceUrl || img.resourceUrl || img.s3Url;
+        
+        // Create a new object with the normalized URL to avoid reference issues
+        const normalizedImage = { ...img };
+        
+        if (url) {
+          normalizedImage.url = url;
+          console.log(`Normalized URL for image ${img.name || 'unknown'}: ${url.substring(0, 50)}...`);
+        } else {
+          console.warn(`Missing URL for image: ${img.name || 'unknown'}`);
+        }
+        
+        return normalizedImage;
+      });
     }
     
+    return bookingData;
+    
   } catch (error) {
-    console.error('===== BOOKING DETAILS FETCH FAILED =====');
-    console.error('Final error in getBookingById:', error);
+    console.error('Error in getBookingById:', error);
     throw error;
   }
 };

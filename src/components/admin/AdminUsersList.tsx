@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as adminService from '../../services/adminService';
-import { format } from 'date-fns';  // Import format from date-fns
 
 interface User {
   userId: string;
@@ -196,7 +195,7 @@ const AdminUsersList: React.FC = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {format(new Date(user.createdAt), 'MMM d, yyyy')}
+                    {new Date(user.createdAt).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${

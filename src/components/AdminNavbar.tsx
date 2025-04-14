@@ -46,10 +46,10 @@ const AdminNavbar: React.FC = () => {
     { name: 'Users', path: '/admin/users', icon: <FiUsers /> },
     { name: 'Bookings', path: '/admin/bookings', icon: <FiCalendar /> },
     { name: 'Assets', path: '/admin/assets', icon: <FiGrid /> },
-    { name: 'Resources', path: '/admin/resources', icon: <FiImage /> },
+    // { name: 'Resources', path: '/admin/resources', icon: <FiImage /> },
     { name: 'Companies', path: '/admin/companies', icon: <FiBriefcase /> },
-    { name: 'Reports', path: '/admin/reports', icon: <FiPieChart /> },
-    { name: 'Settings', path: '/admin/settings', icon: <FiSettings /> }
+    // { name: 'Reports', path: '/admin/reports', icon: <FiPieChart /> },
+    // { name: 'Settings', path: '/admin/settings', icon: <FiSettings /> }
   ];
 
   return (
@@ -82,10 +82,10 @@ const AdminNavbar: React.FC = () => {
               
               {/* More dropdown */}
               <div className="relative group">
-                <button className="px-3 py-2 rounded-md text-sm font-medium text-white hover:bg-blue-500 hover:text-white flex items-center">
+                {/* <button className="px-3 py-2 rounded-md text-sm font-medium text-white hover:bg-blue-500 hover:text-white flex items-center">
                   <span className="mr-1.5"><FiSettings /></span>
                   More
-                </button>
+                </button> */}
                 <div className="absolute z-10 left-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
                   <div className="py-1">
                     {navItems.slice(6).map((item) => (
