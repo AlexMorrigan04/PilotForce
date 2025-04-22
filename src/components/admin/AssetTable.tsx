@@ -1,32 +1,36 @@
-import React, { useState } from 'react';
-import { FiEdit, FiTrash2, FiExternalLink, FiChevronUp, FiChevronDown } from 'react-icons/fi';
+import React, { useEffect } from 'react';
+import { FiEdit, FiTrash2, FiEye, FiMapPin } from 'react-icons/fi';
 
 interface Asset {
   id: string;
   name: string;
   type: string;
+  address?: string;
+  postcode?: string;
+  area?: string;
+  coordinates?: string;
+  description?: string;
   companyId: string;
   companyName: string;
   userId: string;
   username: string;
+  tags?: string[];
   registrationNumber: string;
   status: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 interface AssetTableProps {
   assets: Asset[];
   loading: boolean;
-  onEdit: (assetId: string) => void;
-  onDelete: (assetId: string) => void;
-  onViewDetails: (assetId: string) => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  onViewDetails: (id: string) => void;
   selectedAssets: string[];
-  onSelectAsset: (assetId: string) => void;
+  onSelectAsset: (id: string) => void;
   onSelectAll: () => void;
 }
-
-type SortField = 'name' | 'companyName' | 'username' | 'type' | 'status' | 'createdAt';
-type SortDirection = 'asc' | 'desc';
 
 const AssetTable: React.FC<AssetTableProps> = ({
   assets,
@@ -36,63 +40,30 @@ const AssetTable: React.FC<AssetTableProps> = ({
   onViewDetails,
   selectedAssets,
   onSelectAsset,
-  onSelectAll
+  onSelectAll,
 }) => {
-  const [sortField, setSortField] = useState<SortField>('createdAt');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  // Add debugging to check what assets are being received
+  useEffect(() => {
+    console.log('AssetTable received assets:', assets);
+  }, [assets]);
 
-  const handleSort = (field: SortField) => {
-    if (field === sortField) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
+  const formatDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    try {
+      return new Date(dateString).toLocaleDateString();
+    } catch (e) {
+      return 'Invalid Date';
     }
   };
 
-  const sortedAssets = [...assets].sort((a, b) => {
-    // Special handling for dates
-    if (sortField === 'createdAt') {
-      const aDate = new Date(a[sortField]);
-      const bDate = new Date(b[sortField]);
-      if (aDate.getTime() === bDate.getTime()) return 0;
-      const result = aDate < bDate ? -1 : 1;
-      return sortDirection === 'asc' ? result : -result;
-    }
-    
-    // Handle non-date fields
-    const aValue = a[sortField];
-    const bValue = b[sortField];
-    if (aValue === bValue) return 0;
-    const result = aValue < bValue ? -1 : 1;
-    return sortDirection === 'asc' ? result : -result;
-  });
-
-  const getSortIcon = (field: SortField) => {
-    if (sortField !== field) return null;
-    return sortDirection === 'asc' ? <FiChevronUp className="inline ml-1" /> : <FiChevronDown className="inline ml-1" />;
-  };
-
-  const renderSortableHeader = (field: SortField, label: string) => (
-    <th 
-      scope="col" 
-      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
-      onClick={() => handleSort(field)}
-    >
-      {label} {getSortIcon(field)}
-    </th>
-  );
-
-  const getStatusBadgeClass = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'active':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'inactive':
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+  // Format area to display with two decimal places and add "m²"
+  const formatArea = (area: string | undefined) => {
+    if (!area) return 'N/A';
+    try {
+      const numArea = parseFloat(area);
+      return `${numArea.toFixed(2)} m²`;
+    } catch (e) {
+      return area;
     }
   };
 
@@ -105,98 +76,157 @@ const AssetTable: React.FC<AssetTableProps> = ({
               <div className="flex items-center">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded mr-2"
-                  checked={selectedAssets.length === assets.length && assets.length > 0}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  checked={selectedAssets.length > 0 && selectedAssets.length === assets.length}
                   onChange={onSelectAll}
                 />
-                <span className="sr-only">Select All</span>
               </div>
             </th>
-            {renderSortableHeader('name', 'Asset Name')}
-            {renderSortableHeader('type', 'Type')}
-            {renderSortableHeader('companyName', 'Company')}
-            {renderSortableHeader('username', 'Created By')}
             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Registration
+              Asset
             </th>
-            {renderSortableHeader('status', 'Status')}
-            <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Actions
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Type
+            </th>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Location
+            </th>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Area
+            </th>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Company
+            </th>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Status
+            </th>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Created Date
+            </th>
+            <th scope="col" className="relative px-6 py-3">
+              <span className="sr-only">Actions</span>
             </th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {loading ? (
-            <tr>
-              <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
-                <div className="flex justify-center items-center space-x-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-600"></div>
-                  <span>Loading assets...</span>
-                </div>
-              </td>
-            </tr>
-          ) : sortedAssets.length === 0 ? (
-            <tr>
-              <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
-                No assets found
-              </td>
-            </tr>
-          ) : (
-            sortedAssets.map(asset => (
-              <tr key={asset.id} className="hover:bg-gray-50">
+            Array(5).fill(0).map((_, index) => (
+              <tr key={`skeleton-${index}`} className="animate-pulse">
+                {/* Loading skeleton cells */}
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                    checked={selectedAssets.includes(asset.id)}
-                    onChange={() => onSelectAsset(asset.id)}
-                  />
+                  <div className="h-4 w-4 bg-gray-200 rounded"></div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{asset.name}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {asset.type}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {asset.companyName}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {asset.username}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {asset.registrationNumber}
+                  <div className="h-4 bg-gray-200 rounded w-24"></div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusBadgeClass(asset.status)}`}>
-                    {asset.status}
-                  </span>
+                  <div className="h-4 bg-gray-200 rounded w-16"></div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="h-4 bg-gray-200 rounded w-20"></div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="h-4 bg-gray-200 rounded w-16"></div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="h-4 bg-gray-200 rounded w-20"></div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="h-4 bg-gray-200 rounded w-16"></div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="h-4 bg-gray-200 rounded w-16"></div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  <button
-                    onClick={() => onViewDetails(asset.id)}
-                    className="text-blue-600 hover:text-blue-900 mr-3"
-                    title="View Asset Details"
-                  >
-                    <FiExternalLink />
-                  </button>
-                  <button
-                    onClick={() => onEdit(asset.id)}
-                    className="text-blue-600 hover:text-blue-900 mr-3"
-                    title="Edit Asset"
-                  >
-                    <FiEdit />
-                  </button>
-                  <button
-                    onClick={() => onDelete(asset.id)}
-                    className="text-blue-600 hover:text-blue-900"
-                    title="Delete Asset"
-                  >
-                    <FiTrash2 />
-                  </button>
+                  <div className="h-4 bg-gray-200 rounded w-20"></div>
                 </td>
               </tr>
             ))
+          ) : assets && assets.length > 0 ? (
+            assets.map((asset) => {
+              // Add console log to track rendering of each asset row
+              console.log('Rendering asset row:', asset);
+              return (
+                <tr key={asset.id || `asset-${Math.random().toString(36).substring(2, 9)}`}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        checked={selectedAssets.includes(asset.id)}
+                        onChange={() => onSelectAsset(asset.id)}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">{asset.name || 'Unnamed Asset'}</div>
+                    <div className="text-xs text-gray-500">{asset.description?.substring(0, 30) || 'No description'}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                      {asset.type || 'Unknown'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <FiMapPin className="text-gray-500 mr-1" />
+                      <div>
+                        <div className="text-sm text-gray-900">{asset.address || 'No address'}</div>
+                        <div className="text-xs text-gray-500">{asset.postcode || 'No postcode'}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {formatArea(asset.area)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {asset.companyName || 'Unknown Company'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                      ${asset.status === 'Active' ? 'bg-green-100 text-green-800' : 
+                        asset.status === 'Maintenance' ? 'bg-yellow-100 text-yellow-800' : 
+                        'bg-gray-100 text-gray-800'}`}>
+                      {asset.status || 'Unknown'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {formatDate(asset.createdAt)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div className="flex justify-end space-x-2">
+                      <button
+                        onClick={() => onViewDetails(asset.id)}
+                        className="text-blue-600 hover:text-blue-900"
+                        title="View Details"
+                      >
+                        <FiEye />
+                      </button>
+                      <button
+                        onClick={() => onEdit(asset.id)}
+                        className="text-indigo-600 hover:text-indigo-900"
+                        title="Edit"
+                      >
+                        <FiEdit />
+                      </button>
+                      <button
+                        onClick={() => onDelete(asset.id)}
+                        className="text-red-600 hover:text-red-900"
+                        title="Delete"
+                      >
+                        <FiTrash2 />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          ) : (
+            <tr>
+              <td colSpan={9} className="px-6 py-4 text-center text-sm text-gray-500">
+                No assets found. Try changing your filters or add new assets.
+              </td>
+            </tr>
           )}
         </tbody>
       </table>

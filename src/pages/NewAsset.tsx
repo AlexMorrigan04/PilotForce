@@ -69,6 +69,7 @@ const NewAsset: React.FC = () => {
   });
   const [error, setError] = useState<string | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [address, setAddress] = useState(''); // Added state for address
   const [postcode, setPostcode] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingPostcode, setIsLoadingPostcode] = useState(false);
@@ -332,7 +333,8 @@ const NewAsset: React.FC = () => {
       name: assetName,
       assetType: selectedType,
       description: `Asset created from postal code: ${postcode}`,
-      address: postcode,
+      address: address, // Use address input value for address field
+      postcode: postcode, // Use postcode input value for postcode field
       coordinates: coordinates,
       area: areaSize,
       centerPoint: centerPoint,
@@ -454,7 +456,8 @@ const NewAsset: React.FC = () => {
               area: areaSize,
               createdAt: new Date().toISOString(),
               status: 'active',
-              postcode: postcode,
+              address: address, // Add address separately
+              postcode: postcode, // Add postcode separately
               geojson: {
                 type: 'Feature',
                 properties: {
@@ -671,6 +674,20 @@ const NewAsset: React.FC = () => {
                 />
               </div>
               
+              <div className="mb-4">
+                <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
+                  Address
+                </label>
+                <input
+                  type="text"
+                  id="address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Enter the address of the asset"
+                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                />
+              </div>
+
               <div className="mb-4">
                 <label htmlFor="postcode" className="block text-sm font-medium text-gray-700 mb-1">
                   Postcode <span className="text-red-500">*</span>

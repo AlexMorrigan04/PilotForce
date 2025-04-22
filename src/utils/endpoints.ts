@@ -2,34 +2,49 @@
  * Central place to manage all API endpoints
  */
 
-// Base API URL with fallback
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+// API base URL - use environment variable with fallback
+export const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
-// Auth endpoints
+// Authentication endpoints
 export const AUTH_ENDPOINTS = {
-  signup: `${API_BASE_URL}/signup`,
-  login: `${API_BASE_URL}/login`,
-  confirmUser: `${API_BASE_URL}/confirm-user`,
-  confirmAccount: `${API_BASE_URL}/auth/confirm`,  // Add alternate confirmation endpoint
-  refreshToken: `${API_BASE_URL}/refresh-token`,
-  user: `${API_BASE_URL}/user`,
-  userStatus: `${API_BASE_URL}/user-status`,
+  login: `${API_BASE_URL}/auth/login`,
+  register: `${API_BASE_URL}/auth/register`,
+  confirmAccount: `${API_BASE_URL}/auth/confirm`,
+  forgotPassword: `${API_BASE_URL}/auth/forgot-password`,
+  resetPassword: `${API_BASE_URL}/auth/reset-password`,
+  validateToken: `${API_BASE_URL}/auth/validate-token`,
 };
 
 // Admin endpoints
 export const ADMIN_ENDPOINTS = {
-  adminCheck: `${API_BASE_URL}/admin`,
+  // Base endpoints
   users: `${API_BASE_URL}/admin/users`,
+  bookings: `${API_BASE_URL}/admin/bookings`,
+  companies: `${API_BASE_URL}/admin/companies`,
+  assets: `${API_BASE_URL}/admin/assets`,
+  resources: `${API_BASE_URL}/admin/resources`,
+  reports: `${API_BASE_URL}/admin/reports`,
+  settings: `${API_BASE_URL}/admin/settings`,
+  
+  // Functions for specific resources
   user: (userId: string) => `${API_BASE_URL}/admin/users/${userId}`,
   userAccess: (userId: string) => `${API_BASE_URL}/admin/users/${userId}/access`,
-  companies: `${API_BASE_URL}/admin/companies`,
+  booking: (bookingId: string) => `${API_BASE_URL}/admin/bookings/${bookingId}`,
+  company: (companyId: string) => `${API_BASE_URL}/admin/companies/${companyId}`,
+  asset: (assetId: string) => `${API_BASE_URL}/admin/assets/${assetId}`,
+  resource: (resourceId: string) => `${API_BASE_URL}/admin/resources/${resourceId}`,
 };
 
-// Booking endpoints
-export const BOOKING_ENDPOINTS = {
-  bookings: `${API_BASE_URL}/bookings`,
-  booking: (bookingId: string) => `${API_BASE_URL}/bookings/${bookingId}`,
-  userBookings: `${API_BASE_URL}/bookings/user`,
+// User endpoints
+export const USER_ENDPOINTS = {
+  profile: `${API_BASE_URL}/user/profile`,
+  bookings: `${API_BASE_URL}/user/bookings`,
+};
+
+// Asset endpoints
+export const ASSET_ENDPOINTS = {
+  list: `${API_BASE_URL}/assets`,
+  detail: (id: string) => `${API_BASE_URL}/assets/${id}`,
 };
 
 // Logging helper for debugging API calls
@@ -66,6 +81,7 @@ export default {
   API_BASE_URL,
   AUTH_ENDPOINTS,
   ADMIN_ENDPOINTS,
-  BOOKING_ENDPOINTS,
+  USER_ENDPOINTS,
+  ASSET_ENDPOINTS,
   getEndpoint,
 };

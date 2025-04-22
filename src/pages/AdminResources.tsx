@@ -401,23 +401,27 @@ const AdminResources: React.FC = () => {
   };
 
   // Download a resource
-  const handleDownloadResource = async (resource: Resource) => {
+  const handleDownloadResource = async (resource: any) => {
     try {
-      // Check if URL exists or if we need to get it
-      if (resource.url) {
-        window.open(resource.url, '_blank');
+      setLoading(true);
+      
+      // If the resource already has a direct URL, use it
+      if (resource.directUrl) {
+        window.open(resource.directUrl, '_blank');
       } else {
-        // Get download URL from service
-        const downloadUrl = await adminService.getResourceDownloadUrl(resource.bookingId, resource.id);
+        // Get download URL from service - FIX: Remove the extra parameter
+        const downloadUrl = await adminService.getResourceDownloadUrl(resource.id);
         if (typeof downloadUrl === 'string') {
           window.open(downloadUrl, '_blank');
         } else {
-          throw new Error('Invalid download URL returned');
+          setError('Could not generate download URL');
         }
       }
-    } catch (err: any) {
-      console.error('Error downloading resource:', err);
-      setError('Failed to download resource: ' + err.message);
+    } catch (error) {
+      console.error('Error downloading resource:', error);
+      setError('Failed to download resource');
+    } finally {
+      setLoading(false);
     }
   };
 

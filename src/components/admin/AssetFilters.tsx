@@ -21,86 +21,97 @@ const AssetFilters: React.FC<AssetFiltersProps> = ({
   companies,
   filters,
   onFilterChange,
-  onClearFilters
+  onClearFilters,
 }) => {
-  const types = ['All', 'Drone', 'Camera', 'Accessories', 'Other'];
-  const statuses = ['All', 'Active', 'Inactive', 'Pending Approval', 'Under Maintenance'];
+  // Available asset types based on your DynamoDB schema
+  const assetTypes = ['buildings', 'land', 'infrastructure', 'equipment', 'other'];
   
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    onFilterChange(name, value === 'All' ? '' : value);
+  // Available asset statuses
+  const assetStatuses = ['Active', 'Inactive', 'Maintenance', 'Planned'];
+
+  // Add logging to help debugging
+  const handleFilterChange = (name: string, value: string) => {
+    console.log(`Changing filter: ${name} to value: ${value}`);
+    onFilterChange(name, value);
   };
-  
-  const isFiltersApplied = filters.company || filters.type || filters.status;
-  
+
   return (
     <div className="bg-white p-4 rounded-lg shadow mb-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium text-gray-900 flex items-center">
+        <h2 className="text-lg font-medium text-gray-900 flex items-center">
           <FiFilter className="mr-2" /> Filters
-        </h3>
-        {isFiltersApplied && (
+        </h2>
+        {(filters.company || filters.type || filters.status) && (
           <button
-            onClick={onClearFilters}
-            className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+            onClick={() => {
+              console.log('Clearing all filters');
+              onClearFilters();
+            }}
+            className="text-sm text-gray-500 hover:text-gray-700 flex items-center"
           >
-            <FiX className="mr-1" /> Clear Filters
+            <FiX className="mr-1" /> Clear filters
           </button>
         )}
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Company filter */}
         <div>
-          <label htmlFor="company" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="company-filter" className="block text-sm font-medium text-gray-700">
             Company
           </label>
           <select
-            id="company"
-            name="company"
-            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-            value={filters.company || 'All'}
-            onChange={handleSelectChange}
+            id="company-filter"
+            value={filters.company}
+            onChange={(e) => handleFilterChange('company', e.target.value)}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
           >
-            <option value="All">All Companies</option>
-            {companies.map(company => (
-              <option key={company.id} value={company.id}>
-                {company.name}
-              </option>
-            ))}
+            <option value="">All Companies</option>
+            {companies && companies.length > 0 ? (
+              companies.map((company) => (
+                <option key={company.id || `company-${Math.random()}`} value={company.id}>
+                  {company.name || 'Unnamed Company'}
+                </option>
+              ))
+            ) : (
+              <option disabled>No companies available</option>
+            )}
           </select>
         </div>
         
+        {/* Asset type filter */}
         <div>
-          <label htmlFor="type" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="type-filter" className="block text-sm font-medium text-gray-700">
             Asset Type
           </label>
           <select
-            id="type"
-            name="type"
-            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-            value={filters.type || 'All'}
-            onChange={handleSelectChange}
+            id="type-filter"
+            value={filters.type}
+            onChange={(e) => handleFilterChange('type', e.target.value)}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
           >
-            {types.map(type => (
+            <option value="">All Types</option>
+            {assetTypes.map((type) => (
               <option key={type} value={type}>
-                {type}
+                {type.charAt(0).toUpperCase() + type.slice(1)}
               </option>
             ))}
           </select>
         </div>
         
+        {/* Status filter */}
         <div>
-          <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700">
             Status
           </label>
           <select
-            id="status"
-            name="status"
-            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
-            value={filters.status || 'All'}
-            onChange={handleSelectChange}
+            id="status-filter"
+            value={filters.status}
+            onChange={(e) => handleFilterChange('status', e.target.value)}
+            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
           >
-            {statuses.map(status => (
+            <option value="">All Statuses</option>
+            {assetStatuses.map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>

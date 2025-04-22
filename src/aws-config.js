@@ -1,16 +1,25 @@
 import { Amplify } from 'aws-amplify';
 
 const configureAmplify = () => {
-  // Debug environment variables
-  console.log('REACT_APP_AWS_REGION:', process.env.REACT_APP_AWS_REGION);
-  console.log('REACT_APP_USER_POOL_ID:', process.env.REACT_APP_USER_POOL_ID);
-  console.log('REACT_APP_USER_POOL_WEB_CLIENT_ID:', process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID);
+  // Get environment variables
+  const awsRegion = process.env.REACT_APP_AWS_REGION;
+  const userPoolId = process.env.REACT_APP_USER_POOL_ID;
+  const userPoolWebClientId = process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID;
+  const apiEndpoint = process.env.REACT_APP_API_ENDPOINT;
+  
+  // Debug environment variables without printing actual values
+  console.log('AWS Config:', {
+    region: awsRegion ? 'SET' : 'MISSING',
+    userPoolId: userPoolId ? 'SET' : 'MISSING',
+    userPoolWebClientId: userPoolWebClientId ? 'SET' : 'MISSING',
+    apiEndpoint: apiEndpoint ? 'SET' : 'MISSING'
+  });
   
   Amplify.configure({
     Auth: {
       Cognito: {
-        userPoolId: process.env.REACT_APP_USER_POOL_ID || 'eu-north-1_gejWyB4ZB',
-        userPoolClientId: process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID || 're4qc69mpbck8uf69jd53oqpa',
+        userPoolId: userPoolId || '',
+        userPoolClientId: userPoolWebClientId || '',
         loginWith: {
           email: true,
           username: true
@@ -20,8 +29,8 @@ const configureAmplify = () => {
     API: {
       REST: {
         pilotforce: {
-          endpoint: process.env.REACT_APP_API_ENDPOINT || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod',
-          region: process.env.REACT_APP_AWS_REGION || 'eu-north-1',
+          endpoint: apiEndpoint || process.env.REACT_APP_API_URL || '',
+          region: awsRegion || 'eu-north-1',
         }
       }
     }

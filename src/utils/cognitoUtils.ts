@@ -4,34 +4,21 @@ import * as crypto from 'crypto-browserify';
  * Get AWS Cognito Client ID from environment or configuration
  */
 export const getClientId = (): string => {
-  // First check environment variables
-  const clientId = process.env.REACT_APP_COGNITO_CLIENT_ID;
-  
+  const clientId = process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID;
   if (clientId) {
     return clientId;
   }
-  
-  // Fall back to a default for development (should be configured in .env)
-  console.warn('COGNITO_CLIENT_ID not found in environment variables, using fallback');
-  return '2vekd3c5hcmknfvb9e00vg35p'; // Replace with your actual client ID
+  // Don't log the actual client ID in production
+  console.warn('Cognito Client ID not found in environment variables');
+  return 're4qc69mpbck8uf69jd53oqpa'; // Using the value from .env.production
 };
 
 /**
  * Get AWS Cognito Client Secret from environment or configuration
  */
 export const getClientSecret = (): string => {
-  // First check environment variables
-  const clientSecret = process.env.REACT_APP_COGNITO_CLIENT_SECRET;
-  
-  if (clientSecret) {
-    return clientSecret;
-  }
-  
-  // Fall back to a default for development (should be configured in .env)
-  console.warn('COGNITO_CLIENT_SECRET not found in environment variables, using fallback');
-  
-  // SECURITY CONCERN: Hardcoded client secret in frontend code
-  return '1v4i0p2ifrp7jk46ufbp02p8ej5u2vn3o8t6lqvjjfkqkubp8go5';
+  console.warn('COGNITO_CLIENT_SECRET not found in environment variables');
+  return '';  // Return empty string instead of hardcoded secret
 };
 
 /**
@@ -64,7 +51,7 @@ export const getApiEndpoint = (): string => {
     return apiEndpoint;
   }
   
-  // Fall back to a default
+  // Fall back to a default - always use the absolute API Gateway URL when deployed
   console.warn('API_ENDPOINT not found in environment variables, using fallback');
   return 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
 };

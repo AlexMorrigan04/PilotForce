@@ -32,5 +32,7 @@ export const verifyTOTP = (secret: string, token: string): boolean => {
   
   // Verify the token
   const delta = totp.validate({ token });
+  
+  // Return true if delta is not null (valid token), false otherwise
   return delta !== null;
 };

@@ -167,6 +167,43 @@ interface ImageLocation {
   droneModel?: string;
 }
 
+// Add ResponsiveImage component to handle image loading with fallbacks
+const ResponsiveImage: React.FC<{
+  src: string;
+  alt: string;
+  className?: string;
+  urls?: string[];
+}> = ({ src, alt, className, urls = [] }) => {
+  const [currentSrc, setCurrentSrc] = useState<string>(src);
+  const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set());
+  
+  // Try the next URL in the list if one fails
+  const handleError = () => {
+    // Mark current URL as failed
+    setFailedUrls(prev => new Set([...prev, currentSrc]));
+    
+    // Find the next URL that hasn't failed yet
+    const nextUrl = [src, ...(urls || [])].find(url => !failedUrls.has(url) && url !== currentSrc);
+    
+    if (nextUrl) {
+      console.log(`Image load failed, trying alternative: ${nextUrl.substring(0, 50)}...`);
+      setCurrentSrc(nextUrl);
+    } else {
+      console.warn(`All image URLs failed for ${alt}`);
+    }
+  };
+
+  return (
+    <img 
+      src={currentSrc} 
+      alt={alt} 
+      className={className} 
+      onError={handleError}
+      loading="lazy"
+    />
+  );
+};
+
 const FlightDetails: React.FC = () => {
   const params = useParams();
   const bookingId = params.id || params.bookingId || localStorage.getItem('selectedBookingId');
@@ -174,9 +211,20 @@ const FlightDetails: React.FC = () => {
 
   console.log(`FlightDetails: Retrieved booking ID from params: ${bookingId}`);
 
+  // Add state for page loading
+  const [pageLoading, setPageLoading] = useState<boolean>(localStorage.getItem('isFlightDetailsLoading') === 'true');
+  
   useEffect(() => {
     if (bookingId) {
       localStorage.setItem('selectedBookingId', bookingId);
+    }
+    
+    // Clear the loading flag after a short delay to give the loading animation time to display
+    if (localStorage.getItem('isFlightDetailsLoading') === 'true') {
+      setTimeout(() => {
+        setPageLoading(false);
+        localStorage.removeItem('isFlightDetailsLoading');
+      }, 1000);
     }
   }, [bookingId]);
 
@@ -462,7 +510,7 @@ const FlightDetails: React.FC = () => {
           console.log('Falling back to direct fetch method...');
         }
         
-        const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+        const apiUrl = process.env.REACT_APP_API_URL;
         
         const endpoint = `${apiUrl}/bookings/${bookingId}`;
         console.log(`Trying endpoint: ${endpoint}`);
@@ -604,10 +652,15 @@ const FlightDetails: React.FC = () => {
         }
       }
       
-      // Handle even deeper nesting specific to the data structure in your logs
-      // { M: { latitude: { M: { N: { S: "51.45571027777778" } } } } }
+      // Handle your specific example format: { "geolocation" : { "M" : { "latitude" : { "M" : { "N" : { "S" : "51.45560969444445" } } } } } }
       if (obj.M && obj.M[prop] && obj.M[prop].M && obj.M[prop].M.N && obj.M[prop].M.N.S) {
+        console.log(`Found deeply nested DynamoDB value for ${prop}:`, obj.M[prop].M.N.S);
         return parseFloat(obj.M[prop].M.N.S);
+      }
+      
+      // Add explicit logging to debug the structure
+      if (obj.M && obj.M[prop]) {
+        console.log(`Examining DynamoDB structure for ${prop}:`, JSON.stringify(obj.M[prop]));
       }
       
       return null;
@@ -1122,7 +1175,7 @@ const FlightDetails: React.FC = () => {
   };
 
   const isBookingActive = () => {
-    return booking?.status === 'in-progress' || booking?.status === 'completed';
+    return booking?.status === 'in-progress' || booking?.status === 'completed'|| booking?.status === 'Completed';
   };
 
   // Define breadcrumbs for the navigation
@@ -1135,7 +1188,7 @@ const FlightDetails: React.FC = () => {
   // Status color utility function
   const getStatusColor = (status?: string): string => {
     switch (status?.toLowerCase()) {
-      case 'completed':
+      case 'Completed':
         return 'bg-green-100 text-green-800';
       case 'in-progress':
         return 'bg-blue-100 text-blue-800';
@@ -1153,7 +1206,7 @@ const FlightDetails: React.FC = () => {
   // Status text utility function
   const getStatusText = (status?: string): string => {
     switch (status?.toLowerCase()) {
-      case 'completed':
+      case 'Completed':
         return 'Completed';
       case 'in-progress':
         return 'In Progress';
@@ -1199,7 +1252,7 @@ const FlightDetails: React.FC = () => {
             month: 'short',
             year: 'numeric'
           }),
-          subtext: null
+        subtext: null
         };
       } else if (booking.scheduling.scheduleType === 'flexible') {
         return {
@@ -1383,32 +1436,44 @@ const FlightDetails: React.FC = () => {
     }
   };
 
+  if (pageLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-100">
+        <div className="flex items-center space-x-2">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          <span className="text-gray-600 font-medium">Loading Flight Details...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar />
-      <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">
-        <div className="flex items-center justify-between mb-6">
+      <main className="flex-1 container mx-auto px-4 py-6 max-w-7xl">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Flight Details</h1>
-            <p className="text-gray-600">Viewing details for booking {booking?.BookingId || booking?.id}</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-1">Flight Details</h1>
+            <Breadcrumbs items={breadcrumbs} className="mb-1" />
+            <p className="text-gray-600 text-sm">
+              Viewing details for booking <span className="font-medium">{booking?.BookingId || booking?.id}</span>
+            </p>
           </div>
           <button
             onClick={() => navigate('/my-bookings')}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            className="mt-4 lg:mt-0 inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
           >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
             Back to Flights
           </button>
         </div>
-
-        <Breadcrumbs items={breadcrumbs} className="mb-6" />
         
-        <div className="mb-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-6 py-5 flex items-center justify-between">
-              <div className="flex items-center space-x-4">
+        <div className="mb-8">
+          <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+            <div className="px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between">
+              <div className="flex items-center space-x-4 mb-4 sm:mb-0">
                 <div className="bg-blue-50 p-3 rounded-full">
                   <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
@@ -1433,74 +1498,79 @@ const FlightDetails: React.FC = () => {
               </div>
             </div>
             
-            <div className="grid grid-cols-3 border-t border-gray-200">
-              <div className="px-6 py-4 border-r border-gray-200">
+            <div className="grid grid-cols-1 sm:grid-cols-3 border-t border-gray-200">
+              <div className="px-6 py-4 border-b sm:border-b-0 sm:border-r border-gray-200">
                 {booking && (
                   <>
-                    <p className="text-xs text-gray-500 uppercase font-medium">{formatSchedulingInfo(booking).label}</p>
-                    <p className="mt-1 text-sm font-medium">{formatSchedulingInfo(booking).value}</p>
+                    <p className="text-xs text-gray-500 uppercase font-medium mb-1">
+                      {formatSchedulingInfo(booking).label}
+                    </p>
+                    <p className="text-sm font-medium text-gray-800">
+                      {formatSchedulingInfo(booking).value}
+                    </p>
                     {formatSchedulingInfo(booking).subtext && (
-                      <p className="text-xs text-gray-500">{formatSchedulingInfo(booking).subtext}</p>
+                      <p className="text-xs text-gray-500 mt-1">{formatSchedulingInfo(booking).subtext}</p>
                     )}
                   </>
                 )}
               </div>
               
-              <div className="px-6 py-4 border-r border-gray-200">
-                <p className="text-xs text-gray-500 uppercase font-medium">Site Contact</p>
-                <p className="mt-1 text-sm font-medium">
+              <div className="px-6 py-4 border-b sm:border-b-0 sm:border-r border-gray-200">
+                <p className="text-xs text-gray-500 uppercase font-medium mb-1">Site Contact</p>
+                <p className="text-sm font-medium text-gray-800">
                   {booking?.siteContact?.name || booking?.contactPerson || "Not specified"}
                 </p>
+                {(booking?.siteContact?.phone || booking?.siteContactNumber) && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {booking?.siteContact?.phone || booking?.siteContactNumber}
+                  </p>
+                )}
               </div>
               
               <div className="px-6 py-4">
-                <p className="text-xs text-gray-500 uppercase font-medium">Request Date</p>
-                <p className="mt-1 text-sm font-medium">{booking?.createdAt ? new Date(booking?.createdAt).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric'
-                }) : "Unknown"}</p>
+                <p className="text-xs text-gray-500 uppercase font-medium mb-1">Request Date</p>
+                <p className="text-sm font-medium text-gray-800">
+                  {booking?.createdAt ? new Date(booking?.createdAt).toLocaleDateString('en-GB', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric'
+                  }) : "Unknown"}
+                </p>
               </div>
             </div>
             
-            {(booking?.status === 'scheduled' || booking?.status === 'pending') && (
+            {(booking?.status === 'scheduled' || booking?.status === 'pending' || 
+              booking?.status === 'Completed' || booking?.status === 'in-progress') && (
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                <div className="flex space-x-3">
-                </div>
-              </div>
-            )}
-            {booking?.status === 'completed' && (
-              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                <button 
-                  onClick={scrollToFlightData}
-                  className="w-full bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center"
-                >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4 4L19 7" />
-                  </svg>
-                  View Data
-                </button>
-              </div>
-            )}
-            {booking?.status === 'in-progress' && (
-              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                <button 
-                  onClick={scrollToFlightData}
-                  className="w-full bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center"
-                >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                  Track Progress
-                </button>
+                {(booking?.status === 'Completed' || booking?.status === 'in-progress') && (
+                  <button 
+                    onClick={scrollToFlightData}
+                    className="w-full bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4 4L19 7" />
+                    </svg>
+                    {booking?.status === 'Completed' ? 'View Flight Data' : 'Track Progress'}
+                  </button>
+                )}
+                {(booking?.status === 'scheduled' || booking?.status === 'pending') && (
+                  <div className="flex space-x-3">
+                    <div className="flex items-center text-sm text-gray-500">
+                      <svg className="w-4 h-4 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {booking?.status === 'scheduled' ? 'Flight scheduled' : 'Awaiting confirmation'}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden h-full">
+            <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden h-full">
               <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
                 <h3 className="text-lg font-semibold text-gray-800">Flight Details</h3>
               </div>
@@ -1516,33 +1586,14 @@ const FlightDetails: React.FC = () => {
                   {Array.isArray(booking?.jobTypes) && booking?.jobTypes.length > 0 ? (
                     <div className="space-y-3">
                       {booking?.jobTypes.map((jobType: string, index: number) => (
-                        <div key={index} className={index !== booking?.jobTypes.length - 1 ? "pb-3 border-b border-gray-100" : ""}>
-                          <div className="flex items-center">
-                            <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                              <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                              </svg>
-                            </div>
-                            <p className="ml-3 text-sm font-medium text-gray-700">{jobType}</p>
-                          </div>
-                          
-                          {booking?.serviceOptions && booking?.serviceOptions[jobType] && (
-                            <div className="mt-2 ml-8 pl-3 border-l-2 border-blue-100">
-                              {Object.entries(booking?.serviceOptions[jobType]).map(([optKey, optValue]) => (
-                                <div key={optKey} className="text-xs text-gray-600 mt-1">
-                                  <span className="font-medium">{optKey.charAt(0).toUpperCase() + optKey.slice(1)}:</span>{' '}
-                                  {Array.isArray(optValue) 
-                                    ? (optValue as string[]).join(', ') 
-                                    : optValue as string}
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                        <div key={index} className="flex items-center text-sm">
+                          <div className="w-2 h-2 rounded-full bg-blue-500 mr-3"></div>
+                          <span className="text-gray-800">{jobType}</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="bg-gray-50 rounded p-3 text-sm text-gray-500 italic">
+                    <div className="bg-gray-50 rounded-md p-3 text-sm text-gray-500 italic">
                       No detailed service information available
                     </div>
                   )}
@@ -1557,39 +1608,23 @@ const FlightDetails: React.FC = () => {
                   </h4>
                   {(booking?.siteContact || booking?.contactPerson || booking?.contactPhone || booking?.siteContactNumber) ? (
                     <div className="bg-white rounded-lg">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <p className="text-xs text-gray-500">Contact Person</p>
-                          <p className="text-sm font-medium">
+                          <p className="text-xs text-gray-500 mb-1">Contact Name</p>
+                          <p className="text-sm text-gray-800 font-medium">
                             {booking?.siteContact?.name || booking?.contactPerson || "Not specified"}
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs text-gray-500">Phone</p>
-                          <p className="text-sm font-medium">
+                          <p className="text-xs text-gray-500 mb-1">Contact Phone</p>
+                          <p className="text-sm text-gray-800 font-medium">
                             {booking?.siteContact?.phone || booking?.contactPhone || booking?.siteContactNumber || "Not specified"}
                           </p>
                         </div>
-                        {(booking?.siteContact?.email || booking?.contactEmail) && (
-                          <div className="col-span-2">
-                            <p className="text-xs text-gray-500">Email</p>
-                            <p className="text-sm font-medium">{booking?.siteContact?.email || booking?.contactEmail}</p>
-                          </div>
-                        )}
-                        {booking?.siteContact?.isAvailableOnsite && (
-                          <div className="col-span-2 mt-1">
-                            <p className="text-xs flex items-center text-green-600">
-                              <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              Contact will be available on-site
-                            </p>
-                          </div>
-                        )}
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-gray-50 rounded p-3 text-sm text-gray-500 italic">
+                    <div className="bg-gray-50 rounded-md p-3 text-sm text-gray-500 italic">
                       No contact information provided
                     </div>
                   )}
@@ -1604,75 +1639,59 @@ const FlightDetails: React.FC = () => {
                       Schedule Details
                     </h4>
                     
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <div className="flex items-start">
-                        <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                          <svg className="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                        </div>
-                        <div className="ml-3">
-                          <p className="text-sm font-medium text-gray-900">
-                            {booking?.scheduling.scheduleType === 'scheduled' && 'Specific Date'}
-                            {booking?.scheduling.scheduleType === 'flexible' && 'Flexible Date'}
-                            {booking?.scheduling.scheduleType === 'repeat' && 'Recurring Schedule'}
+                    <div className="bg-gray-50 rounded-md p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Schedule Type</p>
+                          <p className="text-sm text-gray-800 font-medium">
+                            {capitalizeFirstLetter(booking?.scheduling?.scheduleType || "Standard")}
                           </p>
-                          
-                          {booking?.scheduling.scheduleType === 'scheduled' && (
-                            <p className="text-sm text-gray-600 mt-1">
-                              Scheduled for {new Date(booking?.scheduling.date).toLocaleDateString('en-GB', {
-                                weekday: 'long',
-                                day: 'numeric',
-                                month: 'long',
-                                year: 'numeric'
-                              })}
-                            </p>
-                          )}
-                          
-                          {booking?.scheduling.scheduleType === 'flexible' && (
-                            <>
-                              <p className="text-sm text-gray-600 mt-1">
-                                Preferred date: {new Date(booking?.scheduling.date).toLocaleDateString('en-GB', {
-                                  weekday: 'long',
-                                  day: 'numeric',
-                                  month: 'long',
-                                  year: 'numeric'
-                                })}
-                              </p>
-                              <p className="text-sm text-gray-600 mt-1">
-                                Flexibility: {booking?.scheduling.flexibility === 'exact' ? 'Exact date' : 
-                                  booking?.scheduling.flexibility === '1-day' ? '±1 Day' :
-                                  booking?.scheduling.flexibility === '3-days' ? '±3 Days' :
-                                  booking?.scheduling.flexibility === '1-week' ? '±1 Week' : 
-                                  booking?.scheduling.flexibility}
-                              </p>
-                            </>
-                          )}
-                          
-                          {booking?.scheduling.scheduleType === 'repeat' && (
-                            <>
-                              <p className="text-sm text-gray-600 mt-1">
-                                Frequency: {booking?.scheduling.repeatFrequency.charAt(0).toUpperCase() + booking?.scheduling.repeatFrequency.slice(1)}
-                              </p>
-                              <p className="text-sm text-gray-600 mt-1">
-                                Start date: {new Date(booking?.scheduling.startDate).toLocaleDateString('en-GB', {
-                                  weekday: 'long',
-                                  day: 'numeric',
-                                  month: 'long',
-                                  year: 'numeric'
-                                })}
-                              </p>
-                              <p className="text-sm text-gray-600 mt-1">
-                                End date: {new Date(booking?.scheduling.endDate).toLocaleDateString('en-GB', {
-                                  weekday: 'long',
-                                  day: 'numeric',
-                                  month: 'long',
-                                  year: 'numeric'
-                                })}
-                              </p>
-                            </>
-                          )}
                         </div>
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">
+                            {booking?.scheduling?.scheduleType === 'repeat' ? 'Start Date' : 'Date'}
+                          </p>
+                          <p className="text-sm text-gray-800 font-medium">
+                            {new Date(booking?.scheduling?.date || 
+                                    booking?.scheduling?.startDate || 
+                                    booking?.flightDate || 
+                                    booking?.createdAt).toLocaleDateString('en-GB', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric'
+                            })}
+                          </p>
+                        </div>
+                        
+                        {booking?.scheduling?.scheduleType === 'flexible' && (
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Flexibility</p>
+                            <p className="text-sm text-gray-800 font-medium">
+                              {getFlexibilityText(booking?.scheduling?.flexibility)}
+                            </p>
+                          </div>
+                        )}
+                        
+                        {booking?.scheduling?.scheduleType === 'repeat' && (
+                          <>
+                            <div>
+                              <p className="text-xs text-gray-500 mb-1">End Date</p>
+                              <p className="text-sm text-gray-800 font-medium">
+                                {new Date(booking?.scheduling?.endDate).toLocaleDateString('en-GB', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500 mb-1">Frequency</p>
+                              <p className="text-sm text-gray-800 font-medium">
+                                {capitalizeFirstLetter(booking?.scheduling?.repeatFrequency || "Not specified")}
+                              </p>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1682,12 +1701,14 @@ const FlightDetails: React.FC = () => {
                   <div className="px-6 py-4">
                     <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
                       <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                       </svg>
                       Additional Notes
                     </h4>
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-sm whitespace-pre-line">{booking?.notes}</p>
+                    <div className="bg-gray-50 rounded-md p-4">
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                        {booking.notes}
+                      </p>
                     </div>
                   </div>
                 ) : null}
@@ -1702,24 +1723,20 @@ const FlightDetails: React.FC = () => {
                     </h4>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                       <div>
-                        <p className="text-xs text-gray-500">Name</p>
-                        <p className="text-sm font-medium">{asset.name || asset.Name || "Unnamed Asset"}</p>
+                        <p className="text-xs text-gray-500 mb-1">Asset Name</p>
+                        <p className="text-sm text-gray-800 font-medium">{asset.name || asset.Name || "Unnamed Asset"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">Type</p>
-                        <p className="text-sm font-medium capitalize">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {asset.type || asset.AssetType || "Unknown"}
-                          </span>
-                        </p>
+                        <p className="text-xs text-gray-500 mb-1">Asset Type</p>
+                        <p className="text-sm text-gray-800 font-medium">{asset.type || asset.Type || "Not specified"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">Area</p>
-                        <p className="text-sm font-medium">{asset.area || asset.Area || "Unknown"} m²</p>
+                        <p className="text-xs text-gray-500 mb-1">Asset ID</p>
+                        <p className="text-sm text-gray-800 font-medium">{asset.id || asset.Id || asset.assetId || "Not specified"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">Status</p>
-                        <p className="text-sm font-medium">{asset.status || "Active"}</p>
+                        <p className="text-xs text-gray-500 mb-1">Asset Owner</p>
+                        <p className="text-sm text-gray-800 font-medium">{asset.owner || asset.Owner || "Not specified"}</p>
                       </div>
                     </div>
                   </div>
@@ -1729,7 +1746,7 @@ const FlightDetails: React.FC = () => {
           </div>
           
           <div className="h-full flex flex-col">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
+            <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 flex flex-col">
               <div className="px-6 py-4 border-b border-gray-200">
                 <h3 className="text-lg font-semibold text-gray-800 flex items-center">
                   <svg className="w-5 h-5 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1759,31 +1776,31 @@ const FlightDetails: React.FC = () => {
                 >
                   {asset && asset.coordinates && asset.coordinates.length > 0 && (
                     <Source
-                      id="asset-polygon"
+                      id="asset-boundary"
                       type="geojson"
                       data={{
                         type: 'Feature',
-                        properties: {},
                         geometry: {
                           type: 'Polygon',
-                          coordinates: asset.coordinates,
+                          coordinates: asset.coordinates
                         },
+                        properties: {}
                       }}
                     >
                       <Layer
-                        id="asset-polygon-fill"
+                        id="asset-boundary-fill"
                         type="fill"
                         paint={{
-                          'fill-color': getAssetTypeColor(asset.type).color,
-                          'fill-opacity': 0.4,
+                          'fill-color': getAssetTypeColor(asset.type || 'buildings').color,
+                          'fill-opacity': 0.3
                         }}
                       />
                       <Layer
-                        id="asset-polygon-outline"
+                        id="asset-boundary-line"
                         type="line"
                         paint={{
-                          'line-color': getAssetTypeColor(asset.type).strokeColor,
-                          'line-width': 2,
+                          'line-color': getAssetTypeColor(asset.type || 'buildings').strokeColor,
+                          'line-width': 2
                         }}
                       />
                     </Source>
@@ -1791,18 +1808,28 @@ const FlightDetails: React.FC = () => {
                   
                   {(!asset || !asset.coordinates || asset.coordinates.length === 0) && booking?.location && (
                     <Marker 
-                      longitude={viewState.longitude} 
-                      latitude={viewState.latitude} 
+                      longitude={parseFloat(booking.location.split(',')[1])} 
+                      latitude={parseFloat(booking.location.split(',')[0])}
                       anchor="bottom"
                     >
-                      <div className="w-6 h-6 bg-blue-500 rounded-full border-2 border-white shadow-lg flex items-center justify-center">
-                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-                          <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                      <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center border-2 border-white">
+                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
                       </div>
                     </Marker>
                   )}
                 </Map>
+                
+                {!assetMapLoaded && (
+                  <div className="absolute inset-0 bg-gray-100 bg-opacity-75 flex items-center justify-center">
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
+                      <span className="text-gray-600 font-medium">Loading map...</span>
+                    </div>
+                  </div>
+                )}
               </div>
               
               <div className="px-4 py-3 text-center bg-gray-50 text-xs text-gray-500 border-t border-gray-200">
@@ -1816,60 +1843,64 @@ const FlightDetails: React.FC = () => {
         
         <div 
           ref={flightDataRef} 
-          className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6"
+          className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden mb-6"
+          id="flight-data-section"
         >
           <div className="border-b border-gray-200">
-            <div className="px-6 py-4 flex justify-between items-center">
-              <div className="flex-1">
+            <div className="px-6 py-4 flex flex-col sm:flex-row sm:justify-between sm:items-center">
+              <div className="flex-1 mb-4 sm:mb-0">
                 <h3 className="text-lg font-semibold text-gray-800">Flight Data</h3>
                 <p className="text-sm text-gray-500 mt-1">View captured images and flight path</p>
               </div>
               
               {isBookingActive() && (
-                <div className="flex space-x-8">
-                  <button
-                    onClick={() => setActiveTab('imageMap')}
-                    className={`py-3 px-2 font-medium text-base ${activeTab === 'imageMap' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    Image Map
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('images')}
-                    className={`py-3 px-2 font-medium text-base relative ${activeTab === 'images' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    Image Gallery
-                    {images.length > 0 && (
-                      <span className="ml-2 bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                        {images.length}
-                      </span>
-                    )}
-                  </button>
-                </div>
-              )}
-              
-              {isBookingActive() && images.length > 0 && (
-                <button
-                  onClick={downloadAllFiles}
-                  disabled={isDownloading || images.length === 0}
-                  className="inline-flex items-center px-4 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isDownloading ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-700" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      {downloadProgress}%
-                    </>
-                  ) : (
-                    <>
-                      <svg className="-ml-0.5 mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download All Files
-                    </>
+                <div className="flex flex-col sm:flex-row items-center">
+                  <div className="flex space-x-8 mb-4 sm:mb-0 sm:mr-8">
+                    <button
+                      onClick={() => setActiveTab('imageMap')}
+                      className={`py-2 px-3 font-medium text-sm transition-colors ${activeTab === 'imageMap' 
+                        ? 'text-blue-600 border-b-2 border-blue-600' 
+                        : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Image Map
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('images')}
+                      className={`py-2 px-3 font-medium text-sm transition-colors ${activeTab === 'images' 
+                        ? 'text-blue-600 border-b-2 border-blue-600' 
+                        : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Image Gallery
+                      {images.length > 0 && (
+                        <span className="ml-1 text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full">
+                          {images.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                  
+                  {isBookingActive() && images.length > 0 && (
+                    <button
+                      onClick={downloadAllFiles}
+                      disabled={isDownloading || images.length === 0}
+                      className="inline-flex items-center px-4 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isDownloading ? (
+                        <>
+                          <div className="animate-spin mr-2 h-4 w-4 border-t-2 border-r-2 border-blue-600 rounded-full"></div>
+                          {downloadProgress}%
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Download All Files
+                        </>
+                      )}
+                    </button>
                   )}
-                </button>
+                </div>
               )}
             </div>
           </div>
@@ -1911,74 +1942,76 @@ const FlightDetails: React.FC = () => {
                     />
                     
                     {isLoadingGeoTiffs && (
-                      <div className="absolute top-4 right-4 bg-white p-2 rounded shadow">
-                        <div className="flex items-center">
-                          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-500 mr-2"></div>
-                          <span className="text-sm">Loading GeoTIFFs...</span>
+                      <div className="absolute top-4 right-4 bg-white p-2 rounded shadow-md">
+                        <div className="flex items-center space-x-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-500"></div>
+                          <span className="text-gray-600 text-xs font-medium">Loading GeoTIFFs...</span>
                         </div>
                       </div>
                     )}
                     
                     {geoTiffResources.length > 0 && (
-                      <div className="absolute bottom-4 left-4 bg-white p-3 rounded shadow max-w-xs">
-                        <p className="text-xs font-semibold mb-1">GeoTIFF Files ({geoTiffResources.length})</p>
-                        <div className="text-xs text-gray-500 max-h-32 overflow-y-auto">
-                          {geoTiffResources.map((file, index) => (
-                            <div key={index} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-0">
-                              <span className="truncate">
-                                {(file.name || file.FileName || 'Unknown').replace(/^resource_[^_]+_[^_]+_/, '')}
-                              </span>
-                              <button 
-                                onClick={() => downloadGeoTiffFile(file)}
-                                className="ml-2 text-blue-600 hover:text-blue-800"
-                                title="Download GeoTIFF"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                </svg>
-                              </button>
-                            </div>
-                          ))}
-                        </div>
+                      <div className="absolute bottom-4 left-4 bg-white p-3 rounded shadow-md max-w-xs">
+                        <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                          <svg className="w-4 h-4 mr-1 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                          </svg>
+                          GeoTIFF Available
+                        </h4>
+                        <p className="text-xs text-gray-600 mb-3">
+                          A high-resolution map file has been processed from this flight.
+                        </p>
+                        <button
+                          onClick={() => downloadGeoTiffFile(geoTiffResources[0])}
+                          disabled={isGeoTiffDownloading}
+                          className="w-full flex items-center justify-center px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isGeoTiffDownloading ? (
+                            <>
+                              <div className="animate-spin mr-2 h-3 w-3 border-t-2 border-r-2 border-white rounded-full"></div>
+                              {geoTiffDownloadProgress}%
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                              Download GeoTIFF
+                            </>
+                          )}
+                        </button>
                       </div>
                     )}
                     
                     {imageLocations.length === 0 && geoTiffResources.length === 0 && !isLoadingGeoTiffs && (
-                      <div className="bg-yellow-50 p-4 rounded-md m-4">
-                        <div className="flex">
-                          <div className="flex-shrink-0">
-                            <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                          <div className="ml-3">
-                            <p className="text-sm text-yellow-700">
-                              No geotagged images or GeoTIFF files available.
-                            </p>
-                          </div>
+                      <div className="bg-yellow-50 p-4 rounded-md m-4 shadow-sm">
+                        <div className="flex items-center">
+                          <svg className="w-5 h-5 text-yellow-700 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <span className="text-sm text-yellow-700 font-medium">No images with location data available</span>
                         </div>
+                        <p className="mt-1 text-xs text-yellow-600">
+                          The images from this flight don't contain GPS coordinates. You can still view all images in the gallery tab.
+                        </p>
                       </div>
                     )}
 
                     {/* GeoTIFF downloading indicator */}
                     {isGeoTiffDownloading && (
-                      <div className="absolute bottom-4 right-4 bg-white p-3 rounded shadow">
-                        <div className="flex items-center">
-                          <div className="mr-2 text-blue-600">
-                            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
+                      <div className="absolute bottom-4 right-4 bg-white p-3 rounded shadow-md">
+                        <div className="flex items-center space-x-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-500"></div>
+                          <span className="text-sm font-medium text-gray-700">Downloading GeoTIFF...</span>
+                        </div>
+                        <div className="mt-2">
+                          <div className="bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div 
+                              className="bg-blue-600 h-full rounded-full" 
+                              style={{ width: `${geoTiffDownloadProgress}%` }}
+                            ></div>
                           </div>
-                          <div>
-                            <p className="text-sm font-medium">Downloading GeoTIFF</p>
-                            <div className="mt-1 h-1.5 w-32 bg-gray-200 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full bg-blue-600 rounded-full" 
-                                style={{ width: `${geoTiffDownloadProgress}%` }}
-                              ></div>
-                            </div>
-                          </div>
+                          <p className="text-xs text-gray-500 text-right mt-1">{geoTiffDownloadProgress}%</p>
                         </div>
                       </div>
                     )}
@@ -1988,33 +2021,67 @@ const FlightDetails: React.FC = () => {
                 {activeTab === 'images' && (
                   <div className="p-6">
                     {imageError ? (
-                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative" role="alert">
-                        <strong className="font-bold">Error: </strong>
-                        <span className="block sm:inline">{imageError}</span>
+                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md relative" role="alert">
+                        <div className="flex items-center">
+                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <strong className="font-medium">Error loading images</strong>
+                        </div>
+                        <p className="text-sm mt-1">{imageError}</p>
                         <button 
-                          onClick={() => setImageError(null)}
-                          className="mt-2 bg-red-100 text-red-800 px-3 py-1 rounded text-sm"
+                          className="mt-2 text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                          onClick={() => fetchImagesFromDynamoDB(bookingId || '')}
                         >
-                          Try Again
+                          Retry
                         </button>
                       </div>
                     ) : (
                       <>
                         {images.length > 0 ? (
-                          <div className="max-h-[700px] overflow-y-auto custom-scrollbar pr-2">
-                            <BookingImageGallery 
-                              images={mapToImageProps(images)} 
-                              isLoading={isLoadingImages} 
-                              onRefreshUrls={handleRefreshedUrls}
-                            />
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                            {mapToImageProps(images).map((image, index) => (
+                              <div 
+                                key={index}
+                                className="group relative aspect-square rounded-md overflow-hidden bg-gray-100 shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+                              >
+                                <ResponsiveImage 
+                                  src={image.url} 
+                                  alt={image.name} 
+                                  className="w-full h-full object-cover" 
+                                  urls={image.alternativeUrls}
+                                />
+                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                                  <p className="text-white text-xs truncate font-medium">{image.name}</p>
+                                  <p className="text-white/80 text-xs truncate">
+                                    {new Date(image.uploadDate).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button 
+                                    className="p-1.5 bg-white/80 hover:bg-white rounded-full text-gray-700"
+                                    onClick={() => window.open(image.url, '_blank')}
+                                    title="Open full-size image"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         ) : (
                           <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
-                            <svg className="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
-                            <h3 className="text-lg font-medium text-gray-900 mb-1">No Resources Available</h3>
-                            <p className="text-gray-500">No resources have been uploaded for this flight yet.</p>
+                            <h3 className="text-xl font-medium text-gray-900 mb-2">No Images Available</h3>
+                            <p className="text-base text-gray-600 max-w-md">
+                              {isLoading ? 
+                                "Loading images..." : 
+                                "There are no images available for this flight yet."}
+                            </p>
                           </div>
                         )}
                       </>
@@ -2025,11 +2092,11 @@ const FlightDetails: React.FC = () => {
             ) : (
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                 <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 <h3 className="text-xl font-medium text-gray-900 mb-2">No Flight Data Available</h3>
                 <p className="text-base text-gray-600 max-w-md mb-6">
-                  {booking?.status === 'completed' 
+                  {booking?.status === 'Completed' 
                     ? "This flight has been completed, but no images or data have been uploaded yet."
                     : "Images and data will be available after the flight is completed and processed."
                   }
@@ -2051,7 +2118,7 @@ const FlightDetails: React.FC = () => {
   );
 };
 
-
+// Helper function to fit map to asset bounds
 function fitMapToAsset(target: any, asset: any) {
   if (!target || !asset || !asset.coordinates || asset.coordinates.length === 0) {
     console.warn('Unable to fit map to asset: missing required data');
@@ -2074,5 +2141,5 @@ function fitMapToAsset(target: any, asset: any) {
     console.error('Error fitting map to asset:', error);
   }
 }
-export default FlightDetails;
 
+export default FlightDetails;

@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { getAssets } from '../services/assetService';
 import { debugAuthState } from '../utils/tokenDebugger';
+import { motion } from 'framer-motion';
 
 // Set Mapbox token directly (replace with your actual token in production)
 const MAPBOX_TOKEN = "pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q";
@@ -47,7 +48,9 @@ const Assets: React.FC = () => {
   const [viewState, setViewState] = useState({
     longitude: -2.587910,
     latitude: 51.454514,
-    zoom: 12
+    zoom: 12,
+    mapStyle: 'mapbox://styles/mapbox/satellite-streets-v12',
+    pitch: 0
   });
 
   const [optimizedViewState, setOptimizedViewState] = useState<{
@@ -250,6 +253,7 @@ const Assets: React.FC = () => {
         
         if (viewState.zoom === 12) {
           setViewState({
+            ...viewState,
             longitude: optimalView.longitude,
             latitude: optimalView.latitude,
             zoom: optimalView.zoom
@@ -266,6 +270,7 @@ const Assets: React.FC = () => {
   const handleViewAllAssets = () => {
     if (optimizedViewState) {
       setViewState({
+        ...viewState,
         longitude: optimizedViewState.longitude,
         latitude: optimizedViewState.latitude,
         zoom: optimizedViewState.zoom
@@ -296,13 +301,15 @@ const Assets: React.FC = () => {
       <Navbar userInfo={userInfo} />
       
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
-        <div className="container mx-auto max-w-6xl">
+        <div className="container mx-auto max-w-7xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
             <div className="mb-4 md:mb-0">
               <h1 className="text-3xl font-bold mb-2">My Assets</h1>
               <p className="text-blue-100">Manage and monitor all your property assets in one place</p>
             </div>
-            <button
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
               onClick={handleAddNewAsset}
               className="inline-flex items-center px-5 py-2.5 bg-white text-blue-700 border border-transparent rounded-lg font-medium hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white shadow-sm transition duration-150"
             >
@@ -310,7 +317,7 @@ const Assets: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
               Add New Asset
-            </button>
+            </motion.button>
           </div>
         </div>
       </div>
@@ -448,30 +455,38 @@ const Assets: React.FC = () => {
               ) : (
                 <ul className="divide-y divide-gray-100">
                   {assets.map(asset => (
-                    <li 
+                    <motion.li 
                       key={asset.AssetId}
                       className={`hover:bg-gray-50 cursor-pointer transition-all duration-200 ${selectedAsset?.AssetId === asset.AssetId ? 'bg-blue-50 border-l-4 border-blue-500' : 'border-l-4 border-transparent'}`}
                       onClick={() => {
                         setSelectedAsset(asset);
                         if (asset.CenterPoint) {
                           setViewState({
+                            ...viewState,
                             longitude: asset.CenterPoint[0],
                             latitude: asset.CenterPoint[1],
                             zoom: 16
                           });
                         }
                       }}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.1 }}
+                      whileHover={{ 
+                        backgroundColor: "rgba(243, 244, 246, 1)",
+                        boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)"
+                      }}
                     >
                       <div className="px-5 py-4">
                         <div className="flex items-start">
                           <div className={`flex-shrink-0 w-10 h-10 rounded-md flex items-center justify-center mt-1`} style={{ backgroundColor: `${getAssetColor(asset.AssetType)}20`}}>
                             <svg className="w-6 h-6" fill="none" stroke={getAssetColor(asset.AssetType)} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                             </svg>
                           </div>
                           <div className="ml-3 flex-1">
                             <div className="flex justify-between">
-                              <h3 className="text-base font-semibold text-gray-900">{asset.Name}</h3>
+                              <h3 className="text-base font-medium text-gray-900 truncate">{asset.Name}</h3>
                               {selectedAsset?.AssetId === asset.AssetId && (
                                 <span className="flex-shrink-0 text-blue-600">
                                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -481,7 +496,7 @@ const Assets: React.FC = () => {
                               )}
                             </div>
                             <div className="mt-1 flex items-center text-xs text-gray-500">
-                              <svg className="w-3.5 h-3.5 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-3.5 h-3.5 mr-1 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                               </svg>
@@ -493,38 +508,56 @@ const Assets: React.FC = () => {
                               </span>
                               {asset.Area && (
                                 <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-full flex items-center">
-                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <svg className="w-3 h-3 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
                                   </svg>
                                   {asset.Area.toLocaleString()} m²
                                 </span>
                               )}
                               <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-full flex items-center">
-                                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-3 h-3 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                 </svg>
                                 {new Date(asset.CreatedAt).toLocaleDateString()}
                               </span>
                             </div>
-                            <div className="mt-3">
-                              <button 
+                            <div className="mt-3 flex items-center space-x-3">
+                              <motion.button 
                                 onClick={(e) => {
                                   e.stopPropagation(); // Prevent triggering the parent onClick
+                                  // Store loading state in local storage before navigation
+                                  localStorage.setItem('isFlightDetailsLoading', 'true');
                                   handleViewAssetDetails(asset.AssetId);
                                 }}
                                 className="text-blue-600 hover:text-blue-800 text-sm font-medium flex items-center"
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
                               >
                                 <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                 </svg>
                                 View Details
-                              </button>
+                              </motion.button>
+                              {/* <motion.button
+                                onClick={(e) => {
+                                  e.stopPropagation(); // Prevent triggering the parent onClick
+                                  navigate(`/MakeBookings?asset=${asset.AssetId}`);
+                                }}
+                                className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center"
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                              >
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                </svg>
+                                Book Flight
+                              </motion.button> */}
                             </div>
                           </div>
                         </div>
                       </div>
-                    </li>
+                    </motion.li>
                   ))}
                 </ul>
               )}
@@ -556,9 +589,9 @@ const Assets: React.FC = () => {
               <Map
                 mapboxAccessToken={MAPBOX_TOKEN}
                 {...viewState}
-                onMove={(evt) => setViewState(evt.viewState)}
+                onMove={(evt) => setViewState(prev => ({ ...prev, ...evt.viewState }))}
                 style={{ position: 'absolute', width: '100%', height: '100%', top: 0, left: 0 }}
-                mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
+                mapStyle={viewState.mapStyle}
                 onLoad={() => {
                   console.log('Map loaded successfully!');
                   setMapLoaded(true);
@@ -569,25 +602,69 @@ const Assets: React.FC = () => {
                 <div className="absolute top-4 right-4 flex flex-col gap-2">
                   <div className="bg-white rounded-lg shadow-md overflow-hidden">
                     <button 
-                      className="p-2 hover:bg-gray-100"
+                      className="p-2 hover:bg-gray-100 transition-colors"
                       onClick={() => setViewState(prev => ({ ...prev, zoom: prev.zoom + 1 }))}
+                      aria-label="Zoom in"
                     >
                       <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                       </svg>
                     </button>
+                    <div className="border-t border-gray-200"></div>
                     <button 
-                      className="p-2 hover:bg-gray-100"
+                      className="p-2 hover:bg-gray-100 transition-colors"
                       onClick={() => setViewState(prev => ({ ...prev, zoom: prev.zoom - 1 }))}
+                      aria-label="Zoom out"
                     >
                       <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
                       </svg>
                     </button>
                   </div>
+                  <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                    <button 
+                      className="p-2 hover:bg-gray-100 transition-colors"
+                      onClick={handleViewAllAssets}
+                      aria-label="View all assets"
+                    >
+                      <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                    <button 
+                      className="p-2 hover:bg-gray-100 transition-colors"
+                      onClick={() => setViewState({...viewState, pitch: (viewState.pitch || 0) === 0 ? 45 : 0})}
+                      aria-label="Toggle 3D view"
+                    >
+                      <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 
-                {mapLoaded && assets.map(asset => (
+                <div className="absolute bottom-8 right-4">
+                  <div className="bg-white rounded-lg shadow-md p-2">
+                    <div className="flex space-x-1">
+                      <button 
+                        className={`px-2 py-1 text-xs font-medium rounded ${viewState.mapStyle === 'mapbox://styles/mapbox/light-v11' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        onClick={() => setViewState({...viewState, mapStyle: 'mapbox://styles/mapbox/light-v11'})}
+                      >
+                        Map
+                      </button>
+                      <button 
+                        className={`px-2 py-1 text-xs font-medium rounded ${viewState.mapStyle === 'mapbox://styles/mapbox/satellite-streets-v12' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        onClick={() => setViewState({...viewState, mapStyle: 'mapbox://styles/mapbox/satellite-streets-v12'})}
+                      >
+                        Satellite
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                {assets.map(asset => (
                   <React.Fragment key={asset.AssetId}>
                     {asset.Coordinates && (
                       <Source
@@ -610,8 +687,7 @@ const Assets: React.FC = () => {
                           type="fill"
                           paint={{
                             'fill-color': getAssetColor(asset.AssetType),
-                            'fill-opacity': selectedAsset?.AssetId === asset.AssetId ? 0.7 : 0.4,
-                            'fill-outline-color': getAssetColor(asset.AssetType)
+                            'fill-opacity': selectedAsset?.AssetId === asset.AssetId ? 0.5 : 0.3,
                           }}
                         />
                         <Layer
@@ -619,7 +695,7 @@ const Assets: React.FC = () => {
                           type="line"
                           paint={{
                             'line-color': selectedAsset?.AssetId === asset.AssetId ? '#ffffff' : getAssetColor(asset.AssetType),
-                            'line-width': selectedAsset?.AssetId === asset.AssetId ? 3 : 2,
+                            'line-width': selectedAsset?.AssetId === asset.AssetId ? 3 : 1.5,
                             'line-opacity': 0.9
                           }}
                         />
@@ -659,29 +735,91 @@ const Assets: React.FC = () => {
                     closeButton={true}
                     closeOnClick={false}
                     onClose={() => setSelectedAsset(null)}
-                    className="asset-popup max-w-sm"
+                    className="asset-popup z-10"
+                    maxWidth="300px"
                   >
-                    <div className="p-3">
-                      <h3 className="text-sm font-semibold text-gray-900">{selectedAsset.Name}</h3>
-                      <div className="mt-2 flex items-center">
-                        <span className={`px-2 py-0.5 text-xs rounded-full`} style={{ backgroundColor: `${getAssetColor(selectedAsset.AssetType)}20`, color: getAssetColor(selectedAsset.AssetType) }}>
-                          {selectedAsset.AssetType}
-                        </span>
-                      </div>
-                      {selectedAsset.Address && (
-                        <p className="text-xs text-gray-500 mt-2">{selectedAsset.Address}</p>
-                      )}
-                      {selectedAsset.Area && (
-                        <div className="mt-2 text-xs">
-                          <span className="font-medium">Area:</span> {selectedAsset.Area.toLocaleString()} m²
+                    <div className="p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex-shrink-0 w-10 h-10 rounded-md flex items-center justify-center" style={{ backgroundColor: `${getAssetColor(selectedAsset.AssetType)}20`}}>
+                          <svg className="w-6 h-6" fill="none" stroke={getAssetColor(selectedAsset.AssetType)} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                          </svg>
                         </div>
-                      )}
-                      <button 
-                        className="mt-3 w-full bg-blue-100 hover:bg-blue-200 text-blue-800 text-xs font-medium py-1.5 px-3 rounded transition-colors"
-                        onClick={() => handleViewAssetDetails(selectedAsset.AssetId)}
-                      >
-                        View Details
-                      </button>
+                        <h3 className="text-base font-semibold text-gray-900 flex-grow ml-3">{selectedAsset.Name}</h3>
+                      </div>
+                      
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <div className="flex items-center mb-2">
+                          <div className="w-6 flex-shrink-0">
+                            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                            </svg>
+                          </div>
+                          <div className="ml-2">
+                            <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full`} style={{ backgroundColor: `${getAssetColor(selectedAsset.AssetType)}20`, color: getAssetColor(selectedAsset.AssetType) }}>
+                              {selectedAsset.AssetType}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {selectedAsset.Address && (
+                          <div className="flex items-start mb-2">
+                            <div className="w-6 flex-shrink-0">
+                              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                            </div>
+                            <p className="ml-2 text-sm text-gray-600">{selectedAsset.Address}</p>
+                          </div>
+                        )}
+                        
+                        {selectedAsset.Area && (
+                          <div className="flex items-center mb-2">
+                            <div className="w-6 flex-shrink-0">
+                              <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                              </svg>
+                            </div>
+                            <p className="ml-2 text-sm text-gray-600">
+                              <span className="font-medium">Area:</span> {selectedAsset.Area.toLocaleString()} m²
+                            </p>
+                          </div>
+                        )}
+                        
+                        <div className="flex items-center">
+                          <div className="w-6 flex-shrink-0">
+                            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                          </div>
+                          <p className="ml-2 text-sm text-gray-600">
+                            {new Date(selectedAsset.CreatedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <button 
+                          className="flex items-center justify-center bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium py-2 px-3 rounded-md text-sm transition-colors"
+                          onClick={() => handleViewAssetDetails(selectedAsset.AssetId)}
+                        >
+                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          Details
+                        </button>
+                        {/* <button
+                          className="flex items-center justify-center bg-green-50 hover:bg-green-100 text-green-700 font-medium py-2 px-3 rounded-md text-sm transition-colors"
+                          onClick={() => navigate(`/MakeBookings?asset=${selectedAsset.AssetId}`)}
+                        >
+                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                          </svg>
+                          Book Flight
+                        </button> */}
+                      </div>
                     </div>
                   </Popup>
                 )}

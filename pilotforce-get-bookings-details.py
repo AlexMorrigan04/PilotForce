@@ -56,7 +56,7 @@ def extract_nested_value(data, default=None):
                 value = data['N']
                 # If the N value is itself a string or dict, extract it further
                 if isinstance(value, dict):
-                    value = extract_nested_value(value)
+                    return extract_nested_value(value)
                 elif isinstance(value, str):
                     return float(value)
                 return float(value)

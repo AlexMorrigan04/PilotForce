@@ -12,6 +12,7 @@ export const configureAWSSDK = (): boolean => { // Renamed from configureAWS to 
     const accessKeyId = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
     const secretAccessKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
     
+    // Log safely without exposing actual values
     console.log(`AWS Config - Region: ${region ? 'SET' : 'MISSING'}, Access Key: ${accessKeyId ? 'SET' : 'MISSING'}, Secret Key: ${secretAccessKey ? 'SET' : 'MISSING'}`);
     
     if (region && accessKeyId && secretAccessKey) {

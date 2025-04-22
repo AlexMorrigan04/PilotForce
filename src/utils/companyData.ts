@@ -5,12 +5,16 @@ const awsRegion = process.env.REACT_APP_AWS_REGION;
 const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
 const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
 
-// Update AWS config
-AWS.config.update({
-  accessKeyId: accessKey,
-  secretAccessKey: secretKey,
-  region: awsRegion
-});
+// Only update AWS config if all values are present
+if (awsRegion && accessKey && secretKey) {
+  AWS.config.update({
+    accessKeyId: accessKey,
+    secretAccessKey: secretKey,
+    region: awsRegion
+  });
+} else {
+  console.warn('AWS credentials not fully specified in environment variables');
+}
 
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
@@ -29,19 +33,33 @@ export const getCompanyUserIds = async (emailDomain: string, currentUserId: stri
         ':domain': `@${emailDomain}`
       }
     };
-    
-    const usersData = await dynamoDb.scan(usersParams).promise();
-    const companyUserIds = usersData.Items?.map(item => item.UserId) || [];
-    
-    // If no company users found, just use the current user ID
-    if (companyUserIds.length === 0) {
-      companyUserIds.push(currentUserId);
+
+    // Check if we have necessary AWS credentials
+    if (!awsRegion || !accessKey || !secretKey) {
+      console.warn('Missing AWS credentials, returning only current user ID');
+      return [currentUserId];
     }
     
-    return companyUserIds;
+    const result = await dynamoDb.scan(usersParams).promise();
+    
+    if (!result.Items || result.Items.length === 0) {
+      console.log('No users found with domain:', emailDomain);
+      return [currentUserId];
+    }
+    
+    const userIds = result.Items.map(item => item.UserID || item.userId || item.UserId)
+      .filter(Boolean) as string[];
+      
+    console.log(`Found ${userIds.length} users with domain ${emailDomain}`);
+    
+    // Always include current user ID in case it wasn't found in the query
+    if (currentUserId && !userIds.includes(currentUserId)) {
+      userIds.push(currentUserId);
+    }
+    
+    return userIds;
   } catch (error) {
-    console.error('Error fetching company user IDs:', error);
-    // Return just the current user ID as fallback
+    console.error('Error getting company user IDs:', error);
     return [currentUserId];
   }
 };

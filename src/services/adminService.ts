@@ -1,752 +1,399 @@
-import { API } from '../utils/apiUtils';
-import { ADMIN_ENDPOINTS, API_BASE_URL } from '../utils/endpoints';
-import api from './api';
+import axios from 'axios';
 
-// Define proper types for progress event
-interface ProgressEvent {
-  loaded: number;
-  total?: number;
-}
-
-// Define types for resources
-interface Resource {
-  id: string;
-  resourceUrl: string;
-  resourceType: string;
-  fileName: string;
-  fileSize: number;
-  mimeType: string;
-  uploadedAt: string;
-  thumbnailUrl?: string;
-}
+const API_URL = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
 
 /**
- * Fetch all users with optional filtering
- */
-export const getAllUsers = async (filters = {}) => {
-  try {
-    // Build query parameters for filtering
-    const queryParams = new URLSearchParams();
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value) queryParams.append(key, value as string);
-    });
-
-    // Construct full URL with query parameters
-    const apiUrl = ADMIN_ENDPOINTS.users + (queryParams.toString() ? `?${queryParams.toString()}` : '');
-    console.log('Fetching users from:', apiUrl);
-
-    // Make API request 
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch users: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    throw error;
-  }
-};
-
-/**
- * Fetch all companies for filtering
- */
-export const getAllCompanies = async (filters = {}) => {
-  try {
-    // Build query parameters for filtering
-    const queryParams = new URLSearchParams();
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value) queryParams.append(key, value as string);
-    });
-
-    // Use companies endpoint
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/companies` + 
-      (queryParams.toString() ? `?${queryParams.toString()}` : '');
-    
-    console.log('Fetching companies from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch companies: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error('Error fetching companies:', error);
-    // Return empty array as fallback
-    return { companies: [] };
-  }
-};
-
-/**
- * Get a specific user by ID
- */
-export const getUser = async (userId: string) => {
-  try {
-    const apiUrl = ADMIN_ENDPOINTS.user(userId);
-    console.log('Fetching user details from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch user: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error(`Error fetching user ${userId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Delete a user by ID
- */
-export const deleteUser = async (userId: string) => {
-  try {
-    const apiUrl = ADMIN_ENDPOINTS.user(userId);
-    console.log('Deleting user from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to delete user: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error deleting user ${userId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Toggle user access (enable/disable)
- */
-export const toggleUserAccess = async (userId: string, isEnabled: boolean) => {
-  try {
-    const apiUrl = ADMIN_ENDPOINTS.userAccess(userId);
-    console.log(`Toggling user access to ${isEnabled ? 'enabled' : 'disabled'} at:`, apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ isEnabled })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to toggle user access: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error toggling access for user ${userId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Update a user
- */
-export const updateUser = async (userId: string, userData: any) => {
-  try {
-    const apiUrl = ADMIN_ENDPOINTS.user(userId);
-    console.log('Updating user at:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(userData)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to update user: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error updating user ${userId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Fetch all assets
- */
-export const getAllAssets = async (filters = {}) => {
-  try {
-    // Build query parameters for filtering
-    const queryParams = new URLSearchParams();
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value) queryParams.append(key, value as string);
-    });
-
-    // Use assets endpoint
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/assets` + 
-      (queryParams.toString() ? `?${queryParams.toString()}` : '');
-    
-    console.log('Fetching assets from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch assets: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error('Error fetching assets:', error);
-    throw error;
-  }
-};
-
-/**
- * Booking-related functions
+ * Booking related functions
  */
 
-/**
- * Fetch all bookings
- */
+// Function to get all bookings (admin only)
 export const getAllBookings = async () => {
-  const response = await api.get('/admin/bookings');
-  return response.data;
-};
-
-/**
- * Get a specific booking by ID
- */
-export const getBookingById = async (bookingId: string) => {
-  const response = await api.get(`/admin/bookings/${bookingId}`);
-  return response.data;
-};
-
-/**
- * Update booking status
- */
-export const updateBookingStatus = async (bookingId: string, status: string) => {
-  const response = await api.put(`/admin/bookings/${bookingId}/status`, { status });
-  return response.data;
-};
-
-/**
- * Delete a booking by ID
- */
-export const deleteBooking = async (bookingId: string) => {
-  const response = await api.delete(`/admin/bookings/${bookingId}`);
-  return response.data;
-};
-
-/**
- * Resource-related functions
- */
-
-/**
- * Get all resources with optional filtering
- * @param filters Optional filters to apply
- */
-export const getAllResources = async (filters = {}) => {
   try {
-    // Build query parameters for filtering
-    const queryParams = new URLSearchParams();
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value) queryParams.append(key, value as string);
-    });
-
-    // Use resources endpoint
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/resources` + 
-      (queryParams.toString() ? `?${queryParams.toString()}` : '');
-    
-    console.log('Fetching resources from:', apiUrl);
-
-    const response = await api.get(apiUrl);
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching resources:', error);
-    throw error;
-  }
-};
-
-/**
- * Get resources for a specific booking
- * @param bookingId The ID of the booking
- * @returns List of resources for the booking
- */
-export const getBookingResources = async (bookingId: string) => {
-  try {
-    const response = await api.get(`/admin/bookings/${bookingId}/resources`);
-    return response.data;
-  } catch (error) {
-    console.error('Error getting booking resources:', error);
-    throw error;
-  }
-};
-
-/**
- * Create a folder for resources within a booking
- * @param bookingId The booking ID
- * @param folderName The name of the folder to create
- */
-export const createResourceFolder = async (bookingId: string, folderName: string) => {
-  try {
-    const response = await api.post(`/admin/bookings/${bookingId}/folders`, {
-      folderName
-    });
-    return response.data;
-  } catch (error) {
-    console.error(`Error creating folder for booking ${bookingId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Upload a resource file for a booking
- * @param bookingId The booking ID
- * @param file The file to upload
- * @param onProgress Optional progress callback
- */
-export const uploadBookingResource = async (
-  bookingId: string,
-  file: File,
-  onProgress?: (progress: number) => void
-) => {
-  try {
-    console.log(`Starting upload for booking ${bookingId}, file: ${file.name}`);
-    
-    // Create form data to send the file
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('fileName', file.name);
-    formData.append('contentType', file.type || 'application/octet-stream');
-    
-    // Determine the resource type based on file extension or MIME type
-    let resourceType = 'file';
-    if (file.type.startsWith('image/')) {
-      resourceType = 'image';
-    } else if (file.name.match(/\.(tif|tiff)$/i)) {
-      resourceType = 'geotiff';
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
     }
-    formData.append('resourceType', resourceType);
-    
-    // Log the request details for debugging
-    console.log(`Uploading to /admin/bookings/${bookingId}/resources`);
-    console.log(`File type: ${file.type}, Resource type: ${resourceType}`);
-    
-    // Use a simplified approach to avoid issues with multipart/form-data
-    const response = await api.post(`/admin/bookings/${bookingId}/resources`, formData, {
+
+    const response = await axios.get(`${API_URL}/admin/bookings`, {
       headers: {
-        // Don't set Content-Type header - let the browser set it with the boundary
-      },
-      onUploadProgress: (progressEvent: any) => {
-        if (onProgress && progressEvent.total) {
-          // Calculate the upload percentage
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          console.log(`Upload progress: ${percentCompleted}%`);
-          onProgress(percentCompleted);
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching bookings:', error);
+    throw new Error(error.response?.data?.message || 'Failed to fetch bookings');
+  }
+};
+
+// Function to get a specific booking (admin only)
+export const getBooking = async (bookingId: string) => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.get(`${API_URL}/admin/bookings/${bookingId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching booking ${bookingId}:`, error);
+    throw new Error(error.response?.data?.message || 'Failed to fetch booking');
+  }
+};
+
+// Function to update booking status
+export const updateBookingStatus = async (bookingId: string, status: string) => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.put(
+      `${API_URL}/admin/bookings/${bookingId}/status`,
+      { status },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
         }
       }
-    });
-    
-    console.log('Upload response:', response);
-    
+    );
+
     return response.data;
-  } catch (error) {
-    console.error('Upload error details:', error);
-    throw error;
+  } catch (error: any) {
+    console.error(`Error updating booking ${bookingId} status:`, error);
+    throw new Error(error.response?.data?.message || 'Failed to update booking status');
+  }
+};
+
+// Function to delete a booking
+export const deleteBooking = async (bookingId: string) => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.delete(`${API_URL}/admin/bookings/${bookingId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error deleting booking ${bookingId}:`, error);
+    throw new Error(error.response?.data?.message || 'Failed to delete booking');
   }
 };
 
 /**
- * Delete a specific resource from a booking
- * @param bookingId The booking ID
- * @param resourceId The resource ID
+ * Resource related functions
  */
+
+// Function to get resources for a booking
+export const getBookingResources = async (bookingId: string) => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.get(
+      `${API_URL}/admin/bookings/${bookingId}/resources`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error fetching resources for booking ${bookingId}:`, error);
+    throw new Error(error.response?.data?.message || 'Failed to fetch booking resources');
+  }
+};
+
+// Function to get all resources (admin only)
+export const getAllResources = async () => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.get(`${API_URL}/admin/resources`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching resources:', error);
+    throw new Error(error.response?.data?.message || 'Failed to fetch resources');
+  }
+};
+
+// Function to upload a resource for a booking
+export const uploadBookingResource = async (bookingId: string, file: File, onProgress?: (progress: number) => void) => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await axios.post(
+      `${API_URL}/admin/bookings/${bookingId}/resources`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          Authorization: `Bearer ${token}`
+        },
+        onUploadProgress: (progressEvent: any) => {
+          if (progressEvent.total && onProgress) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            onProgress(percentCompleted);
+          }
+        }
+      }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error uploading resource for booking ${bookingId}:`, error);
+    throw new Error(error.response?.data?.message || 'Failed to upload resource');
+  }
+};
+
+// Function to delete a booking resource
 export const deleteBookingResource = async (bookingId: string, resourceId: string) => {
   try {
-    const response = await api.delete(`/admin/bookings/${bookingId}/resources/${resourceId}`);
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.delete(
+      `${API_URL}/admin/bookings/${bookingId}/resources/${resourceId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Error deleting resource ${resourceId} from booking ${bookingId}:`, error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to delete resource');
   }
 };
 
-/**
- * Get a download URL for a resource
- * @param bookingId The booking ID
- * @param resourceId The resource ID
- */
-export const getResourceDownloadUrl = async (bookingId: string, resourceId: string) => {
+// Function to create a resource folder
+export const createResourceFolder = async (bookingId: string, folderName: string) => {
   try {
-    const response = await api.get(`/admin/bookings/${bookingId}/resources/${resourceId}/download`);
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.post(
+      `${API_URL}/admin/bookings/${bookingId}/folders`,
+      { folderName },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error creating folder for booking ${bookingId}:`, error);
+    throw new Error(error.response?.data?.message || 'Failed to create folder');
+  }
+};
+
+// Function to get a download URL for a resource
+export const getResourceDownloadUrl = async (resourceId: string) => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.get(
+      `${API_URL}/admin/resources/${resourceId}/download`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
     return response.data.downloadUrl;
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Error getting download URL for resource ${resourceId}:`, error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to get download URL');
   }
 };
 
 /**
- * Get a pre-signed URL for direct S3 upload
- * @param fileName The S3 key/path for the file
- * @param contentType The MIME type of the file
+ * User related functions
  */
-export const getS3UploadUrl = async (fileName: string, contentType: string) => {
+
+// Function to get all users (admin only)
+export const getAllUsers = async (filters?: any) => {
   try {
-    const response = await api.get(
-      `/admin/s3-upload-url?fileName=${encodeURIComponent(fileName)}&contentType=${encodeURIComponent(contentType)}`
-    );
-    return response.data;
-  } catch (error) {
-    console.error('Error getting S3 upload URL:', error);
-    throw error;
-  }
-};
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
 
-/**
- * Update a resource record status
- */
-export const updateResourceRecord = async (
-  bookingId: string,
-  resourceId: string,
-  updateData: { status: string }
-) => {
-  try {
-    const response = await api.put(
-      `/admin/bookings/${bookingId}/resources/${resourceId}`, 
-      updateData
-    );
-    return response.data;
-  } catch (error) {
-    console.error(`Error updating resource record:`, error);
-    throw error;
-  }
-};
-
-/**
- * Create a resource record (for tracking S3 uploads)
- */
-export const createResourceRecord = async (
-  bookingId: string, 
-  recordData: {
-    resourceId: string;
-    fileName: string;
-    resourceUrl: string;
-    contentType: string;
-    fileSize: number;
-    resourceType: string;
-    status: string;
-  }
-) => {
-  try {
-    const response = await api.post(
-      `/admin/bookings/${bookingId}/resources`, 
-      recordData
-    );
-    return response.data;
-  } catch (error) {
-    console.error('Error creating resource record:', error);
-    throw error;
-  }
-};
-
-/**
- * Company-related functions
- */
-
-/**
- * Fetch all companies with optional filtering
- */
-export const getFilteredCompanies = async (filters = {}) => {
-  try {
-    // Build query parameters for filtering
-    const queryParams = new URLSearchParams();
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value) queryParams.append(key, value as string);
-    });
-
-    // Use companies endpoint
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/companies` + 
-      (queryParams.toString() ? `?${queryParams.toString()}` : '');
-    
-    console.log('Fetching companies from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
+    const response = await axios.get(`${API_URL}/admin/users`, {
+      params: filters,
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${token}`
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch companies: ${response.status}`);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching users:', error);
+    throw new Error(error.response?.data?.message || 'Failed to fetch users');
+  }
+};
+
+// Function to delete a user (admin only)
+export const deleteUser = async (userId: string) => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
     }
 
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
+    const response = await axios.delete(`${API_URL}/admin/users/${userId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`
       }
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error deleting user ${userId}:`, error);
+    throw new Error(error.response?.data?.message || 'Failed to delete user');
+  }
+};
+
+// Function to toggle user access (enable/disable)
+export const toggleUserAccess = async (userId: string, isEnabled: boolean) => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
     }
-    
-    return data;
-  } catch (error) {
+
+    const response = await axios.put(
+      `${API_URL}/admin/users/${userId}/access`,
+      { isEnabled },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error toggling access for user ${userId}:`, error);
+    throw new Error(error.response?.data?.message || 'Failed to update user access');
+  }
+};
+
+/**
+ * Company related functions
+ */
+
+// Function to get all companies (admin only)
+export const getAllCompanies = async () => {
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await axios.get(`${API_URL}/admin/companies`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    return response.data;
+  } catch (error: any) {
     console.error('Error fetching companies:', error);
-    // Return empty array as fallback
-    return { companies: [] };
+    throw new Error(error.response?.data?.message || 'Failed to fetch companies');
   }
 };
 
-/**
- * Get a specific company by ID
- */
-export const getCompany = async (companyId: string) => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/companies/${companyId}`;
-    console.log('Fetching company details from:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch company: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    // Handle API Gateway response format
-    if (data.body && typeof data.body === 'string') {
-      try {
-        return JSON.parse(data.body);
-      } catch (e) {
-        console.error('Error parsing response body:', e);
-        return data;
-      }
-    }
-    
-    return data;
-  } catch (error) {
-    console.error(`Error fetching company ${companyId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Delete a company by ID
- */
+// Function to delete a company (admin only)
 export const deleteCompany = async (companyId: string) => {
   try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/companies/${companyId}`;
-    console.log('Deleting company from:', apiUrl);
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
 
-    const response = await fetch(apiUrl, {
-      method: 'DELETE',
+    const response = await axios.delete(`${API_URL}/admin/companies/${companyId}`, {
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${token}`
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to delete company: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
+    return response.data;
+  } catch (error: any) {
     console.error(`Error deleting company ${companyId}:`, error);
-    throw error;
+    throw new Error(error.response?.data?.message || 'Failed to delete company');
   }
 };
 
 /**
- * Update a company
+ * Asset related functions
  */
-export const updateCompany = async (companyId: string, companyData: any) => {
+
+// Function to get all assets (admin only)
+export const getAllAssets = async (filters?: any) => {
   try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/companies/${companyId}`;
-    console.log('Updating company at:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(companyData)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to update company: ${response.status}`);
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+      throw new Error('No authentication token found');
     }
 
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error(`Error updating company ${companyId}:`, error);
-    throw error;
-  }
-};
-
-/**
- * Create a new company
- */
-export const createCompany = async (companyData: any) => {
-  try {
-    const apiUrl = `${process.env.REACT_APP_API_URL || API_BASE_URL}/admin/companies`;
-    console.log('Creating new company at:', apiUrl);
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
+    const response = await axios.get(`${API_URL}/admin/assets`, {
+      params: filters,
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(companyData)
+        Authorization: `Bearer ${token}`
+      }
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to create company: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Error creating company:', error);
-    throw error;
+    return response.data;
+  } catch (error: any) {
+    console.error('Error fetching assets:', error);
+    throw new Error(error.response?.data?.message || 'Failed to fetch assets');
   }
 };
-
-// Create admin service object first, then export it
-const adminService = {
-  getAllUsers,
-  getAllCompanies,
-  getFilteredCompanies,
-  getUser,
-  deleteUser,
-  toggleUserAccess,
-  updateUser,
-  // Assets
-  getAllAssets,
-  // Bookings
-  getAllBookings,
-  getBookingById,
-  deleteBooking,
-  updateBookingStatus,
-  // Resources
-  getAllResources,
-  getBookingResources,
-  uploadBookingResource,
-  deleteBookingResource,
-  createResourceFolder,
-  getResourceDownloadUrl,
-  getS3UploadUrl,
-  createResourceRecord,
-  updateResourceRecord,
-  // Companies
-  getCompany,
-  deleteCompany,
-  updateCompany,
-  createCompany
-};
-
-export default adminService;

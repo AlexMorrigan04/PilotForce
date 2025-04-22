@@ -11,13 +11,20 @@ interface Asset {
   id: string;
   name: string;
   type: string;
+  address?: string;
+  postcode?: string;
+  area?: string;
+  coordinates?: string;
+  description?: string;
   companyId: string;
   companyName: string;
   userId: string;
   username: string;
+  tags?: string[];
   registrationNumber: string;
   status: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 interface Company {
@@ -58,12 +65,44 @@ const AdminAssets: React.FC = () => {
   const fetchAssets = async () => {
     setLoading(true);
     try {
+      console.log('Fetching assets with filters:', filters);
       const response = await adminService.getAllAssets(filters);
-      setAssets(response.assets || []);
+      
+      if (!response || !response.assets) {
+        console.warn('No assets data returned from API');
+        setAssets([]);
+      } else {
+        console.log(`Retrieved ${response.assets.length} assets`, response.assets);
+        
+        // Make sure each asset has a valid ID to use as key and required fields
+        const processedAssets = response.assets.map((asset: any) => ({
+          ...asset,
+          id: asset.id || asset.assetId || `asset-${Math.random().toString(36).substring(2, 11)}`,
+          name: asset.name || 'Unnamed Asset',
+          type: asset.type || 'Unknown Type',
+          address: asset.address || 'No Address',
+          postcode: asset.postcode || 'N/A',
+          area: asset.area || '0',
+          coordinates: asset.coordinates || 'N/A',
+          description: asset.description || '',
+          companyId: asset.companyId || '',
+          companyName: asset.companyName || 'Unknown Company',
+          userId: asset.userId || '',
+          username: asset.username || 'Unknown User',
+          tags: asset.tags || [],
+          registrationNumber: asset.registrationNumber || asset.postcode || 'N/A',
+          status: asset.status || 'Active',
+          createdAt: asset.createdAt || new Date().toISOString()
+        }));
+        
+        console.log('Assets after processing:', processedAssets);
+        setAssets(processedAssets);
+      }
       setError(null);
     } catch (err: any) {
       console.error('Error fetching assets:', err);
       setError(err.message || 'Failed to load assets');
+      setAssets([]); // Clear assets on error to avoid stale data
     } finally {
       setLoading(false);
     }
@@ -72,10 +111,26 @@ const AdminAssets: React.FC = () => {
   // Fetch companies for filters
   const fetchCompanies = async () => {
     try {
+      console.log('Fetching companies for filters');
       const response = await adminService.getAllCompanies();
-      setCompanies(response.companies || []);
-    } catch (err) {
+      
+      if (!response || !response.companies) {
+        console.warn('No companies data returned from API');
+        setCompanies([]);
+      } else {
+        console.log(`Retrieved ${response.companies.length} companies`);
+        
+        // Make sure each company has a valid ID
+        const processedCompanies = response.companies.map((company: any) => ({
+          id: company.id || company.companyId || `company-${Math.random().toString(36).substring(2, 11)}`,
+          name: company.name || company.companyName || 'Unknown Company'
+        }));
+        
+        setCompanies(processedCompanies);
+      }
+    } catch (err: any) {
       console.error('Error fetching companies:', err);
+      setCompanies([]); // Set empty array on error
     }
   };
 
@@ -103,16 +158,27 @@ const AdminAssets: React.FC = () => {
 
   // Filter assets based on search term
   const filteredAssets = assets.filter(asset => {
+    if (!searchTerm) return true;
+    
     const searchTermLower = searchTerm.toLowerCase();
     return (
-      asset.name.toLowerCase().includes(searchTermLower) ||
-      asset.companyName.toLowerCase().includes(searchTermLower) ||
-      asset.username.toLowerCase().includes(searchTermLower) ||
-      asset.registrationNumber.toLowerCase().includes(searchTermLower) ||
-      asset.type.toLowerCase().includes(searchTermLower) ||
-      asset.status.toLowerCase().includes(searchTermLower)
+      (asset.name || '').toLowerCase().includes(searchTermLower) ||
+      (asset.type || '').toLowerCase().includes(searchTermLower) ||
+      (asset.address || '').toLowerCase().includes(searchTermLower) ||
+      (asset.postcode || '').toLowerCase().includes(searchTermLower) ||
+      (asset.companyName || '').toLowerCase().includes(searchTermLower) ||
+      (asset.username || '').toLowerCase().includes(searchTermLower) ||
+      (asset.description || '').toLowerCase().includes(searchTermLower) ||
+      (asset.status || '').toLowerCase().includes(searchTermLower)
     );
   });
+
+  // Adding debugging to see what's happening with the filtered assets
+  useEffect(() => {
+    console.log('Current assets state:', assets);
+    console.log('Current search term:', searchTerm);
+    console.log('Filtered assets:', filteredAssets);
+  }, [assets, searchTerm, filteredAssets]);
 
   // Handle asset selection for bulk actions
   const handleSelectAll = () => {
@@ -182,22 +248,25 @@ const AdminAssets: React.FC = () => {
     }
   };
 
-  // Export assets to CSV
+  // Export assets to CSV with all relevant fields
   const handleExportAssets = () => {
-    const headers = ['Name', 'Type', 'Company', 'Created By', 'Registration', 'Status'];
+    const headers = ['Name', 'Type', 'Address', 'Postcode', 'Area', 'Company', 'Created By', 'Status', 'Created Date'];
     
     const csvData = filteredAssets.map(asset => [
       asset.name,
       asset.type,
+      asset.address || 'N/A',
+      asset.postcode || 'N/A',
+      asset.area || '0',
       asset.companyName,
       asset.username,
-      asset.registrationNumber,
-      asset.status
+      asset.status,
+      asset.createdAt ? new Date(asset.createdAt).toLocaleDateString() : 'N/A'
     ]);
     
     const csvContent = [
       headers.join(','),
-      ...csvData.map(row => row.join(','))
+      ...csvData.map(row => row.map(cell => `"${cell}"`).join(','))
     ].join('\n');
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

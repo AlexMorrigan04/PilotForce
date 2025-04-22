@@ -6,15 +6,25 @@
  */
 
 const axios = require('axios');
+require('dotenv').config(); // Add dotenv to load environment variables
 
-// Configuration constants
-const API_URL = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
-const BOOKING_ID = 'YOUR_BOOKING_ID_HERE'; // Replace with an actual booking ID
-const AUTH_TOKEN = 'YOUR_AUTH_TOKEN_HERE'; // Replace with an actual token from localStorage
+// Configuration constants from environment variables
+const API_URL = process.env.REACT_APP_API_ENDPOINT || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+// Use command line arguments or default test values
+const BOOKING_ID = process.argv[2] || 'TEST_BOOKING_ID'; 
+// Never hardcode tokens - get from environment or command line
+const AUTH_TOKEN = process.argv[3] || process.env.TEST_AUTH_TOKEN || 'TEST_TOKEN_REQUIRED';
 
 async function testApi() {
   console.log('🔍 API Gateway Test Script');
   console.log('==========================');
+  
+  if (AUTH_TOKEN === 'TEST_TOKEN_REQUIRED') {
+    console.log('⚠️ WARNING: No auth token provided. Please provide a token as the second argument:');
+    console.log('node apiTestScript.js <booking_id> <auth_token>');
+    console.log('Or set the TEST_AUTH_TOKEN environment variable.');
+    return;
+  }
   
   // Test all possible endpoint variations
   const endpoints = [

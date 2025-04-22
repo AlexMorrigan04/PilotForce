@@ -177,8 +177,25 @@ const cognitoConfirmSignUp = async (
     const clientId = getClientId();
     const clientSecret = getClientSecret();
     
+    if (!confirmationCode || confirmationCode.trim() === '') {
+      return {
+        success: false,
+        message: 'Verification code is required'
+      };
+    }
+    
+    // Validate code format - Cognito typically uses 6-digit codes
+    if (!/^\d{6}$/.test(confirmationCode.trim())) {
+      return {
+        success: false,
+        message: 'Invalid verification code format. Please enter a valid 6-digit code.'
+      };
+    }
+    
     // Calculate the secret hash required by Cognito
     const secretHash = calculateSecretHash(username, clientId, clientSecret);
+    
+    console.log(`Attempting to confirm user ${username} with code ${confirmationCode.replace(/./g, '*')}`);
     
     // Use the API Gateway proxy
     const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/confirm-user', {
@@ -189,25 +206,79 @@ const cognitoConfirmSignUp = async (
       },
       body: JSON.stringify({
         username,
-        confirmationCode,
+        confirmationCode: confirmationCode.trim(),
         secretHash
       })
     });
     
+    // === CRITICAL FIX: Enhanced error handling with forced validation ===
+    // Always check the status code first
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Confirmation failed');
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (jsonError) {
+        console.error('Error parsing confirmation error response:', jsonError);
+        errorData = { message: 'Confirmation failed' };
+      }
+      
+      console.error('Confirmation error response:', errorData);
+      
+      // Extract the error message
+      let errorMessage = 'Confirmation failed';
+      if (errorData.message) {
+        errorMessage = errorData.message;
+      } else if (errorData.error) {
+        errorMessage = errorData.error;
+      }
+      
+      // Handle specific known error types and standardize messages
+      if (errorMessage.toLowerCase().includes('expired')) {
+        errorMessage = 'Your verification code has expired. Please request a new code.';
+      } else if (errorMessage.toLowerCase().includes('not found') || errorMessage.toLowerCase().includes('not exist')) {
+        errorMessage = 'User not found. Please check your username or sign up again.';
+      } else if (
+        errorMessage.toLowerCase().includes('mismatch') || 
+        errorMessage.toLowerCase().includes('invalid') || 
+        errorMessage.toLowerCase().includes('wrong') ||
+        errorMessage.toLowerCase().includes('incorrect') ||
+        response.status === 400
+      ) {
+        // Explicitly capture any validation error including HTTP 400
+        errorMessage = 'Invalid verification code. Please check and try again.';
+      } else if (errorMessage.toLowerCase().includes('already confirmed') || errorMessage.toLowerCase().includes('already verified')) {
+        errorMessage = 'This account has already been confirmed. You can now log in.';
+      }
+      
+      // CRITICAL: Return failure for any error except "already confirmed"
+      const alreadyConfirmed = errorMessage.toLowerCase().includes('already confirmed') || errorMessage.toLowerCase().includes('already verified');
+      return {
+        success: alreadyConfirmed, // Only success if already confirmed
+        message: errorMessage,
+        confirmationFailed: !alreadyConfirmed // Flag for clear tracking of failed confirmation
+      };
+    }
+    
+    // Process successful response
+    let data;
+    try {
+      data = await response.json();
+      console.log('Confirmation success response:', data);
+    } catch (jsonError) {
+      console.log('Success response is not JSON, but confirmation succeeded');
     }
     
     return {
       success: true,
-      message: 'User confirmed successfully'
+      message: 'User confirmed successfully',
+      ...(data || {})
     };
   } catch (error: any) {
     console.error('Direct Cognito confirm sign-up error:', error);
     return {
       success: false,
-      message: error.message || 'Failed to confirm registration'
+      message: error.message || 'Failed to confirm registration',
+      confirmationFailed: true
     };
   }
 };
@@ -239,5 +310,10 @@ const parseJwt = (token: string): any => {
 export default {
   cognitoSignIn,
   cognitoSignUp,
-  cognitoConfirmSignUp
+  cognitoConfirmSignUp,
+  calculateSecretHash: (username: string) => {
+    const clientId = getClientId();
+    const clientSecret = getClientSecret();
+    return calculateSecretHash(username, clientId, clientSecret);
+  }
 };

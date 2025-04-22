@@ -208,7 +208,7 @@ async function getCompanyAdminEmails(companyId: string): Promise<string[]> {
   try {
     console.log(`Attempting to fetch admin emails for company ID: ${companyId}`);
     
-    // AWS configuration should be set up globally in your app
+    // Use AWS SDK with environment variables
     const AWS = require('aws-sdk');
     const dynamoDb = new AWS.DynamoDB.DocumentClient({ 
       region: process.env.REACT_APP_AWS_REGION,

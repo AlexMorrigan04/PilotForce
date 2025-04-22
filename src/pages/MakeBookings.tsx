@@ -325,44 +325,43 @@ const extractPostcodeFromAddress = (address: string): string | null => {
 };
 
 const MakeBookings: React.FC = () => {
-  const { user } = useContext(AuthContext);
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>([]);
-  const [viewState, setViewState] = useState({
-    longitude: -2.587910,
-    latitude: 51.454514,
-    zoom: 16
-  });
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [asset, setAsset] = useState<any>(null);
-  const [scheduleType, setScheduleType] = useState('scheduled');
-  const [date, setDate] = useState('');
-  const [flexibility, setFlexibility] = useState('exact');
-  const [repeatFrequency, setRepeatFrequency] = useState('daily');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [companyDetails, setCompanyDetails] = useState<any>(null);
-  const [userDetails, setUserDetails] = useState<any>(null);
-  const [bookingSuccess, setBookingSuccess] = useState(false);
-  const [selectedOptions, setSelectedOptions] = useState<{[serviceType: string]: {[key: string]: any}}>({});
-  const [serviceInfo, setServiceInfo] = useState<any>(null);
-  const [showInfoTooltip, setShowInfoTooltip] = useState<string | null>(null);
-  const [activeServiceConfig, setActiveServiceConfig] = useState<string | null>(null);
-  const [siteContact, setSiteContact] = useState<SiteContact>({
-    name: '',
-    phone: '',
-    email: '',
-    isAvailableOnsite: false
-  });
-  const [previousContacts, setPreviousContacts] = useState<SiteContact[]>([]);
-  const [showContactForm, setShowContactForm] = useState(true);
-  const [selectedPreviousContact, setSelectedPreviousContact] = useState<string | null>(null);
-  const [notes, setNotes] = useState<string>('');
-  const mapRef = useRef<MapRef | null>(null);
-  const [storedUserData, setStoredUserData] = useState<any>(null);
+    const { user } = useContext(AuthContext);
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>([]);
+    const [viewState, setViewState] = useState({
+      longitude: -2.587910,
+      latitude: 51.454514,
+      zoom: 16
+    });
+    const [mapLoaded, setMapLoaded] = useState(false);
+    const [asset, setAsset] = useState<any>(null);
+    const [scheduleType, setScheduleType] = useState('scheduled');
+    const [date, setDate] = useState('');
+    const [timeSlot, setTimeSlot] = useState('');
+    const [flexibility, setFlexibility] = useState('exact');
+    const [repeatFrequency, setRepeatFrequency] = useState('weekly');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [preferredTimeOfDay, setPreferredTimeOfDay] = useState('morning');
+    const [error, setError] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [companyDetails, setCompanyDetails] = useState<any>(null);
+    const [userDetails, setUserDetails] = useState<any>(null);
+    const [bookingSuccess, setBookingSuccess] = useState(false);
+    const [selectedOptions, setSelectedOptions] = useState<{[serviceType: string]: {[key: string]: any}}>({});
+    const [serviceInfo, setServiceInfo] = useState<any>(null);
+    const [showInfoTooltip, setShowInfoTooltip] = useState<string | null>(null);
+    const [activeServiceConfig, setActiveServiceConfig] = useState<string | null>(null);
+    const [siteContact, setSiteContact] = useState<SiteContact>({
+      name: '',
+      phone: '',
+      email: '',
+      isAvailableOnsite: false
+    });
+    const [notes, setNotes] = useState<string>('');
+    const mapRef = useRef<MapRef | null>(null);
+    const [storedUserData, setStoredUserData] = useState<any>(null);
 
   useEffect(() => {
     if (location.state && location.state.selectedAsset && !asset) {
@@ -470,12 +469,6 @@ const MakeBookings: React.FC = () => {
   }, [user]);
 
   useEffect(() => {
-    if (user && user.companyId) {
-      fetchPreviousContacts(user.companyId);
-    }
-  }, [user]);
-
-  useEffect(() => {
     const userData = getUserDataFromStorage();
     if (userData) {
       setStoredUserData(userData);
@@ -565,33 +558,6 @@ const MakeBookings: React.FC = () => {
     }
   };
 
-  const fetchPreviousContacts = async (companyId: string) => {
-    try {
-      console.log("Fetching previous site contacts for company:", companyId);
-      const mockContacts = [
-        {
-          id: 'contact_1',
-          name: 'John Smith',
-          phone: '+44 7777 123456',
-          email: 'john.smith@example.com',
-          isAvailableOnsite: true
-        },
-        {
-          id: 'contact_2',
-          name: 'Jane Doe',
-          phone: '+44 7777 654321',
-          email: 'jane.doe@example.com',
-          isAvailableOnsite: false
-        }
-      ];
-      setPreviousContacts(mockContacts);
-      console.log("Using mock site contacts:", mockContacts);
-    } catch (error) {
-      console.error("Error fetching previous site contacts:", error);
-      setPreviousContacts([]);
-    }
-  };
-
   const toggleJobType = (type: string) => {
     setSelectedJobTypes(prev => {
       if (prev.includes(type)) {
@@ -673,15 +639,6 @@ const MakeBookings: React.FC = () => {
     }
   };
 
-  const handleSelectPreviousContact = (contactId: string) => {
-    const selected = previousContacts.find(contact => contact.id === contactId);
-    if (selected) {
-      setSiteContact(selected);
-      setSelectedPreviousContact(contactId);
-      setShowContactForm(false);
-    }
-  };
-
   const handleNewContact = () => {
     setSiteContact({
       name: '',
@@ -689,8 +646,6 @@ const MakeBookings: React.FC = () => {
       email: '',
       isAvailableOnsite: false
     });
-    setSelectedPreviousContact(null);
-    setShowContactForm(true);
   };
 
   const isContactFormValid = () => {
@@ -809,14 +764,26 @@ const MakeBookings: React.FC = () => {
       }
       
       // Assign contact ID
-      const contactId = selectedPreviousContact || `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const contactId = `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       
       // Prepare scheduling information
       const schedulingInfo = {
         scheduleType,
-        ...(scheduleType === 'scheduled' || scheduleType === 'flexible' ? { date } : {}),
-        ...(scheduleType === 'flexible' ? { flexibility } : {}),
-        ...(scheduleType === 'repeat' ? { startDate, endDate, repeatFrequency } : {})
+        ...(scheduleType === 'scheduled' ? { 
+          date,
+          timeSlot 
+        } : {}),
+        ...(scheduleType === 'flexible' ? { 
+          date, 
+          flexibility,
+          preferredTimeOfDay 
+        } : {}),
+        ...(scheduleType === 'repeat' ? { 
+          startDate, 
+          endDate, 
+          repeatFrequency,
+          preferredTimeOfDay 
+        } : {})
       };
       
       // Create booking object with actual user data
@@ -1093,7 +1060,7 @@ const MakeBookings: React.FC = () => {
                       </div>
                       <div>
                         <dt className="text-gray-500 font-medium">Postcode</dt>
-                        <dd className="text-gray-900">{asset.postcode || "Not specified"}</dd>
+                        <dd className="text-gray-900">{asset.postcode || asset.Postcode || asset.PostCode || extractPostcodeFromAddress(asset.address) || "Not specified"}</dd>
                       </div>
                       {asset.address && (
                         <div className="col-span-1 md:col-span-2">
@@ -1517,140 +1484,65 @@ const MakeBookings: React.FC = () => {
                     <p className="text-sm text-gray-600 mb-4">
                       Please provide a site contact who will be available on the day of service:
                     </p>
-                    {previousContacts.length > 0 && (
-                      <div className="mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Select a previous contact:
+                    <div className="space-y-4">
+                      <div>
+                        <label htmlFor="contact-name" className="block text-sm font-medium text-gray-700">
+                          Contact Name<span className="text-red-500">*</span>
                         </label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {previousContacts.map((contact) => (
-                            <div 
-                              key={contact.id}
-                              onClick={() => handleSelectPreviousContact(contact.id || '')}
-                              className={`flex items-center p-3 border rounded-lg cursor-pointer transition-all duration-200
-                                ${selectedPreviousContact === contact.id 
-                                  ? 'border-purple-500 bg-purple-50 shadow-sm' 
-                                  : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
-                            >
-                              <input
-                                type="radio"
-                                id={`contact-${contact.id}`}
-                                name="previousContact"
-                                checked={selectedPreviousContact === contact.id}
-                                onChange={() => handleSelectPreviousContact(contact.id || '')}
-                                className="h-4 w-4 text-purple-600 border-gray-300 focus:ring-purple-500"
-                              />
-                              <div className="ml-3 flex-1">
-                                <p className="text-sm font-medium text-gray-800">{contact.name}</p>
-                                <p className="text-xs text-gray-500">{contact.phone}</p>
-                              </div>
-                            </div>
-                          ))}
-                          <div 
-                            onClick={handleNewContact}
-                            className={`flex items-center p-3 border border-dashed rounded-lg cursor-pointer transition-all duration-200
-                              ${showContactForm && !selectedPreviousContact 
-                                ? 'border-purple-500 bg-purple-50 shadow-sm' 
-                                : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50'}`}
-                          >
-                            <div className="flex items-center justify-center h-4 w-4 rounded-full border border-gray-300 text-gray-500">
-                              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                              </svg>
-                            </div>
-                            <p className="ml-3 text-sm text-gray-700">Add a new contact</p>
-                          </div>
-                        </div>
+                        <input
+                          type="text"
+                          id="contact-name"
+                          name="name"
+                          value={siteContact.name}
+                          onChange={handleContactChange}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                          placeholder="Full name"
+                          required
+                        />
                       </div>
-                    )}
-                    {(showContactForm || previousContacts.length === 0) && (
-                      <div className="space-y-4">
-                        <div>
-                          <label htmlFor="contact-name" className="block text-sm font-medium text-gray-700">
-                            Contact Name<span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            id="contact-name"
-                            name="name"
-                            value={siteContact.name}
-                            onChange={handleContactChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                            placeholder="Full name"
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor="contact-phone" className="block text-sm font-medium text-gray-700">
-                            Phone Number<span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="tel"
-                            id="contact-phone"
-                            name="phone"
-                            value={siteContact.phone}
-                            onChange={handleContactChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                            placeholder="Mobile number for day of service"
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor="contact-email" className="block text-sm font-medium text-gray-700">
-                            Email Address
-                          </label>
-                          <input
-                            type="email"
-                            id="contact-email"
-                            name="email"
-                            value={siteContact.email}
-                            onChange={handleContactChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                            placeholder="Email (optional)"
-                          />
-                        </div>
-                        <div className="flex items-center mt-2">
-                          <input
-                            type="checkbox"
-                            id="available-onsite"
-                            name="isAvailableOnsite"
-                            checked={siteContact.isAvailableOnsite}
-                            onChange={handleContactChange}
-                            className="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
-                          />
-                          <label htmlFor="available-onsite" className="ml-2 block text-sm text-gray-700">
-                            This contact will be available on-site during the drone service
-                          </label>
-                        </div>
+                      <div>
+                        <label htmlFor="contact-phone" className="block text-sm font-medium text-gray-700">
+                          Phone Number<span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="tel"
+                          id="contact-phone"
+                          name="phone"
+                          value={siteContact.phone}
+                          onChange={handleContactChange}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                          placeholder="Mobile number for day of service"
+                          required
+                        />
                       </div>
-                    )}
-                    {selectedPreviousContact && !showContactForm && (
-                      <div className="mt-4 bg-purple-50 rounded-lg p-4 border border-purple-100">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="text-sm font-semibold text-gray-900">Selected Contact</h4>
-                            <p className="text-sm text-gray-700 mt-1">{siteContact.name}</p>
-                            <p className="text-sm text-gray-700">{siteContact.phone}</p>
-                            {siteContact.email && <p className="text-sm text-gray-700">{siteContact.email}</p>}
-                            {siteContact.isAvailableOnsite && (
-                              <p className="text-xs text-green-600 mt-2 flex items-center">
-                                <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                                Will be available on-site
-                              </p>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={handleNewContact}
-                            className="text-purple-600 hover:text-purple-800 text-sm"
-                          >
-                            Change
-                          </button>
-                        </div>
+                      <div>
+                        <label htmlFor="contact-email" className="block text-sm font-medium text-gray-700">
+                          Email Address
+                        </label>
+                        <input
+                          type="email"
+                          id="contact-email"
+                          name="email"
+                          value={siteContact.email}
+                          onChange={handleContactChange}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                          placeholder="Email (optional)"
+                        />
                       </div>
-                    )}
+                      <div className="flex items-center mt-2">
+                        <input
+                          type="checkbox"
+                          id="available-onsite"
+                          name="isAvailableOnsite"
+                          checked={siteContact.isAvailableOnsite}
+                          onChange={handleContactChange}
+                          className="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                        />
+                        <label htmlFor="available-onsite" className="ml-2 block text-sm text-gray-700">
+                          This contact will be available on-site during the drone service
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -1686,8 +1578,8 @@ const MakeBookings: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div 
                           onClick={() => setScheduleType('scheduled')}
-                          className={`p-4 border rounded-lg cursor-pointer transition ${
-                            scheduleType === 'scheduled' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'
+                          className={`p-4 border rounded-lg cursor-pointer transition duration-200 ${
+                            scheduleType === 'scheduled' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
                           }`}
                         >
                           <div className="flex items-center mb-2">
@@ -1700,15 +1592,15 @@ const MakeBookings: React.FC = () => {
                               className="h-4 w-4 text-green-600 border-gray-300 focus:ring-green-500"
                             />
                             <label htmlFor="scheduled" className="ml-2 block text-sm font-medium text-gray-700">
-                              Specific Date
+                              Specific Date & Time
                             </label>
                           </div>
-                          <p className="text-xs text-gray-500 ml-6">Choose an exact date for the drone service</p>
+                          <p className="text-xs text-gray-500 ml-6">Book a service for an exact date and time slot</p>
                         </div>
                         <div 
                           onClick={() => setScheduleType('flexible')}
-                          className={`p-4 border rounded-lg cursor-pointer transition ${
-                            scheduleType === 'flexible' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'
+                          className={`p-4 border rounded-lg cursor-pointer transition duration-200 ${
+                            scheduleType === 'flexible' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
                           }`}
                         >
                           <div className="flex items-center mb-2">
@@ -1721,15 +1613,15 @@ const MakeBookings: React.FC = () => {
                               className="h-4 w-4 text-green-600 border-gray-300 focus:ring-green-500"
                             />
                             <label htmlFor="flexible" className="ml-2 block text-sm font-medium text-gray-700">
-                              Flexible Date
+                              Flexible Scheduling
                             </label>
                           </div>
-                          <p className="text-xs text-gray-500 ml-6">Prefer a date but allow flexibility</p>
+                          <p className="text-xs text-gray-500 ml-6">Indicate preferred dates with flexibility for optimal conditions</p>
                         </div>
                         <div 
                           onClick={() => setScheduleType('repeat')}
-                          className={`p-4 border rounded-lg cursor-pointer transition ${
-                            scheduleType === 'repeat' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'
+                          className={`p-4 border rounded-lg cursor-pointer transition duration-200 ${
+                            scheduleType === 'repeat' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
                           }`}
                         >
                           <div className="flex items-center mb-2">
@@ -1742,76 +1634,190 @@ const MakeBookings: React.FC = () => {
                               className="h-4 w-4 text-green-600 border-gray-300 focus:ring-green-500"
                             />
                             <label htmlFor="repeat" className="ml-2 block text-sm font-medium text-gray-700">
-                              Recurring
+                              Recurring Services
                             </label>
                           </div>
-                          <p className="text-xs text-gray-500 ml-6">Schedule repeated services over time</p>
+                          <p className="text-xs text-gray-500 ml-6">Schedule regular services at defined intervals</p>
                         </div>
                       </div>
-                      <div className="mt-4 bg-gray-50 p-5 rounded-lg border border-gray-200">
+                      
+                      <div className="mt-6 bg-gray-50 p-6 rounded-lg border border-gray-200">
                         {scheduleType === 'scheduled' && (
-                          <>
-                            <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-2">
-                              Select a specific date for the service:
-                            </label>
-                            <input
-                              type="date"
-                              id="date"
-                              value={date}
-                              onChange={(e) => setDate(e.target.value)}
-                              min={new Date().toISOString().split('T')[0]}
-                              className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                            />
-                          </>
-                        )}
-                        {scheduleType === 'flexible' && (
-                          <>
-                            <p className="text-sm text-gray-600 mb-3">
-                              Select a preferred date with flexibility:
-                            </p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <label htmlFor="flexible-date" className="block text-sm font-medium text-gray-700 mb-1">
-                                  Preferred Date
-                                </label>
-                                <input
-                                  type="date"
-                                  id="flexible-date"
-                                  value={date}
-                                  min={new Date().toISOString().split('T')[0]}
-                                  onChange={(e) => setDate(e.target.value)}
-                                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                />
+                          <div className="space-y-6">
+                            <div>
+                              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+                                <svg className="w-5 h-5 mr-1 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                Date Selection
+                              </h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
+                                  <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
+                                    Service Date <span className="text-red-500">*</span>
+                                  </label>
+                                  <input
+                                    type="date"
+                                    id="date"
+                                    value={date}
+                                    onChange={(e) => setDate(e.target.value)}
+                                    min={new Date().toISOString().split('T')[0]}
+                                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                  />
+                                </div>
+                                
+                                <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
+                                  <label htmlFor="time-slot" className="block text-sm font-medium text-gray-700 mb-1">
+                                    Time Slot <span className="text-red-500">*</span>
+                                  </label>
+                                  <select
+                                    id="time-slot"
+                                    value={timeSlot}
+                                    onChange={(e) => setTimeSlot(e.target.value)}
+                                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                  >
+                                    <option value="">Select Time</option>
+                                    <option value="early-morning">Early Morning (6 AM - 8 AM)</option>
+                                    <option value="morning">Morning (8 AM - 12 PM)</option>
+                                    <option value="afternoon">Afternoon (12 PM - 4 PM)</option>
+                                    <option value="evening">Evening (4 PM - 8 PM)</option>
+                                  </select>
+                                </div>
                               </div>
-                              <div>
-                                <label htmlFor="flexibility" className="block text-sm font-medium text-gray-700 mb-1">
-                                  Flexibility
-                                </label>
-                                <select
-                                  id="flexibility"
-                                  value={flexibility}
-                                  onChange={(e) => setFlexibility(e.target.value)}
-                                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                >
-                                  <option value="exact">Exact Date</option>
-                                  <option value="1-day">±1 Day</option>
-                                  <option value="3-days">±3 Days</option>
-                                  <option value="1-week">±1 Week</option>
-                                </select>
+                              {date && (
+                                <div className="mt-3 text-sm text-gray-600">
+                                  Selected: {date && new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                                  {timeSlot && (
+                                    <span className="font-medium"> • {
+                                      {
+                                        'early-morning': 'Early Morning (6 AM - 8 AM)',
+                                        'morning': 'Morning (8 AM - 12 PM)',
+                                        'afternoon': 'Afternoon (12 PM - 4 PM)',
+                                        'evening': 'Evening (4 PM - 8 PM)'
+                                      }[timeSlot]
+                                    }</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <div className="flex items-center">
+                                <div className="h-4 w-4 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                  <div className="h-2 w-2 rounded-full bg-blue-600"></div>
+                                </div>
+                                <span className="ml-2 text-xs text-gray-500">Drone operations require suitable weather conditions. If unsuitable on the scheduled day, we'll contact you to reschedule.</span>
                               </div>
                             </div>
-                          </>
+                          </div>
                         )}
-                        {scheduleType === 'repeat' && (
-                          <>
-                            <p className="text-sm text-gray-600 mb-3">
-                              Schedule a recurring service:
-                            </p>
-                            <div className="grid grid-cols-1 gap-4">
+                        
+                        {scheduleType === 'flexible' && (
+                          <div className="space-y-6">
+                            <div>
+                              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+                                <svg className="w-5 h-5 mr-1 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                Preferred Date & Flexibility
+                              </h3>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
+                                <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
+                                  <label htmlFor="flexible-date" className="block text-sm font-medium text-gray-700 mb-1">
+                                    Preferred Date <span className="text-red-500">*</span>
+                                  </label>
+                                  <input
+                                    type="date"
+                                    id="flexible-date"
+                                    value={date}
+                                    min={new Date().toISOString().split('T')[0]}
+                                    onChange={(e) => setDate(e.target.value)}
+                                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                  />
+                                </div>
+                                
+                                <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
+                                  <label htmlFor="flexibility" className="block text-sm font-medium text-gray-700 mb-1">
+                                    Flexibility Range <span className="text-red-500">*</span>
+                                  </label>
+                                  <select
+                                    id="flexibility"
+                                    value={flexibility}
+                                    onChange={(e) => setFlexibility(e.target.value)}
+                                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                                  >
+                                    <option value="exact">Exact Date Only</option>
+                                    <option value="1-day">±1 Day</option>
+                                    <option value="3-days">±3 Days</option>
+                                    <option value="1-week">±1 Week</option>
+                                    <option value="2-weeks">±2 Weeks</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div>
+                              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+                                <svg className="w-5 h-5 mr-1 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Preferred Time of Day
+                              </h3>
+                              <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
+                                <label htmlFor="preferred-time-of-day" className="block text-sm font-medium text-gray-700 mb-2">
+                                  Select your preferred time:
+                                </label>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                  {[
+                                    { id: 'early-morning', label: 'Early Morning', time: '6 AM - 8 AM' },
+                                    { id: 'morning', label: 'Morning', time: '8 AM - 12 PM' },
+                                    { id: 'afternoon', label: 'Afternoon', time: '12 PM - 4 PM' },
+                                    { id: 'evening', label: 'Evening', time: '4 PM - 8 PM' }
+                                  ].map((option) => (
+                                    <div 
+                                      key={option.id}
+                                      onClick={() => setPreferredTimeOfDay(option.id)}
+                                      className={`border px-3 py-2 rounded-lg text-center cursor-pointer transition-colors duration-200 ${
+                                        preferredTimeOfDay === option.id 
+                                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
+                                          : 'border-gray-300 hover:border-indigo-300 hover:bg-indigo-50'
+                                      }`}
+                                    >
+                                      <p className="text-sm font-medium">{option.label}</p>
+                                      <p className="text-xs text-gray-500">{option.time}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                              <div className="flex">
+                                <svg className="h-5 w-5 text-blue-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <div className="ml-3">
+                                  <p className="text-sm text-blue-800">
+                                    Flexible scheduling allows us to select the optimal conditions for your service, ensuring the best possible results while working within your time constraints.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {scheduleType === 'repeat' && (
+                          <div className="space-y-6">
+                            <div>
+                              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+                                <svg className="w-5 h-5 mr-1 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Recurring Schedule
+                              </h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
                                   <label htmlFor="start-date" className="block text-sm font-medium text-gray-700 mb-1">
-                                    Start Date
+                                    Start Date <span className="text-red-500">*</span>
                                   </label>
                                   <input
                                     type="date"
@@ -1822,9 +1828,10 @@ const MakeBookings: React.FC = () => {
                                     className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
                                   />
                                 </div>
-                                <div>
+                                
+                                <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
                                   <label htmlFor="end-date" className="block text-sm font-medium text-gray-700 mb-1">
-                                    End Date
+                                    End Date <span className="text-red-500">*</span>
                                   </label>
                                   <input
                                     type="date"
@@ -1836,25 +1843,76 @@ const MakeBookings: React.FC = () => {
                                   />
                                 </div>
                               </div>
-                              <div>
-                                <label htmlFor="repeat-frequency" className="block text-sm font-medium text-gray-700 mb-1">
-                                  Repeat Frequency
+                              
+                              <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
+                                <label htmlFor="repeat-frequency" className="block text-sm font-medium text-gray-700 mb-3">
+                                  Frequency <span className="text-red-500">*</span>
                                 </label>
-                                <select
-                                  id="repeat-frequency"
-                                  value={repeatFrequency}
-                                  onChange={(e) => setRepeatFrequency(e.target.value)}
-                                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                >
-                                  <option value="daily">Daily</option>
-                                  <option value="weekly">Weekly</option>
-                                  <option value="bi-weekly">Bi-Weekly</option>
-                                  <option value="monthly">Monthly</option>
-                                  <option value="quarterly">Quarterly</option>
-                                </select>
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                                  {[
+                                    { id: 'daily', label: 'Daily' },
+                                    { id: 'weekly', label: 'Weekly' },
+                                    { id: 'bi-weekly', label: 'Bi-Weekly' },
+                                    { id: 'monthly', label: 'Monthly' },
+                                    { id: 'quarterly', label: 'Quarterly' }
+                                  ].map((option) => (
+                                    <div 
+                                      key={option.id}
+                                      onClick={() => setRepeatFrequency(option.id)}
+                                      className={`border px-3 py-2 rounded-md text-center cursor-pointer transition-colors duration-200 ${
+                                        repeatFrequency === option.id 
+                                          ? 'border-green-500 bg-green-50 text-green-700' 
+                                          : 'border-gray-300 hover:border-green-300 hover:bg-green-50'
+                                      }`}
+                                    >
+                                      <p className="text-sm">{option.label}</p>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             </div>
-                          </>
+                            
+                            <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
+                              <h4 className="text-sm font-medium text-gray-700 mb-2">Preferred Time of Day</h4>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                {[
+                                  { id: 'early-morning', label: 'Early Morning', time: '6 AM - 8 AM' },
+                                  { id: 'morning', label: 'Morning', time: '8 AM - 12 PM' },
+                                  { id: 'afternoon', label: 'Afternoon', time: '12 PM - 4 PM' },
+                                  { id: 'evening', label: 'Evening', time: '4 PM - 8 PM' }
+                                ].map((option) => (
+                                  <div 
+                                    key={option.id}
+                                    onClick={() => setPreferredTimeOfDay(option.id)}
+                                    className={`border px-3 py-2 rounded-lg text-center cursor-pointer transition-colors duration-200 ${
+                                      preferredTimeOfDay === option.id 
+                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
+                                        : 'border-gray-300 hover:border-indigo-300 hover:bg-indigo-50'
+                                    }`}
+                                  >
+                                    <p className="text-sm font-medium">{option.label}</p>
+                                    <p className="text-xs text-gray-500">{option.time}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            
+                            {startDate && endDate && repeatFrequency && (
+                              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                                <div className="flex">
+                                  <svg className="h-5 w-5 text-yellow-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  <div className="ml-3">
+                                    <p className="text-sm text-yellow-800">
+                                      You're scheduling a <span className="font-medium">{repeatFrequency}</span> service from <span className="font-medium">{startDate && new Date(startDate).toLocaleDateString()}</span> to <span className="font-medium">{endDate && new Date(endDate).toLocaleDateString()}</span>. 
+                                      Our team will contact you to confirm each appointment before the service date.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>

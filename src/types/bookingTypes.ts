@@ -12,14 +12,15 @@ export interface Booking {
   jobTypes: string[];
   jobType?: string;
   location: string;
+  postcode?: string;    // Added for postcode information
+  address?: string;     
   status: BookingStatus | string;
   userName: string;
   userEmail: string;
   userPhone: string;
   companyName: string;
   notes: string;
-  address?: string;     // Added missing property
-  time?: string;        // Added missing property 
+  time?: string;        
   serviceOptions?: any;
   serviceType?: string;
   siteContact: {
@@ -29,6 +30,16 @@ export interface Booking {
     email?: string;
     isAvailableOnsite?: boolean;
   };
+  scheduling?: {
+    scheduleType?: string;
+    date?: string;
+    timeSlot?: string;
+    flexibility?: string;
+    startDate?: string;
+    endDate?: string;
+    repeatFrequency?: string;
+  };
+  scheduleTime?: string; // Added for formatted time slot display
 }
 
 export interface BookingImage {

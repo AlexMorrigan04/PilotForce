@@ -27,27 +27,35 @@ const AdminBookingUpload: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
-      if (!bookingId) return;
-
+    const loadBookingData = async () => {
       try {
         setLoading(true);
         setError(null);
+        
+        // Make sure bookingId is not undefined
+        if (!bookingId) {
+          setError("Booking ID is missing");
+          setLoading(false);
+          return;
+        }
 
-        const bookingData = await adminService.getBookingById(bookingId);
+        const bookingData = await adminService.getBooking(bookingId);
         setBooking(bookingData.booking || bookingData);
 
         const resourcesData = await adminService.getBookingResources(bookingId);
         setResources(resourcesData.resources || []);
+
+        setLoading(false);
       } catch (err: any) {
-        console.error('Error fetching data:', err);
-        setError(err.message || 'Failed to fetch booking data');
-      } finally {
+        console.error('Error loading booking data:', err);
+        setError(err.message || 'Failed to load booking data');
         setLoading(false);
       }
     };
 
-    fetchData();
+    if (bookingId) {
+      loadBookingData();
+    }
   }, [bookingId]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,7 +69,7 @@ const AdminBookingUpload: React.FC = () => {
         adminService.uploadBookingResource(
           bookingId,
           file,
-          (progress) => {
+          (progress: number) => {
             setUploadProgress(prev => ({
               ...prev,
               [file.name]: progress
@@ -117,7 +125,7 @@ const AdminBookingUpload: React.FC = () => {
         adminService.uploadBookingResource(
           bookingId,
           file,
-          (progress) => {
+          (progress: number) => {
             setUploadProgress(prev => ({
               ...prev,
               [file.name]: progress

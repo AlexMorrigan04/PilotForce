@@ -34,7 +34,7 @@ const GeoTiffLoader = {
       if (bookingId) {
         try {
           console.log('GeoTiffLoader: Attempting to proxy GeoTIFF through backend API...');
-          const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+          const API_BASE_URL = process.env.REACT_APP_API_URL;
           const encodedUrl = encodeURIComponent(url);
           
           // Request the binary data via a proxy endpoint
@@ -83,7 +83,7 @@ const GeoTiffLoader = {
         if (key && bookingId) {
           try {
             // Try to get a fresh presigned URL through your API
-            const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+            const API_BASE_URL = process.env.REACT_APP_API_URL;
             const freshenResponse = await axios.get(`${API_BASE_URL}/freshen-url`, {
               params: {
                 key: key,
@@ -157,7 +157,7 @@ const GeoTiffLoader = {
       // If we have a booking ID, try to use the proxy
       if (bookingId) {
         try {
-          const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+          const API_BASE_URL = process.env.REACT_APP_API_URL;
           const encodedUrl = encodeURIComponent(url);
           
           // Request the binary data via proxy

@@ -1,151 +1,207 @@
 /**
- * Utility for debugging authentication tokens
+ * Token debugging utilities
+ * This module provides functions to debug authentication issues by inspecting tokens.
  */
+
+/**
+ * Extract and decode information from a JWT token 
+ * @param token JWT token string
+ * @returns Decoded token information
+ */
+export const getTokenInfo = (token: string | null): {
+  isValid: boolean;
+  header?: any;
+  payload?: any;
+  expiresAt?: Date;
+  issuer?: string;
+  subject?: string;
+  isExpired: boolean;
+  timeToExpiry?: number;
+} => {
+  if (!token) {
+    return {
+      isValid: false,
+      isExpired: true
+    };
+  }
+
+  try {
+    // Split the token
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return {
+        isValid: false,
+        isExpired: true
+      };
+    }
+
+    // Decode the header and payload
+    const header = JSON.parse(atob(parts[0]));
+    const payload = JSON.parse(atob(parts[1]));
+
+    // Check if token is expired
+    const expiresAt = new Date(payload.exp * 1000);
+    const now = new Date();
+    const isExpired = expiresAt < now;
+    const timeToExpiry = expiresAt.getTime() - now.getTime(); // milliseconds
+
+    return {
+      isValid: true,
+      header,
+      payload,
+      expiresAt,
+      issuer: payload.iss,
+      subject: payload.sub,
+      isExpired,
+      timeToExpiry
+    };
+  } catch (error) {
+    console.error('Error decoding token:', error);
+    return {
+      isValid: false,
+      isExpired: true
+    };
+  }
+};
 
 /**
  * Check if a JWT token is expired
- * @param token The JWT token to check
- * @returns True if the token is expired, false otherwise
+ * @param token JWT token string
+ * @returns True if token is expired or invalid, false otherwise
  */
-export const isTokenExpired = (token: string): boolean => {
-  try {
-    // Get payload part of the token
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-
-    const { exp } = JSON.parse(jsonPayload);
-    const expired = Date.now() >= exp * 1000;
-    return expired;
-  } catch (error) {
-    console.error('Error checking token expiration:', error);
-    return true; // Assume expired if there's an error
-  }
+export const isTokenExpired = (token: string | null): boolean => {
+  if (!token) return true;
+  const tokenInfo = getTokenInfo(token);
+  return tokenInfo.isExpired;
 };
 
 /**
- * Get token information
- * @param token The JWT token to analyze
- * @returns Object with token information
+ * Check if a token should be refreshed (close to expiring)
+ * @param token JWT token string
+ * @param refreshThresholdMinutes Minutes before expiry to trigger refresh
+ * @returns True if token should be refreshed, false otherwise
  */
-export const getTokenInfo = (token: string | null): any => {
-  if (!token) {
-    return { error: 'No token provided' };
+export const shouldRefreshToken = (
+  token: string | null, 
+  refreshThresholdMinutes: number = 10
+): boolean => {
+  if (!token) return true;
+
+  const tokenInfo = getTokenInfo(token);
+  
+  if (!tokenInfo.isValid || tokenInfo.isExpired) {
+    return true;
   }
-
-  try {
-    // Get payload part of the token
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return { error: 'Invalid token format' };
-    }
-
-    const base64Url = parts[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-
-    const payload = JSON.parse(jsonPayload);
-    const now = Date.now() / 1000;
-    
-    return {
-      ...payload,
-      isExpired: payload.exp < now,
-      expiresIn: payload.exp ? Math.round(payload.exp - now) : null,
-      tokenLength: token.length,
-    };
-  } catch (error) {
-    console.error('Error parsing token:', error);
-    return { error: 'Invalid token or parsing error' };
+  
+  // If token expires within the threshold, refresh it
+  if (tokenInfo.timeToExpiry && tokenInfo.timeToExpiry < refreshThresholdMinutes * 60 * 1000) {
+    return true;
   }
+  
+  return false;
 };
 
 /**
- * Utility for debugging authentication tokens
+ * Print detailed authentication state information to console for debugging
  */
-export function debugAuthState() {
-  console.log("=== TOKEN DEBUGGER ===");
+export const debugAuthState = (): void => {
+  // Try to get the token from localStorage or sessionStorage
+  const token = localStorage.getItem('idToken') || sessionStorage.getItem('idToken');
+  const refreshToken = localStorage.getItem('refreshToken') || sessionStorage.getItem('refreshToken');
   
-  // Check if we're in a browser environment
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
-    console.log("Not in browser environment");
-    return;
-  }
+  console.log('====== AUTH STATE DEBUG ======');
   
-  // Check for token in localStorage
-  const token = localStorage.getItem('token');
-  const idToken = localStorage.getItem('idToken');
-  const userData = localStorage.getItem('user');
+  // Check token existence
+  console.log('Token exists:', !!token);
+  console.log('Refresh token exists:', !!refreshToken);
   
-  console.log("Token available:", !!token);
-  console.log("ID Token available:", !!idToken);
-  console.log("User data available:", !!userData);
-  
-  // Try to decode and log token information (without exposing the full token)
+  // If token exists, analyze it
   if (token) {
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        console.log("Token structure valid (has 3 parts)");
+    const tokenInfo = getTokenInfo(token);
+    console.log('Token valid:', tokenInfo.isValid);
+    
+    if (tokenInfo.isValid) {
+      console.log('Token expired:', tokenInfo.isExpired);
+      console.log('Token issuer:', tokenInfo.issuer);
+      console.log('Token subject:', tokenInfo.subject);
+      
+      if (tokenInfo.expiresAt) {
+        console.log('Token expires at:', tokenInfo.expiresAt.toISOString());
         
-        try {
-          // Decode the payload (second part)
-          const base64Payload = parts[1];
-          const normalizedBase64 = base64Payload.replace(/-/g, '+').replace(/_/g, '/');
-          const payload = JSON.parse(atob(normalizedBase64));
-          
-          // Log important details without exposing everything
-          console.log("Token payload preview:", {
-            exp: payload.exp ? new Date(payload.exp * 1000).toISOString() : 'Not found',
-            iat: payload.iat ? new Date(payload.iat * 1000).toISOString() : 'Not found',
-            expired: payload.exp ? Date.now() > payload.exp * 1000 : 'Unknown',
-            user_id: payload.sub || 'Not found',
-            email: payload.email || 'Not found',
-            username: payload.username || payload['cognito:username'] || 'Not found'
-          });
-        } catch (e) {
-          console.error("Failed to decode token payload:", e);
+        if (!tokenInfo.isExpired) {
+          const minutesToExpiry = Math.round(tokenInfo.timeToExpiry! / (60 * 1000));
+          console.log('Minutes until token expires:', minutesToExpiry);
         }
-      } else {
-        console.error("Token malformed - doesn't have 3 parts separated by dots");
       }
-    } catch (e) {
-      console.error("Error examining token:", e);
     }
   }
   
-  // Add a note about how tokens should be sent to API
-  console.log("API expects tokens in format: 'Authorization: Bearer xyz123...'");
-  console.log("=====================");
-}
+  // Check for other auth indicators in storage
+  const userStr = localStorage.getItem('user') || sessionStorage.getItem('user');
+  console.log('User data exists:', !!userStr);
+  
+  console.log('====== END AUTH DEBUG ======');
+};
 
 /**
- * Fix an authentication token by ensuring it has the proper Bearer prefix
+ * Generate a diagnostic report of the authentication state
+ * @returns Diagnostic report as string
  */
-export function ensureTokenFormat(token: string | null): string | null {
-  if (!token) return null;
+export const generateAuthDiagnostics = (): string => {
+  let report = '=== Authentication Diagnostics ===\n\n';
   
-  // If token already starts with Bearer, return as is
-  if (token.trim().startsWith('Bearer ')) {
-    return token;
+  // Get token information
+  const token = localStorage.getItem('idToken') || sessionStorage.getItem('idToken');
+  report += `ID Token present: ${!!token}\n`;
+  
+  if (token) {
+    const tokenInfo = getTokenInfo(token);
+    report += `Token valid: ${tokenInfo.isValid}\n`;
+    report += `Token expired: ${tokenInfo.isExpired}\n`;
+    
+    if (tokenInfo.expiresAt) {
+      report += `Token expiry: ${tokenInfo.expiresAt.toISOString()}\n`;
+      
+      if (!tokenInfo.isExpired) {
+        const minutesToExpiry = Math.round(tokenInfo.timeToExpiry! / (60 * 1000));
+        report += `Minutes until expiry: ${minutesToExpiry}\n`;
+      }
+    }
   }
   
-  // Otherwise add the Bearer prefix
-  return `Bearer ${token}`;
-}
+  // Check storage state
+  report += '\n=== Storage State ===\n';
+  report += `localStorage items: ${Object.keys(localStorage).length}\n`;
+  
+  try {
+    report += `sessionStorage items: ${Object.keys(sessionStorage).length}\n`;
+  } catch (e) {
+    report += 'sessionStorage not accessible\n';
+  }
+  
+  // List relevant auth items
+  const authItems = ['idToken', 'accessToken', 'refreshToken', 'user', 
+    'tokens', 'auth_username', 'pilotforce_session_timestamp'];
+    
+  report += '\n=== Auth Items ===\n';
+  authItems.forEach(item => {
+    const inLocal = !!localStorage.getItem(item);
+    let inSession = false;
+    
+    try {
+      inSession = !!sessionStorage.getItem(item);
+    } catch (e) {}
+    
+    report += `${item}: localStorage=${inLocal}, sessionStorage=${inSession}\n`;
+  });
+  
+  return report;
+};
 
 export default {
-  isTokenExpired,
   getTokenInfo,
+  isTokenExpired,
+  shouldRefreshToken,
   debugAuthState,
-  ensureTokenFormat
+  generateAuthDiagnostics,
 };

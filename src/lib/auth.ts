@@ -9,10 +9,10 @@ Amplify.configure({
       loginWith: {
         username: true,
         oauth: {
-          domain: 'eu-north-1yfz6m4vyq.auth.eu-north-1.amazoncognito.com',
+          domain: process.env.REACT_APP_COGNITO_DOMAIN || '',
           scopes: ['email', 'profile', 'openid'],
-          redirectSignIn: ['http://localhost:3000/'],
-          redirectSignOut: ['http://localhost:3000/'],
+          redirectSignIn: [(process.env.REACT_APP_COGNITO_REDIRECT_URI || 'http://localhost:3000/')],
+          redirectSignOut: [(process.env.REACT_APP_COGNITO_REDIRECT_URI || 'http://localhost:3000/')],
           responseType: 'code'
         }
       }

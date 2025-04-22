@@ -5,17 +5,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FiEye, FiEyeOff, FiMoon, FiSun, FiUser, FiLock, FiAlertCircle } from 'react-icons/fi';
 import loginImage from '../images/login-image.avif';
 import logo from '../images/logo.png'; // Update with your actual logo path
+import LoginAccessDeniedModal from '../components/LoginAccessDeniedModal';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [needsConfirmation, setNeedsConfirmation] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  
-  const { signIn, error, loading, isAuthenticated } = useAuth();
+  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
+  const [accessDeniedData, setAccessDeniedData] = useState({
+    username: '',
+    email: '',
+    isNewDomain: false,
+    companyName: '',
+    approvalStatus: 'PENDING'
+  });
+
+  const { signIn, loading, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -56,57 +65,54 @@ const Login: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validate inputs before submission
-    if (!username.trim()) {
-      setLoginError('Username is required');
-      return;
-    }
-    
-    if (!password) {
-      setLoginError('Password is required');
-      return;
-    }
-    
-    // Reset states
+    setError(null);
     setIsLoggingIn(true);
-    setLoginError(null);
-    setNeedsConfirmation(false);
-    
+
     try {
-      console.log('Login attempt with:', { username: username.trim() });
+      // Validate required fields before sending request
+      if (!username) {
+        setError('Username is required');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      if (!password) {
+        setError('Password is required');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      // Use the direct API Gateway approach in the signIn function
+      const result = await signIn(username, password);
+      console.log('Login result:', result);
       
-      const result = await signIn(username.trim(), password);
-      
-      // Only navigate to dashboard if login was successful
-      if (result.success) {
-        console.log('Login successful, checking user role');
-        
-        // Redirect based on user role
-        if (result.isAdmin) {
-          console.log('User is admin, navigating to admin dashboard');
-          navigate('/admin-dashboard');
-        } else {
-          console.log('User is not admin, navigating to regular dashboard');
-          navigate(getReturnPath());
-        }
-      } else if (result.needsConfirmation) {
-        // Handle confirmation needed
-        setNeedsConfirmation(true);
-        setLoginError('Your account needs to be confirmed before you can log in.');
-        
-        // Navigate to confirmation page after a brief delay
-        setTimeout(() => {
+      // Always check for success property, which will always exist now
+      if (!result.success) {
+        // Check specifically for approval required case
+        if (result.requiresApproval) {
+          console.log('User requires approval - showing modal:', result);
+          setAccessDeniedData({
+            username: result.username || username,
+            email: result.email || '',
+            isNewDomain: result.isNewDomain || false,
+            companyName: result.companyName || '',
+            approvalStatus: result.approvalStatus || 'PENDING'
+          });
+          setShowAccessDeniedModal(true);
+        } else if (result.needsConfirmation) {
+          // Handle confirmation required case
           navigate(`/confirm-account?username=${encodeURIComponent(username)}`);
-        }, 1500);
+        } else {
+          // General error case
+          setError(result.message || 'Login failed. Please check your credentials.');
+        }
       } else {
-        // Handle other failures (should be caught by catch block but just in case)
-        setLoginError(result.message || 'Login failed. Please check your credentials.');
+        // Success case - redirect to dashboard
+        navigate('/dashboard');
       }
     } catch (err: any) {
-      // Handle login error
       console.error('Login error:', err);
-      setLoginError(err.message || 'Failed to login. Please check your credentials.');
+      setError(err.message || 'An unexpected error occurred');
     } finally {
       setIsLoggingIn(false);
     }
@@ -205,7 +211,7 @@ const Login: React.FC = () => {
 
           {/* Show error message from context or local state */}
           <AnimatePresence>
-            {(error || loginError) && (
+            {error && (
               <motion.div 
                 className={`mb-4 p-4 rounded-lg flex items-start ${
                   needsConfirmation 
@@ -218,7 +224,7 @@ const Login: React.FC = () => {
                 transition={{ duration: 0.3 }}
               >
                 <FiAlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
-                <span>{error?.message || loginError}</span>
+                <span>{error}</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -343,6 +349,17 @@ const Login: React.FC = () => {
           </form>
         </motion.div>
       </div>
+
+      {/* Access denied modal */}
+      <LoginAccessDeniedModal
+        isOpen={showAccessDeniedModal}
+        onClose={() => setShowAccessDeniedModal(false)}
+        username={accessDeniedData.username}
+        email={accessDeniedData.email}
+        isNewDomain={accessDeniedData.isNewDomain}
+        companyName={accessDeniedData.companyName}
+        approvalStatus={accessDeniedData.approvalStatus}
+      />
     </div>
   );
 };

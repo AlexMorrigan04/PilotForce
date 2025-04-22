@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getTokenInfo } from '../utils/tokenDebugger';
+import { getTokenInfo, shouldRefreshToken, debugAuthState } from '../utils/tokenDebugger';
+import { isAuthenticated, needsSessionRefresh } from '../utils/sessionPersistence';
 
 interface AuthMiddlewareProps {
   children: React.ReactNode;
 }
 
 const AuthMiddleware: React.FC<AuthMiddlewareProps> = ({ children }) => {
-  const { isAuthenticated, checkAuth } = useAuth();
+  const { isAuthenticated: authContextAuthenticated, checkAuth } = useAuth();
   const [isChecking, setIsChecking] = useState(true);
   const navigate = useNavigate();
   
@@ -17,30 +18,30 @@ const AuthMiddleware: React.FC<AuthMiddlewareProps> = ({ children }) => {
     const verifyToken = async () => {
       setIsChecking(true);
       
-      // Get token from storage
-      const token = localStorage.getItem('idToken');
+      // Log auth state to help with debugging
+      debugAuthState();
       
-      if (!token) {
-        console.warn('No token found, redirecting to login');
-        navigate('/login');
-        setIsChecking(false);
-        return;
-      }
-      
-      // Check if token is expired
-      const tokenInfo = getTokenInfo(token);
-      if (tokenInfo.isExpired) {
-        console.warn('Token is expired, trying to refresh...');
+      // Check if user is authenticated with our utility functions
+      if (!isAuthenticated()) {
+        console.warn('No valid token found, trying to refresh...');
         await checkAuth();
         
-        // Get token again to see if it was refreshed
-        const newToken = localStorage.getItem('idToken');
-        const newTokenInfo = newToken ? getTokenInfo(newToken) : { isExpired: true };
-        
-        if (newTokenInfo.isExpired) {
-          console.warn('Token refresh failed, redirecting to login');
-          navigate('/login');
+        // Check again after refresh attempt
+        if (!isAuthenticated()) {
+          console.warn('Authentication refresh failed, redirecting to login');
+          navigate('/login', { 
+            state: { 
+              from: window.location.pathname,
+              reason: 'session_expired' 
+            } 
+          });
+          setIsChecking(false);
+          return;
         }
+      } else if (needsSessionRefresh()) {
+        // Token exists but is going to expire soon, refresh it proactively
+        console.log('Token will expire soon, refreshing proactively...');
+        await checkAuth();
       }
       
       setIsChecking(false);
@@ -49,7 +50,22 @@ const AuthMiddleware: React.FC<AuthMiddlewareProps> = ({ children }) => {
     verifyToken();
     
     // Set up periodic token checks (every 2 minutes)
-    const tokenCheckInterval = setInterval(verifyToken, 2 * 60 * 1000);
+    const tokenCheckInterval = setInterval(async () => {
+      // Only do full verification if user seems to be active
+      // by checking recent activity timestamp from the SessionManager
+      const lastActivity = localStorage.getItem('pilotforce_session_timestamp') || '0';
+      const timeSinceActivity = Date.now() - parseInt(lastActivity, 10);
+      
+      // If user has been active in the last 10 minutes
+      if (timeSinceActivity < 10 * 60 * 1000) {
+        console.log('User active, checking token status...');
+        
+        if (needsSessionRefresh()) {
+          console.log('Refreshing token during periodic check');
+          await checkAuth();
+        }
+      }
+    }, 2 * 60 * 1000); // Check every 2 minutes
     
     return () => {
       clearInterval(tokenCheckInterval);

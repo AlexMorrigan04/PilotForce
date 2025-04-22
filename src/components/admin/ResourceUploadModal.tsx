@@ -229,6 +229,43 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
     }
   };
 
+  // Updated function to update booking status to 'Completed'
+  const updateBookingStatus = async (bookingId: string): Promise<boolean> => {
+    try {
+      console.log(`Updating booking ${bookingId} status to 'Completed'`);
+      
+      const response = await axios.put(
+        `${API_BASE_URL}/admin/bookings/${bookingId}/status`,
+        {
+          status: 'Completed'
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('idToken')}`
+          }
+        }
+      );
+
+      console.log("Booking status update response:", response.data);
+      
+      // Check for success in the response data
+      if (response.data.success || 
+          (response.data.message && response.data.message.includes('success'))) {
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.error(`Error updating booking status for ${bookingId}:`, err);
+      // Check if error response contains success message
+      if (err.response?.data?.message?.includes('success')) {
+        console.log("Found success message in error response - treating as success");
+        return true;
+      }
+      return false;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -255,13 +292,19 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
       ];
       
       // Start with standard files first
+      let standardUploadSuccess = false;
       if (standardFiles.length > 0) {
         const standardResults = await Promise.allSettled(uploadPromises);
-        // Process standard file results...
+        // Check if any standard file uploads were successful
+        standardUploadSuccess = standardResults.some(
+          result => result.status === 'fulfilled' && result.value.success
+        );
       }
       
       // Then handle large files one at a time with improved error handling
       const largeFileResults = [];
+      let largeUploadSuccess = false;
+      
       if (largeFiles.length > 0) {
         setError(
           <div className="text-blue-700">
@@ -274,9 +317,8 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
           try {
             const result = await uploadLargeFileDirectly(file);
             largeFileResults.push(result);
-            if (!result.success) {
-              // If a file fails, show the error but continue with other files
-              console.warn(`File ${file.name} could not be uploaded automatically, offering manual option`);
+            if (result.success) {
+              largeUploadSuccess = true;
             }
           } catch (error) {
             console.error(`Failed to upload ${file.name}:`, error);
@@ -302,6 +344,9 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
           return result.status === 'fulfilled' ? result.value : null;
         });
 
+      // Check if any upload was successful
+      const anyUploadSuccessful = standardUploadSuccess || largeUploadSuccess;
+
       if (failures.length > 0) {
         const errorFiles = failures
           .filter(f => f && f.file)
@@ -314,8 +359,22 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
             return typeof prev === 'string' ? `${prev} ${newError}` : newError;
           });
         }
-      } else if (standardFiles.length > 0 || largeFiles.length > 0) {
-        // All file uploads were successful
+      }
+      
+      // If any file was successfully uploaded, update booking status to 'Completed'
+      if (anyUploadSuccessful) {
+        try {
+          const statusUpdateSuccess = await updateBookingStatus(bookingId);
+          if (statusUpdateSuccess) {
+            console.log(`Successfully updated booking ${bookingId} status to 'Completed'`);
+          } else {
+            console.warn(`Failed to update booking ${bookingId} status to 'Completed'`);
+          }
+        } catch (statusError) {
+          console.error("Error updating booking status:", statusError);
+        }
+        
+        // Only close and reset if we had success with at least one file
         setFiles([]);
         onUploadComplete();
         onClose();

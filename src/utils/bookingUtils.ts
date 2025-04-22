@@ -127,6 +127,43 @@ export const getBookings = async (companyId?: string) => {
 };
 
 /**
+ * Gets the count of bookings for a company
+ * @param companyId - The ID of the company to count bookings for
+ * @returns Promise resolving to the number of bookings
+ */
+export const getBookingCount = async (companyId: string): Promise<number> => {
+  try {
+    // Get authentication token
+    const token = localStorage.getItem('idToken') || localStorage.getItem('token');
+    
+    if (!token) {
+      console.warn('Authentication token not found when fetching booking count');
+      return 0;
+    }
+    
+    // Use the countOnly parameter to only get the count, not all bookings data
+    const response = await fetch(`${API_URL}/bookings?companyId=${companyId}&countOnly=true`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`Failed to fetch booking count: ${response.status}`);
+      return 0;
+    }
+    
+    const data = await response.json();
+    return data.count || 0;
+  } catch (error) {
+    console.error('Error fetching booking count:', error);
+    return 0; // Return 0 as fallback in case of error
+  }
+};
+
+/**
  * Fetches booking details by ID from the API or DynamoDB
  */
 export const getBookingById = async (bookingId: string) => {
@@ -282,5 +319,6 @@ export const getBookingById = async (bookingId: string) => {
 export default {
   createBooking,
   getBookings,
-  getBookingById
+  getBookingById,
+  getBookingCount
 };

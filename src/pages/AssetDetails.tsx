@@ -362,7 +362,7 @@ const AssetDetails: React.FC = () => {
       type: asset.AssetType || 'buildings',
       area: asset.Area,
       address: asset.Address,
-      postcode: asset.PostCode || '',
+      postcode: asset.Postcode || asset.PostCode || asset.postcode || '',
       // Safe handling of coordinates
       coordinates: asset.Coordinates || [],
       CenterPoint: asset.CenterPoint || null
@@ -487,7 +487,7 @@ const AssetDetails: React.FC = () => {
             <div className="flex">
               <div className="flex-shrink-0">
                 <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
               </div>
               <div className="ml-3">
@@ -656,6 +656,10 @@ const AssetDetails: React.FC = () => {
                     <div className="py-2.5 flex justify-between">
                       <dt className="text-sm font-medium text-gray-500">Address</dt>
                       <dd className="text-sm text-gray-900 text-right">{asset.Address || "Not specified"}</dd>
+                    </div>
+                    <div className="py-2.5 flex justify-between">
+                      <dt className="text-sm font-medium text-gray-500">Postcode</dt>
+                      <dd className="text-sm text-gray-900 text-right">{asset.Postcode || asset.PostCode || asset.postcode || "Not specified"}</dd>
                     </div>
                     <div className="py-2.5 flex justify-between">
                       <dt className="text-sm font-medium text-gray-500">Asset Type</dt>

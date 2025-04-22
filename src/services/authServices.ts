@@ -72,40 +72,100 @@ interface AuthResponse {
 /**
  * Refresh the authentication tokens using the refresh token
  */
-export const refreshTokens = async (): Promise<AuthResponse> => {
+export const refreshToken = async (): Promise<AuthResponse> => {
   try {
-    const refreshToken = localStorage.getItem('refreshToken');
+    // Import the session persistence utilities
+    const { getRefreshToken, storeAuthTokens } = await import('../utils/sessionPersistence');
+    
+    // Get refresh token with fallback strategy
+    const refreshToken = getRefreshToken();
     
     if (!refreshToken) {
+      console.error('No refresh token available');
       return {
         success: false,
         message: 'No refresh token available'
       };
     }
     
-    // Call the refresh token endpoint
-    const response = await authApi.post('/refresh-token', {
-      refreshToken
+    console.log('Attempting token refresh...');
+    
+    // Get username for SECRET_HASH calculation
+    const username = localStorage.getItem('auth_username');
+    
+    if (!username) {
+      console.error('Username not found in localStorage for SECRET_HASH calculation');
+      return {
+        success: false,
+        message: 'Username required for token refresh'
+      };
+    }
+    
+    // Import the cognitoService to calculate SECRET_HASH
+    const cognitoService = await import('./cognitoService');
+    const secretHash = cognitoService.default.calculateSecretHash(username);
+    
+    // Call the refresh token endpoint with SECRET_HASH
+    const response = await fetch(`${API_URL}/refresh-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ 
+        refreshToken,
+        username, 
+        secretHash 
+      })
     });
     
-    // Process response similar to login
-    let parsedData: any = response.data;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Token refresh failed:', response.status, errorText);
+      return {
+        success: false,
+        message: `Refresh failed: ${response.status} ${errorText}`
+      };
+    }
     
-    if (response.data.body && typeof response.data.body === 'string') {
+    const responseText = await response.text();
+    let responseData;
+    
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Error parsing refresh token response:', parseError);
+      console.log('Raw response:', responseText);
+      return {
+        success: false,
+        message: 'Invalid response format from server'
+      };
+    }
+    
+    // Handle nested response structure from API Gateway
+    let parsedData: any = responseData;
+    
+    if (responseData.body && typeof responseData.body === 'string') {
       try {
-        parsedData = JSON.parse(response.data.body);
+        parsedData = JSON.parse(responseData.body);
       } catch (error) {
-        console.error('Error parsing refresh token response:', error);
+        console.error('Error parsing refresh token response body:', error);
+        return {
+          success: false,
+          message: 'Invalid response body format'
+        };
       }
     }
     
-    // If we have new tokens, store them
+    // If we have new tokens, store them using our persistence utility
     if (parsedData.tokens) {
-      localStorage.setItem('idToken', parsedData.tokens.idToken);
-      localStorage.setItem('accessToken', parsedData.tokens.accessToken);
+      console.log('New tokens received from server');
       
-      // Update auth header for subsequent requests
-      authApi.defaults.headers.common['Authorization'] = `Bearer ${parsedData.tokens.idToken}`;
+      // Store tokens in both localStorage and sessionStorage
+      storeAuthTokens(
+        parsedData.tokens.idToken,
+        parsedData.tokens.refreshToken,
+        parsedData.tokens.accessToken
+      );
       
       return {
         success: true,
@@ -116,181 +176,157 @@ export const refreshTokens = async (): Promise<AuthResponse> => {
     
     return {
       success: false,
-      message: 'Could not refresh token'
+      message: 'Could not refresh token: No tokens in response'
     };
   } catch (error: any) {
     console.error('Token refresh error:', error);
     
-    // On refresh failure, clear tokens to force re-login
-    localStorage.removeItem('idToken');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    
     return {
       success: false,
-      message: 'Token refresh failed',
+      message: 'Token refresh failed due to an error',
       error
     };
   }
 };
 
 /**
- * Login user via API Gateway with fallback to direct Cognito Auth
+ * Login with username and password via API Gateway
  */
-export async function login(username: string, password: string): Promise<AuthResponse> {
+export const login = async (username: string, password: string): Promise<any> => {
   try {
-    console.log('Attempting login for:', username, 'via API Gateway');
+    console.log(`Attempting login for: ${username} via API Gateway`);
     
-    // Prepare the request payload
-    const requestPayload = {
+    // Construct login request payload
+    const payload = {
       username,
       password
     };
     
     console.log('Login request payload:', {
-      ...requestPayload,
-      password: '********' // Hide password in logs
+      username,
+      password: '********' // Mask password in logs
     });
     
-    // Make API call to login endpoint
-    const response = await fetch(`${API_URL}/login`, {
+    // Get the API Gateway endpoint
+    const apiGatewayUrl = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/login';
+    
+    // Make the API request
+    const response = await fetch(apiGatewayUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
       },
-      body: JSON.stringify(requestPayload)
+      body: JSON.stringify(payload)
     });
     
     console.log('Login response status:', response.status);
     
-    const responseText = await response.text();
+    // Get the raw text response to help with debugging
+    const rawText = await response.text();
+    console.log('Raw response text:', rawText);
     
-    // Debug the raw response
-    console.log('Raw response text:', responseText.substring(0, 100) + '...');
-    
+    // Parse the response text
     let responseData;
-    
     try {
-      responseData = JSON.parse(responseText);
-      console.log('Parsed response structure:', JSON.stringify({
-        statusCode: responseData.statusCode,
-        headers: responseData.headers ? 'present' : 'not present',
-        bodyType: typeof responseData.body,
-        bodyLength: responseData.body ? responseData.body.length : 0
-      }));
-    } catch (parseError) {
-      console.error('Error parsing response:', parseError);
-      console.log('Raw response:', responseText);
-      throw new Error('Invalid response from server');
-    }
-    
-    // Handle nested response structure from API Gateway
-    if (responseData.body && typeof responseData.body === 'string') {
-      try {
-        const parsedBody = JSON.parse(responseData.body);
-        console.log('Parsed response body structure:', Object.keys(parsedBody));
-        
-        // Check if login was successful based on the parsed body
-        if (parsedBody.tokens && parsedBody.message === "Login successful") {
-          // Store credentials securely in localStorage
-          localStorage.setItem('auth_username', username);
-          localStorage.setItem('auth_password', password);
-        
-          // Store tokens for authentication
-          if (parsedBody.tokens) {
-            console.log('Storing tokens in localStorage');
-            localStorage.setItem('idToken', parsedBody.tokens.idToken || '');
-            localStorage.setItem('accessToken', parsedBody.tokens.accessToken || '');
-            localStorage.setItem('refreshToken', parsedBody.tokens.refreshToken || '');
-            
-            // Store full tokens object
-            localStorage.setItem('tokens', JSON.stringify(parsedBody.tokens));
-          }
-          
-          // Set auth header for subsequent requests
-          const authHeader = `Basic ${btoa(`${username}:${password}`)}`;
-          localStorage.setItem('authHeader', authHeader);
-          console.log('Auth header set for subsequent requests');
-          
-          // Store user info
-          if (parsedBody.user) {
-            console.log('Storing user info in localStorage:', parsedBody.user);
-            localStorage.setItem('user', JSON.stringify(parsedBody.user));
-          }
-          
-          return {
-            success: true,
-            tokens: parsedBody.tokens,
-            user: parsedBody.user,
-            message: parsedBody.message || 'Login successful'
-          };
-        } else {
-          // Handle login failure
-          const errorMsg = parsedBody.message || 'Login failed';
-          console.error('Login failed:', errorMsg);
-          return {
-            success: false,
-            message: errorMsg
-          };
+      responseData = JSON.parse(rawText);
+      
+      // Handle the specific format from API Gateway which might include body-json
+      if (responseData['body-json']) {
+        responseData = responseData['body-json'];
+      }
+      
+      // API Gateway sometimes wraps the response in a body property
+      if (responseData.body && typeof responseData.body === 'string') {
+        try {
+          responseData = JSON.parse(responseData.body);
+        } catch (parseError) {
+          console.error('Failed to parse body as JSON:', parseError);
         }
-      } catch (bodyParseError) {
-        console.error('Error parsing response body:', bodyParseError);
-        throw new Error('Invalid response body from server');
       }
+      
+      console.log('Parsed response:', responseData);
+    } catch (e) {
+      console.error('Failed to parse response:', e);
+      return {
+        success: false,
+        message: 'Failed to parse server response'
+      };
     }
     
-    if (response.status === 200 && responseData && (responseData.tokens || responseData.success)) {
-      // Store credentials securely in localStorage
-      localStorage.setItem('auth_username', username);
-      localStorage.setItem('auth_password', password);
-    
-      // Store tokens for authentication
-      if (responseData.tokens) {
-        console.log('Storing tokens in localStorage');
-        localStorage.setItem('idToken', responseData.tokens.idToken || '');
-        localStorage.setItem('accessToken', responseData.tokens.accessToken || '');
-        localStorage.setItem('refreshToken', responseData.tokens.refreshToken || '');
-        
-        // Store full tokens object
-        localStorage.setItem('tokens', JSON.stringify(responseData.tokens));
+    // Check for successful login
+    if (response.status === 200 && responseData.success !== false) {
+      // Extract tokens from response based on our API structure
+      let idToken = null;
+      let accessToken = null;
+      let refreshToken = null;
+      let user = null;
+      
+      // Extract from the Auth result format
+      if (responseData.AuthenticationResult) {
+        idToken = responseData.AuthenticationResult.IdToken;
+        accessToken = responseData.AuthenticationResult.AccessToken;
+        refreshToken = responseData.AuthenticationResult.RefreshToken;
+      } 
+      // Extract from our custom format
+      else if (responseData.tokens) {
+        idToken = responseData.tokens.idToken;
+        accessToken = responseData.tokens.accessToken;
+        refreshToken = responseData.tokens.refreshToken;
+      }
+      // Direct properties on the response
+      else {
+        idToken = responseData.idToken || responseData.IdToken;
+        accessToken = responseData.accessToken || responseData.AccessToken;
+        refreshToken = responseData.refreshToken || responseData.RefreshToken;
       }
       
-      // Set auth header for subsequent requests
-      const authHeader = `Basic ${btoa(`${username}:${password}`)}`;
-      localStorage.setItem('authHeader', authHeader);
-      console.log('Auth header set for subsequent requests');
+      // Extract user data from response
+      user = responseData.user || responseData.User;
       
-      // Store user info
-      if (responseData.user) {
-        console.log('Storing user info in localStorage:', responseData.user);
-        localStorage.setItem('user', JSON.stringify(responseData.user));
+      // Store tokens in localStorage
+      if (idToken) {
+        localStorage.setItem('idToken', idToken);
+      }
+      
+      if (accessToken) {
+        localStorage.setItem('accessToken', accessToken);
+      }
+      
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+      }
+      
+      if (user) {
+        localStorage.setItem('userData', JSON.stringify(user));
       }
       
       return {
         success: true,
-        tokens: responseData.tokens,
-        user: responseData.user,
-        message: responseData.message || 'Login successful'
+        idToken,
+        accessToken,
+        refreshToken,
+        user,
+        message: 'Login successful'
       };
     } else {
       // Handle login failure
-      const errorMsg = responseData.message || 'Login failed';
-      console.error('Login failed:', errorMsg);
+      const errorMessage = responseData.message || 'Login failed';
+      console.error('Login failed:', errorMessage);
+      
       return {
         success: false,
-        message: errorMsg
+        message: errorMessage
       };
     }
   } catch (error: any) {
     console.error('Login error:', error);
-    
     return {
       success: false,
-      message: error.response?.data?.message || error.message || 'Login failed',
-      error
+      message: error.message || 'An unexpected error occurred during login'
     };
   }
-}
+};
 
 /**
  * Create a new user account via API Gateway with Cognito fallback
@@ -683,48 +719,6 @@ export const checkAuthentication = async () => {
 };
 
 /**
- * Attempt to refresh the authentication token
- * @returns Promise with refresh result
- */
-export const refreshToken = async () => {
-  try {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) {
-      console.warn('No refresh token available');
-      return { success: false, message: 'No refresh token available' };
-    }
-    console.log('Attempting to refresh token with API');
-    const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/refresh-token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ refreshToken })
-    });
-    if (!response.ok) {
-      console.warn('Token refresh failed:', response.status);
-      return { success: false, message: `Token refresh failed: ${response.status}` };
-    }
-    
-    const data = await response.json();
-    if (data.success && data.idToken) {
-      // Store the new tokens
-      localStorage.setItem('idToken', data.idToken);
-      sessionStorage.setItem('idToken', data.idToken); // Backup in sessionStorage
-      
-      console.log('Token refreshed successfully');
-      return { success: true, message: 'Token refreshed successfully' };
-    } else {
-      console.warn('Invalid response from token refresh endpoint:', data);
-      return { success: false, message: 'Invalid response from refresh endpoint' };
-    }
-  } catch (error) {
-    console.error('Error refreshing token:', error);
-    return { success: false, message: 'Error refreshing token', error };
-  }
-};
-
-/**
  * Get current user data via API Gateway
  */
 export const getCurrentUser = async (): Promise<AuthResponse> => {
@@ -780,7 +774,7 @@ export const getCurrentUser = async (): Promise<AuthResponse> => {
     if (error.response?.status === 401) {
       try {
         // Try to use refresh token to get new tokens
-        const refreshed = await refreshTokens();
+        const refreshed = await refreshToken();
         if (refreshed.success) {
           // Retry the request with new token
           return getCurrentUser();
@@ -862,5 +856,5 @@ export default {
   checkAuthentication,
   getCurrentUser,
   logout,
-  refreshTokens,
+  refreshToken,
 };

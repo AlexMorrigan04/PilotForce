@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FiUser, FiMail, FiLock, FiEye, FiEyeOff, FiMoon, FiSun, FiPhone, FiBriefcase, FiAlertCircle, FiCheck } from 'react-icons/fi';
 import { v4 as uuidv4 } from 'uuid';
 import loginImage from '../images/login-image.avif';
+import SignupApprovalModal from '../components/SignupApprovalModal';
 
 const Signup: React.FC = () => {
   const [username, setUsername] = useState('');
@@ -18,6 +19,9 @@ const Signup: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [step, setStep] = useState(1);
+  const [isNewDomain, setIsNewDomain] = useState(false);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [detectedCompanyName, setDetectedCompanyName] = useState('');
 
   const { signUp } = useAuth();
   const navigate = useNavigate();
@@ -66,6 +70,33 @@ const Signup: React.FC = () => {
     return digits.startsWith('44') ? '+' + digits : '+44' + digits;
   };
 
+  const checkEmailDomain = async (email: string) => {
+    if (!email.includes('@')) return;
+    
+    const domain = email.split('@')[1];
+    
+    try {
+      // This would ideally call an API to check if the domain exists in your system
+      // For now, we'll simulate with a simple check of common domains
+      const commonDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'];
+      const isCommonDomain = commonDomains.includes(domain.toLowerCase());
+      
+      // For demonstration purposes:
+      // - Common email providers are treated as "new" domains requiring system admin approval
+      // - Custom/corporate domains are treated as existing company domains
+      setIsNewDomain(!isCommonDomain);
+      
+      // Extract company name from domain (for display purposes)
+      const extractedCompany = domain.split('.')[0];
+      const formattedCompany = extractedCompany.charAt(0).toUpperCase() + extractedCompany.slice(1);
+      setDetectedCompanyName(formattedCompany);
+      
+    } catch (error) {
+      console.error('Error checking email domain:', error);
+      setIsNewDomain(true); // Default to treating as new domain if check fails
+    }
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -76,6 +107,7 @@ const Signup: React.FC = () => {
     try {
       const validationErrors: Record<string, string> = {};
 
+      // Validate required fields
       if (!username.trim()) validationErrors.username = 'Username is required';
       if (!email.trim()) validationErrors.email = 'Email is required';
       if (!password) validationErrors.password = 'Password is required';
@@ -121,8 +153,8 @@ const Signup: React.FC = () => {
       const attributes: Record<string, string> = {
         email,
         name: username, // Use the standard Cognito "name" attribute 
-        'custom:companyId': companyId,
-        'custom:userRole': 'User'
+        'custom:companyId': companyId
+        // Don't set the userRole here - the Lambda function will determine
       };
       
       // Only include phone number if provided - use standard phone_number attribute
@@ -131,6 +163,9 @@ const Signup: React.FC = () => {
       }
 
       console.log('Signup attributes:', attributes);
+
+      // Check if this is a new company domain or existing company domain
+      await checkEmailDomain(email);
 
       const result = await signUp(username, password, attributes);
 
@@ -145,9 +180,15 @@ const Signup: React.FC = () => {
           })
         );
         setGeneralError(null);
-        setTimeout(() => {
-          navigate(`/confirm-account?username=${encodeURIComponent(username)}`);
-        }, 500);
+        
+        // Store detected company name for the modal
+        const domainBasedCompanyName = formattedCompanyName; // Always derive from email domain
+        localStorage.setItem('detectedCompanyName', detectedCompanyName || domainBasedCompanyName);
+        localStorage.setItem('isNewDomain', String(isNewDomain));
+        
+        // Show the approval modal
+        setShowApprovalModal(true);
+        
       } else {
         setGeneralError(result.message || 'Signup failed. Please try again.');
       }
@@ -160,198 +201,238 @@ const Signup: React.FC = () => {
   };
 
   return (
-    <div className={`min-h-screen flex flex-col md:flex-row ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'} transition-colors duration-300`}>
+    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
       <button
         onClick={toggleDarkMode}
-        className={`absolute top-4 right-4 p-2 rounded-full z-10 ${isDarkMode ? 'bg-gray-800 text-yellow-300 hover:bg-gray-700' : 'bg-white text-gray-700 hover:bg-gray-100'} shadow-md transition-colors duration-300`}
-        aria-label="Toggle dark mode"
+        className="absolute top-4 right-4 p-2 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-300"
+        aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
       >
-        {isDarkMode ? <FiSun className="w-5 h-5" /> : <FiMoon className="w-5 h-5" />}
+        {isDarkMode ? (
+          <FiSun className="h-6 w-6 text-yellow-300" />
+        ) : (
+          <FiMoon className="h-6 w-6 text-blue-700" />
+        )}
       </button>
+      
+      <div className="flex flex-col md:flex-row flex-1">
+        <div className="w-full md:w-1/2 bg-cover bg-center hidden md:block">
+          <img
+            src={loginImage}
+            alt="Drone flying over landscape"
+            className="h-full w-full object-cover"
+          />
+        </div>
+        
+        <div className="w-full md:w-1/2 flex items-center justify-center p-6 md:p-12">
+          <motion.div
+            className={`w-full max-w-md p-6 md:p-8 rounded-2xl shadow-xl ${isDarkMode ? 'bg-gray-800' : 'bg-white'} transition-colors duration-300`}
+            initial="hidden"
+            animate="visible"
+          >
+            <motion.h2 className={`text-2xl font-bold mb-1 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>Create Account</motion.h2>
+            <motion.p className={`mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Enter your information to create an account</motion.p>
 
-      <div className="hidden md:block md:w-1/2 bg-cover bg-center relative overflow-hidden">
-        <div className={`absolute inset-0 ${isDarkMode ? 'bg-black/30' : 'bg-blue-900/20'} z-10`} style={{ backdropFilter: 'blur(2px)' }}></div>
-        <img src={loginImage} alt="Drone imagery" className="w-full h-full object-cover" />
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="text-center text-white p-8 max-w-md">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5 }}>
-              <h1 className="text-3xl font-bold mb-4 drop-shadow-lg">Welcome to PilotForce</h1>
-              <p className="text-lg drop-shadow-md">Join our platform for comprehensive drone operations management</p>
-            </motion.div>
-          </div>
+            <AnimatePresence>
+              {generalError && (
+                <motion.div
+                  className="mb-4 p-4 rounded-lg bg-red-100/80 text-red-700 border border-red-200 flex items-start"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <FiAlertCircle className="mt-1 mr-3 flex-shrink-0" />
+                  <span>{generalError}</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <form onSubmit={handleSignUp}>
+              <div className="mb-4">
+                <label htmlFor="username" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Username</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiUser className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
+                  </div>
+                  <input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
+                      isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                    }`}
+                    placeholder="Choose a username"
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
+                {errors.username && <p className="mt-1 text-sm text-red-500">{errors.username}</p>}
+              </div>
+
+              <div className="mb-4">
+                <label htmlFor="email" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Email</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiMail className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
+                  </div>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (e.target.value.includes('@')) {
+                        checkEmailDomain(e.target.value);
+                      }
+                    }}
+                    className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
+                      isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                    }`}
+                    placeholder="Your email address"
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
+                {errors.email && <p className="mt-1 text-sm text-red-500">{errors.email}</p>}
+              </div>
+
+              <div className="mb-4">
+                <label htmlFor="phoneNumber" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Phone Number <span className="text-gray-500 font-normal">(optional)</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiPhone className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
+                  </div>
+                  <input
+                    id="phoneNumber"
+                    type="tel"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
+                      isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                    }`}
+                    placeholder="UK phone number"
+                    disabled={isSubmitting}
+                  />
+                </div>
+                {errors.phoneNumber && <p className="mt-1 text-sm text-red-500">{errors.phoneNumber}</p>}
+              </div>
+
+              <div className="mb-4">
+                <label htmlFor="companyName" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Company Name <span className="text-gray-500 font-normal">(optional)</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiBriefcase className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
+                  </div>
+                  <input
+                    id="companyName"
+                    type="text"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
+                      isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                    }`}
+                    placeholder="Your company name"
+                    disabled={isSubmitting}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  If not provided, we'll extract it from your email domain
+                </p>
+                {errors.companyName && <p className="mt-1 text-sm text-red-500">{errors.companyName}</p>}
+              </div>
+
+              <div className="mb-4">
+                <label htmlFor="password" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Password</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiLock className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
+                  </div>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
+                      isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                    }`}
+                    placeholder="Create a strong password"
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
+                {errors.password && <p className="mt-1 text-sm text-red-500">{errors.password}</p>}
+              </div>
+
+              <div className="mb-4">
+                <label htmlFor="confirmPassword" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiLock className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
+                  </div>
+                  <input
+                    id="confirmPassword"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
+                      isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
+                    }`}
+                    placeholder="Confirm your password"
+                    required
+                    disabled={isSubmitting}
+                  />
+                </div>
+                {errors.confirmPassword && <p className="mt-1 text-sm text-red-500">{errors.confirmPassword}</p>}
+              </div>
+
+              <button
+                type="submit"
+                className={`w-full mt-6 py-3 px-6 rounded-lg text-white font-medium transition-all duration-300 ${
+                  isSubmitting
+                    ? 'bg-blue-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50'
+                }`}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <div className="flex items-center justify-center">
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Creating Account...
+                  </div>
+                ) : (
+                  'Create Account'
+                )}
+              </button>
+
+              <p className={`mt-6 text-center text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Already have an account?{' '}
+                <Link to="/login" className={`font-medium ${isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-500'}`}>
+                  Sign In
+                </Link>
+              </p>
+            </form>
+          </motion.div>
         </div>
       </div>
-
-      <div className="w-full md:w-1/2 flex items-center justify-center p-6 md:p-12">
-        <motion.div
-          className={`w-full max-w-md p-6 md:p-8 rounded-2xl shadow-xl ${isDarkMode ? 'bg-gray-800' : 'bg-white'} transition-colors duration-300`}
-          initial="hidden"
-          animate="visible"
-        >
-          <motion.h2 className={`text-2xl font-bold mb-1 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>Create Account</motion.h2>
-          <motion.p className={`mb-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Enter your information to create an account</motion.p>
-
-          <AnimatePresence>
-            {generalError && (
-              <motion.div
-                className="mb-4 p-4 rounded-lg bg-red-100/80 text-red-700 border border-red-200 flex items-start"
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <FiAlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
-                <span>{generalError}</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <form onSubmit={handleSignUp}>
-            <div className="mb-4">
-              <label htmlFor="username" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Username
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FiUser className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
-                </div>
-                <input
-                  id="username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
-                    isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                  }`}
-                  placeholder="Choose a username"
-                  required
-                  disabled={isSubmitting}
-                />
-              </div>
-              {errors.username && <p className="mt-1 text-sm text-red-500">{errors.username}</p>}
-            </div>
-
-            <div className="mb-4">
-              <label htmlFor="email" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Email
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FiMail className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
-                </div>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
-                    isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                  }`}
-                  placeholder="Enter your email"
-                  required
-                  disabled={isSubmitting}
-                />
-              </div>
-              {errors.email && <p className="mt-1 text-sm text-red-500">{errors.email}</p>}
-            </div>
-
-            <div className="mb-4">
-              <label htmlFor="phoneNumber" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Phone Number <span className="text-xs text-gray-500">(optional)</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FiPhone className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
-                </div>
-                <input
-                  id="phoneNumber"
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
-                    isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                  }`}
-                  placeholder="e.g. +44 123-456-7890"
-                  disabled={isSubmitting}
-                />
-              </div>
-              {errors.phoneNumber && <p className="mt-1 text-sm text-red-500">{errors.phoneNumber}</p>}
-            </div>
-
-            <div className="mb-4">
-              <label htmlFor="password" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FiLock className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
-                </div>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
-                    isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                  }`}
-                  placeholder="Create a strong password"
-                  required
-                  disabled={isSubmitting}
-                />
-              </div>
-              {errors.password && <p className="mt-1 text-sm text-red-500">{errors.password}</p>}
-            </div>
-
-            <div className="mb-4">
-              <label htmlFor="confirmPassword" className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Confirm Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FiLock className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-blue-500'}`} />
-                </div>
-                <input
-                  id="confirmPassword"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className={`pl-10 w-full py-3 px-4 rounded-lg focus:ring-2 outline-none transition-all duration-300 ${
-                    isDarkMode ? 'bg-gray-700 text-white border-gray-600 focus:border-blue-500 focus:ring-blue-500' : 'border border-gray-300 focus:border-blue-500 focus:ring-blue-500'
-                  }`}
-                  placeholder="Confirm your password"
-                  required
-                  disabled={isSubmitting}
-                />
-              </div>
-              {errors.confirmPassword && <p className="mt-1 text-sm text-red-500">{errors.confirmPassword}</p>}
-            </div>
-
-            <button
-              type="submit"
-              className={`w-full py-3 px-4 rounded-lg font-medium transition-all duration-300 ${
-                isSubmitting ? 'cursor-not-allowed opacity-70' : 'transform hover:-translate-y-1 hover:shadow-lg'
-              } ${isDarkMode ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <div className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                  <span>Creating Account...</span>
-                </div>
-              ) : (
-                'Create Account'
-              )}
-            </button>
-          </form>
-        </motion.div>
-      </div>
+      
+      {/* Signup approval modal */}
+      <SignupApprovalModal
+        isOpen={showApprovalModal}
+        onClose={() => {
+          setShowApprovalModal(false);
+          navigate('/login');
+        }}
+        emailDomain={email.split('@')[1] || ''}
+        isNewDomain={isNewDomain}
+        companyName={detectedCompanyName || email.split('@')[1]?.split('.')[0] || 'your company'}
+      />
     </div>
   );
 };

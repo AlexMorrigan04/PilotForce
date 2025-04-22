@@ -7,6 +7,8 @@ import {
   getCurrentUser,
   fetchAuthSession
 } from '@aws-amplify/auth';
+import { getApiEndpoint } from '../utils/cognitoUtils';
+import { API_BASE_URL, AUTH_ENDPOINTS } from '../utils/endpoints';
 
 // Types for authentication methods
 export interface SignUpData {
@@ -34,6 +36,10 @@ export interface AuthResponse {
 export const login = async (username: string, password: string): Promise<AuthResponse> => {
   try {
     console.log(`Attempting to sign in user: ${username}`);
+    // Use direct API Gateway URL
+    const apiUrl = API_BASE_URL;
+    console.log(`Using API URL for login: ${apiUrl}`);
+    
     const { isSignedIn, nextStep } = await signIn({ username, password });
     
     if (isSignedIn) {
@@ -185,9 +191,18 @@ export const signup = async (data: SignUpData): Promise<AuthResponse> => {
 export const confirmUserSignup = async (username: string, code: string): Promise<AuthResponse> => {
   try {
     console.log(`Confirming signup for user: ${username}`);
+    
+    // Validate the code format before sending to Cognito
+    if (!code || !/^\d{6}$/.test(code.trim())) {
+      return {
+        success: false,
+        message: 'Please enter a valid 6-digit verification code'
+      };
+    }
+    
     const { isSignUpComplete } = await confirmSignUp({
       username,
-      confirmationCode: code
+      confirmationCode: code.trim()
     });
     
     return {
@@ -211,6 +226,20 @@ export const confirmUserSignup = async (username: string, code: string): Promise
       return {
         success: false,
         message: 'Verification code has expired. Please request a new one.'
+      };
+    }
+    
+    if (error.name === 'UserNotFoundException') {
+      return {
+        success: false,
+        message: 'User not found. Please check your username or sign up again.'
+      };
+    }
+    
+    if (error.name === 'NotAuthorizedException' && error.message.includes('already confirmed')) {
+      return {
+        success: true,
+        message: 'This account has already been confirmed. You can now log in.'
       };
     }
     

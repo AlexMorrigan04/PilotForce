@@ -84,7 +84,6 @@ export class S3UrlManager {
     // Handle special characters in the key
     const encodedKey = encodeURIComponent(key).replace(/%2F/g, '/');
     
-    // Try multiple URL formats since some S3 buckets might be configured differently
     // First try virtual-hosted style URL (most common)
     return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
   }
@@ -100,8 +99,63 @@ export function needsUrlRefreshing(url: string): boolean {
     return false;
   }
 
-  // Check if URL is a pre-signed URL
-  return url.includes('X-Amz-Signature=') && url.includes('X-Amz-Date=');
+  // Check if URL is a pre-signed URL (contains AWS signature parameters)
+  if (url.includes('X-Amz-Signature=') && url.includes('X-Amz-Date=') && url.includes('X-Amz-Expires=')) {
+    try {
+      // Parse the URL to extract expiration parameters
+      const urlObj = new URL(url);
+      const params = new URLSearchParams(urlObj.search);
+      
+      // Get the X-Amz-Date parameter (ISO8601 format: YYYYMMDDTHHMMSSZ)
+      const dateParam = params.get('X-Amz-Date');
+      // Get the X-Amz-Expires parameter (in seconds)
+      const expiresParam = params.get('X-Amz-Expires');
+      
+      if (dateParam && expiresParam) {
+        // Parse the date and expiry
+        const signedDate = parseAmzDate(dateParam);
+        const expiresSeconds = parseInt(expiresParam, 10);
+        const currentTime = Date.now();
+        
+        if (!isNaN(expiresSeconds) && signedDate) {
+          // Calculate when the URL will expire
+          const expiryTime = signedDate.getTime() + (expiresSeconds * 1000);
+          
+          // If URL expires within 10 minutes, we should refresh it
+          const tenMinutesInMillis = 10 * 60 * 1000;
+          return (expiryTime - currentTime) < tenMinutesInMillis;
+        }
+      }
+    } catch (error) {
+      console.error('Error parsing pre-signed URL:', error);
+      // If we can't parse it properly, assume it needs refreshing to be safe
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Parse AWS S3 date format (YYYYMMDDTHHMMSSZ) into a JavaScript Date
+ * @param dateStr Date string in AWS format
+ * @returns JavaScript Date object or null if invalid
+ */
+function parseAmzDate(dateStr: string): Date | null {
+  try {
+    // Format: YYYYMMDDTHHMMSSZ
+    const year = parseInt(dateStr.substring(0, 4), 10);
+    const month = parseInt(dateStr.substring(4, 6), 10) - 1; // JS months are 0-indexed
+    const day = parseInt(dateStr.substring(6, 8), 10);
+    const hour = parseInt(dateStr.substring(9, 11), 10);
+    const minute = parseInt(dateStr.substring(11, 13), 10);
+    const second = parseInt(dateStr.substring(13, 15), 10);
+    
+    return new Date(Date.UTC(year, month, day, hour, minute, second));
+  } catch (error) {
+    console.error('Error parsing AWS date:', error);
+    return null;
+  }
 }
 
 /**

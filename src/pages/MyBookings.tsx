@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { motion } from 'framer-motion';
 import AWS from 'aws-sdk';
 import { AuthContext } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
@@ -30,6 +31,27 @@ const MyBookings: React.FC = () => {
   const [imageLocations, setImageLocations] = useState<{ url: string; latitude: number; longitude: number }[]>([]);
   const [geoTiffFiles, setGeoTiffFiles] = useState<{ [bookingId: string]: string }>({});
   const [filterByCurrentUser, setFilterByCurrentUser] = useState<boolean>(false);
+
+  // Animation variants - matching Dashboard animations
+  const fadeIn = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { duration: 0.4 } },
+  };
+
+  const cardVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, damping: 12 } },
+    hover: { scale: 1.02, transition: { duration: 0.2 } },
+  };
+
+  const tableRowVariants = {
+    hidden: { opacity: 0 },
+    visible: (i: number) => ({
+      opacity: 1,
+      transition: { delay: i * 0.05, duration: 0.3 }
+    }),
+    hover: { backgroundColor: "rgba(243, 244, 246, 1)" }
+  };
 
   // Explicitly define AWS credentials and region
   const awsRegion = process.env.REACT_APP_AWS_REGION;
@@ -158,7 +180,7 @@ const MyBookings: React.FC = () => {
         console.log('Fetching bookings with user info:', userInfo);
 
         // Get the API URL from environment or use a default
-        let apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+        let apiUrl = process.env.REACT_APP_API_URL;
         let bookingsUrl = `${apiUrl}/bookings`;
         
         // Make sure we have the companyId from userInfo or token
@@ -290,6 +312,12 @@ const MyBookings: React.FC = () => {
             // Handle potential null/undefined items
             if (!item) return null;
             
+            // Extract scheduling information if available
+            let scheduleTime = '';
+            if (item.scheduling && item.scheduling.timeSlot) {
+              scheduleTime = item.scheduling.timeSlot.replace(/-/g, ' ');
+            }
+            
             return {
               id: item.BookingId || item.id || `booking-${Math.random()}`,
               UserId: item.UserId || item.userId || '',
@@ -302,14 +330,18 @@ const MyBookings: React.FC = () => {
               jobTypes: item.jobTypes || item.JobTypes || [],
               jobType: item.jobType || '',  // For backwards compatibility
               location: item.location || item.Location || '',
-              status: item.status || item.Status || 'pending',
+              postcode: item.postcode || item.Postcode || '',
+              address: item.address || item.Address || '',
+              status: item.status || item.Status || 'Pending',
               userName: item.userName || item.UserName || '',
               userEmail: item.userEmail || item.UserEmail || '',
               userPhone: item.userPhone || item.UserPhone || '',
               companyName: item.companyName || item.CompanyName || '',
               notes: item.notes || item.Notes || '',
               serviceOptions: item.serviceOptions || item.ServiceOptions || {},
-              siteContact: item.siteContact || item.SiteContact || {}
+              siteContact: item.siteContact || item.SiteContact || {},
+              scheduling: item.scheduling || {},
+              scheduleTime: scheduleTime
             };
           })
           .filter((booking): booking is Booking => booking !== null);
@@ -455,16 +487,11 @@ const MyBookings: React.FC = () => {
     navigate(`/flight-details/${booking.id || booking.BookingId}`);
   };
 
+  // Handle navigation to booking details
   const handleViewBookingDetails = (bookingId: string) => {
-    console.log(`Navigating to flight details for bookingId: ${bookingId}`);
-    
-    // Store the selected booking ID in localStorage for easy retrieval
-    if (bookingId) {
-      localStorage.setItem('selectedBookingId', bookingId);
-    }
-    
-    // Navigate using the /flight-details/{id} format which corresponds to the API's /bookings/{id}
-    navigate(`/flight-details/${bookingId}`);
+    // Set loading state in localStorage before navigation
+    localStorage.setItem('isFlightDetailsLoading', 'true');
+    navigate(`/bookings/${bookingId}`);
   };
 
   const cancelBooking = async (bookingId: string) => {
@@ -504,7 +531,7 @@ const MyBookings: React.FC = () => {
       }
 
       // Get the API URL from environment or use a default
-      const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+      const apiUrl = process.env.REACT_APP_API_URL;
 
       // Fix: Ensure proper format for the Authorization header
       const authHeader = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
@@ -569,8 +596,13 @@ const MyBookings: React.FC = () => {
       <Navbar userInfo={userInfo} />
 
       {/* Hero section with gradient background - WIDER CONTAINER */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
-        <div className="container mx-auto max-w-7xl">  {/* Changed from max-w-6xl to max-w-7xl */}
+      <motion.div
+        className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <div className="container mx-auto max-w-7xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
             <div className="mb-4 md:mb-0">
               <h1 className="text-3xl font-bold mb-2">Flights</h1>
@@ -579,32 +611,120 @@ const MyBookings: React.FC = () => {
                 View and manage all your drone inspection bookings
               </p>
             </div>
-            <Link
-              to="/assets"
-              className="inline-flex items-center px-5 py-2.5 bg-white text-blue-700 border border-transparent rounded-lg font-medium hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white shadow-sm transition duration-150"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              Book New Flight
-            </Link>
+            <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+              <Link
+                to="/assets"
+                className="inline-flex items-center px-5 py-2.5 bg-white text-blue-700 border border-transparent rounded-lg font-medium hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white shadow-sm transition duration-150"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                Book New Flight
+              </Link>
+            </motion.div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <main className="flex-1 container mx-auto px-4 py-6 max-w-7xl">  {/* Changed from max-w-6xl to max-w-7xl */}
         {/* Add breadcrumbs component here */}
         <Breadcrumbs items={breadcrumbs} className="mb-6" />
 
-        {loading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="flex flex-col items-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-600">Loading your flight bookings...</p>
+        {/* Search and Filters - MORE PADDING and improved spacing */}
+        <motion.div 
+          className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-5"
+          initial="hidden"
+          animate="visible"
+          variants={cardVariants}
+        >
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+            <div className="relative flex-grow">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </div>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={handleSearchChange}
+                placeholder="Search flights by asset name, location, or job type..."
+                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-all duration-200"
+              />
             </div>
+            <div className="flex flex-wrap gap-3">
+              {['Pending', 'Scheduled', 'Completed', 'Cancelled'].map((status) => (
+                <motion.button
+                  key={status}
+                  onClick={() => handleFilterChange(status as BookingStatus)}
+                  className={`px-3 py-2 rounded-md text-sm font-medium ${
+                    activeFilters.includes(status as BookingStatus)
+                      ? status === 'Pending'
+                        ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+                        : status === 'scheduled'
+                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                        : status === 'Completed'
+                        ? 'bg-green-100 text-green-800 border border-green-300' 
+                        : 'bg-red-100 text-red-800 border border-red-300'
+                      : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                  }`}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                >
+                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                </motion.button>
+              ))}
+            </div>
+            {activeFilters.length > 0 && (
+              <motion.button
+                onClick={() => setActiveFilters([])}
+                className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+                Clear Filters
+              </motion.button>
+            )}
           </div>
+        </motion.div>
+
+        {loading ? (
+          <motion.div 
+            className="flex justify-center items-center h-64"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="flex flex-col items-center">
+              <motion.div
+                className="w-12 h-12 rounded-full border-2 border-t-blue-600 border-blue-200"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              />
+              <p className="text-gray-600 mt-4 font-medium">Loading your flight bookings...</p>
+            </div>
+          </motion.div>
         ) : error ? (
-          <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm mb-6" role="alert">
+          <motion.div 
+            className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-sm mb-6" 
+            role="alert"
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3 }}
+          >
             <div className="flex">
               <div className="flex-shrink-0">
                 <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
@@ -619,9 +739,14 @@ const MyBookings: React.FC = () => {
                 <p className="text-sm font-medium">{error}</p>
               </div>
             </div>
-          </div>
+          </motion.div>
         ) : bookings.length === 0 ? (
-          <div className="bg-white shadow-lg rounded-xl p-8 text-center border border-gray-100">
+          <motion.div 
+            className="bg-white shadow-lg rounded-xl p-8 text-center border border-gray-100"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 100, damping: 15 }}
+          >
             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg className="h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -629,217 +754,189 @@ const MyBookings: React.FC = () => {
             </div>
             <h3 className="text-xl font-semibold text-gray-900 mb-2">No Flights Found</h3>
             <p className="text-gray-500 mb-6">You haven't booked any drone flights yet.</p>
-            <Link
-              to="/assets"
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              Book Your First Flight
-            </Link>
-          </div>
+            <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+              <Link
+                to="/assets"
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                Book Your First Flight
+              </Link>
+            </motion.div>
+          </motion.div>
         ) : (
           <>
             {/* Flight statistics - WIDER GRID with larger cells */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">  {/* Changed gap-4 to gap-6 for more spacing */}
-              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200"> {/* Increased padding from p-4 to p-5 */}
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 bg-blue-100 rounded-md p-3">
-                    <svg className="h-7 w-7 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"> {/* Increased icon size */}
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                      />
-                    </svg>
-                  </div>
-                  <div className="ml-5"> {/* Increased margin from ml-4 to ml-5 */}
-                    <h3 className="text-sm font-medium text-gray-500">Total Flights</h3>
-                    <p className="text-xl font-semibold text-gray-900">{bookings.length}</p> {/* Increased text size */}
-                  </div>
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 bg-yellow-100 rounded-md p-3">
-                    <svg className="h-7 w-7 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                  </div>
-                  <div className="ml-5">
-                    <h3 className="text-sm font-medium text-gray-500">Pending</h3>
-                    <p className="text-xl font-semibold text-gray-900">{bookings.filter((b) => b.status === 'pending').length}</p>
+            <motion.div
+              className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6"
+              initial="hidden"
+              animate="visible"
+              variants={fadeIn}
+            >
+              {/* Total Flights Card */}
+              <motion.div
+                className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-md overflow-hidden"
+                variants={cardVariants}
+                whileHover="hover"
+              >
+                <div className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-blue-100 text-sm font-medium">Total Flights</p>
+                      <p className="text-white text-2xl font-bold mt-1">{bookings.length}</p>
+                    </div>
+                    <div className="bg-white/20 p-2.5 rounded-lg">
+                      <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 002-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                        />
+                      </svg>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 bg-purple-100 rounded-md p-3">
-                    <svg className="h-7 w-7 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </div>
-                  <div className="ml-5">
-                    <h3 className="text-sm font-medium text-gray-500">Scheduled</h3>
-                    <p className="text-xl font-semibold text-gray-900">{bookings.filter((b) => b.status === 'scheduled').length}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 bg-green-100 rounded-md p-3">
-                    <svg className="h-7 w-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                  </div>
-                  <div className="ml-5">
-                    <h3 className="text-sm font-medium text-gray-500">Completed</h3>
-                    <p className="text-xl font-semibold text-gray-900">{bookings.filter((b) => b.status === 'completed').length}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+              </motion.div>
 
-            {/* Search and Filters - MORE PADDING and improved spacing */}
-            <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-5"> {/* Increased padding from p-4 to p-5 */}
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5"> {/* Increased gap from gap-4 to gap-5 */}
-                <div className="relative flex-grow">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                      />
-                    </svg>
+              {/* Pending Flights Card */}
+              <motion.div
+                className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg shadow-md overflow-hidden"
+                variants={cardVariants}
+                whileHover="hover"
+              >
+                <div className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-yellow-100 text-sm font-medium">Pending</p>
+                      <p className="text-white text-2xl font-bold mt-1">{bookings.filter((b) => b.status === 'pending').length}</p>
+                    </div>
+                    <div className="bg-white/20 p-2.5 rounded-lg">
+                      <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
                   </div>
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={handleSearchChange}
-                    placeholder="Search flights by asset name, location, or job type..."
-                    className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  />
                 </div>
-                <div className="flex flex-wrap gap-3"> {/* Flex-wrap added to handle smaller screens better */}
-                  <button
-                    onClick={() => handleFilterChange('pending')}
-                    className={`px-3 py-2 rounded-md text-sm font-medium ${
-                      activeFilters.includes('pending')
-                        ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
-                        : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
-                    }`}
-                  >
-                    Pending
-                  </button>
-                  <button
-                    onClick={() => handleFilterChange('scheduled')}
-                    className={`px-3 py-2 rounded-md text-sm font-medium ${
-                      activeFilters.includes('scheduled')
-                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                        : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
-                    }`}
-                  >
-                    Scheduled
-                  </button>
-                  <button
-                    onClick={() => handleFilterChange('completed')}
-                    className={`px-3 py-2 rounded-md text-sm font-medium ${
-                      activeFilters.includes('completed')
-                        ? 'bg-green-100 text-green-800 border border-green-300'
-                        : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
-                    }`}
-                  >
-                    Completed
-                  </button>
-                  <button
-                    onClick={() => handleFilterChange('cancelled')}
-                    className={`px-3 py-2 rounded-md text-sm font-medium ${
-                      activeFilters.includes('cancelled')
-                        ? 'bg-red-100 text-red-800 border border-red-300'
-                        : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
-                    }`}
-                  >
-                    Cancelled
-                  </button>
+              </motion.div>
+
+              {/* Scheduled Flights Card */}
+              <motion.div
+                className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg shadow-md overflow-hidden"
+                variants={cardVariants}
+                whileHover="hover"
+              >
+                <div className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-purple-100 text-sm font-medium">Scheduled</p>
+                      <p className="text-white text-2xl font-bold mt-1">{bookings.filter((b) => b.status === 'scheduled').length}</p>
+                    </div>
+                    <div className="bg-white/20 p-2.5 rounded-lg">
+                      <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 002-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </div>
+                  </div>
                 </div>
-                {activeFilters.length > 0 && (
-                  <button
-                    onClick={() => setActiveFilters([])}
-                    className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
-                  >
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
-                    Clear Filters
-                  </button>
-                )}
-              </div>
-            </div>
+              </motion.div>
+
+              {/* Completed Flights Card */}
+              <motion.div
+                className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow-md overflow-hidden"
+                variants={cardVariants}
+                whileHover="hover"
+              >
+                <div className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-green-100 text-sm font-medium">Completed</p>
+                      <p className="text-white text-2xl font-bold mt-1">{bookings.filter((b) => b.status === 'Completed').length}</p>
+                    </div>
+                    <div className="bg-white/20 p-2.5 rounded-lg">
+                      <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
 
             {/* Flights Table - IMPROVED TABLE STYLING */}
-            <div className="bg-white shadow-md rounded-lg overflow-hidden border border-gray-200 mb-6">
+            <motion.div
+              className="bg-white shadow-md rounded-lg overflow-hidden border border-gray-200 mb-6"
+              initial="hidden"
+              animate="visible"
+              variants={fadeIn}
+            >
+              <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-gray-900">All Flights</h2>
+                <div className="text-sm text-gray-500">
+                  Total: <span className="font-medium text-gray-900">{filteredBookings.length}</span> flights
+                </div>
+              </div>
+              
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full divide-y divide-gray-200 table-fixed">
                   <thead className="bg-gray-50">
                     <tr>
                       <th
                         scope="col"
-                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" 
-                        /* Increased padding from px-6 py-3 to px-7 py-4 */
+                        className="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4"
                       >
                         Asset
                       </th>
                       <th
                         scope="col"
-                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        className="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12"
                       >
                         Status
                       </th>
                       <th
                         scope="col"
-                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        className="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6"
                       >
                         Service Type
                       </th>
                       <th
                         scope="col"
-                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        className="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/8"
                       >
                         Requested
                       </th>
                       <th
                         scope="col"
-                        className="px-7 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        className="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/8"
                       >
                         Scheduled for
                       </th>
                       <th
                         scope="col"
-                        className="px-7 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        className="px-4 py-3.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/8"
+                      >
+                        Location
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-4 py-3.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6"
                       >
                         Actions
                       </th>
@@ -847,17 +944,21 @@ const MyBookings: React.FC = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {filteredBookings.map((booking, index) => (
-                      <tr 
-                        key={booking.BookingId || index} 
+                      <motion.tr
+                        key={booking.BookingId || index}
                         className="hover:bg-gray-50 cursor-pointer"
                         onClick={() => handleViewBookingDetails(booking.BookingId)}
+                        initial="hidden"
+                        animate="visible"
+                        custom={index}
+                        variants={tableRowVariants}
+                        whileHover="hover"
                       >
-                        <td className="px-7 py-5 whitespace-nowrap"> {/* Increased padding/spacing */}
+                        <td className="px-4 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 h-11 w-11 bg-gray-100 rounded-md flex items-center justify-center">
-                              {/* Increased icon size */}
+                            <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-lg flex items-center justify-center">
                               <svg
-                                className="h-7 w-7 text-gray-500"
+                                className="h-5 w-5 text-blue-600"
                                 fill="none"
                                 stroke="currentColor"
                                 viewBox="0 0 24 24"
@@ -865,30 +966,33 @@ const MyBookings: React.FC = () => {
                                 <path
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
-                                  strokeWidth={2}
+                                  strokeWidth={1.5}
                                   d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
                                 />
                               </svg>
                             </div>
-                            <div className="ml-5"> {/* Increased margin */}
-                              <div className="text-sm font-medium text-gray-900">
+                            <div className="ml-4 overflow-hidden">
+                              <div className="text-sm font-medium text-gray-900 truncate">
                                 {booking.assetName || 'Unnamed Asset'}
                               </div>
-                              <div className="text-sm text-gray-500">
-                                {booking.UserId || userInfo?.name || 'User'}
+                              <div className="text-xs text-gray-500 flex items-center truncate">
+                                <svg className="w-3 h-3 mr-1 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                                <span className="truncate">{booking.UserId || userInfo?.name || 'User'}</span>
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-7 py-5 whitespace-nowrap">
+                        <td className="px-4 py-4 whitespace-nowrap">
                           <span
-                            className={`px-3 py-1 inline-flex text-xs leading-5 font-medium rounded-full 
+                            className={`px-2 py-1 inline-flex text-xs leading-5 font-medium rounded-full 
                             ${
                               booking.status === 'pending'
                                 ? 'bg-yellow-100 text-yellow-800'
                                 : booking.status === 'scheduled'
                                 ? 'bg-blue-100 text-blue-800'
-                                : booking.status === 'completed'
+                                : booking.status === 'Completed'
                                 ? 'bg-green-100 text-green-800'
                                 : booking.status === 'cancelled'
                                 ? 'bg-red-100 text-red-800'
@@ -900,14 +1004,14 @@ const MyBookings: React.FC = () => {
                               : 'Pending'}
                           </span>
                         </td>
-                        <td className="px-7 py-5 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900 font-medium truncate">
                             {booking.serviceType || booking.jobType || 'Standard'}
                           </div>
                           {booking.location && (
                             <div className="text-xs text-gray-500 mt-1 flex items-center">
                               <svg
-                                className="w-3 h-3 mr-1"
+                                className="w-3 h-3 mr-1 text-gray-400 flex-shrink-0"
                                 fill="none"
                                 stroke="currentColor"
                                 viewBox="0 0 24 24"
@@ -925,71 +1029,114 @@ const MyBookings: React.FC = () => {
                                   d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
                                 />
                               </svg>
-                              {booking.location}
+                              <span className="truncate">{booking.location}</span>
                             </div>
                           )}
                         </td>
-                        <td className="px-7 py-5 whitespace-nowrap text-sm text-gray-500">
-                          {booking.createdAt
-                            ? new Date(booking.createdAt).toLocaleDateString(undefined, {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                              })
-                            : 'N/A'}
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {booking.createdAt
+                              ? new Date(booking.createdAt).toLocaleDateString(undefined, {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })
+                              : 'N/A'}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {booking.createdAt
+                              ? new Date(booking.createdAt).toLocaleTimeString(undefined, {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : ''}
+                          </div>
                         </td>
-                        <td className="px-7 py-5 whitespace-nowrap text-sm text-gray-500">
-                          {booking.flightDate
-                            ? new Date(booking.flightDate).toLocaleDateString(undefined, {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                              })
-                            : 'Not scheduled'}
-                        </td>
-                        <td className="px-7 py-5 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation(); // Prevent row click event
-                              handleViewBookingDetails(booking.BookingId);
-                            }}
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            View Details
-                          </button>
-                          {booking.status !== 'cancelled' && booking.status !== 'completed' && (
-                            <button
-                              onClick={() => booking.BookingId && cancelBooking(booking.BookingId)}
-                              className="inline-flex items-center bg-red-50 hover:bg-red-100 text-red-700 px-3.5 py-1.5 rounded-md transition-colors"
-                              /* Increased button padding */
-                            >
-                              <svg
-                                className="w-4 h-4 mr-1.5"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M6 18L18 6M6 6l12 12"
-                                />
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {booking.flightDate
+                              ? new Date(booking.flightDate).toLocaleDateString(undefined, {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })
+                              : 'Not scheduled'}
+                          </div>
+                          {booking.flightDate && (
+                            <div className="text-xs text-gray-500 mt-1 flex items-center">
+                              <svg className="w-3 h-3 mr-1 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
-                              Cancel
-                            </button>
+                              {/* Display the time slot information if available, otherwise use default time */}
+                              {booking.scheduleTime ? (
+                                <span className="capitalize">{booking.scheduleTime}</span>
+                              ) : (
+                                new Date(booking.flightDate).toLocaleTimeString(undefined, {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              )}
+                            </div>
                           )}
                         </td>
-                      </tr>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {booking.postcode || 'N/A'}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {booking.address || 'No address provided'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-right">
+                          <div className="flex justify-end space-x-1">
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={(e) => {
+                                e.stopPropagation(); // Prevent row click event
+                                handleViewBookingDetails(booking.BookingId);
+                              }}
+                              className="inline-flex items-center px-2.5 py-1.5 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition-colors text-xs"
+                            >
+                              <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                              Details
+                            </motion.button>
+                            {booking.status !== 'Cancelled' && booking.status !== 'Completed' && (
+                              <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={(e) => {
+                                  e.stopPropagation(); // Prevent row click event
+                                  booking.BookingId && cancelBooking(booking.BookingId);
+                                }}
+                                className="inline-flex items-center px-2.5 py-1.5 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors text-xs"
+                              >
+                                <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                Cancel
+                              </motion.button>
+                            )}
+                          </div>
+                        </td>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
               {filteredBookings.length === 0 && (
-                <div className="py-12 text-center"> {/* Increased padding */}
+                <motion.div 
+                  className="py-12 text-center"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                >
                   <svg
-                    className="mx-auto h-14 w-14 text-gray-300"
+                    className="mx-auto h-16 w-16 text-gray-300"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -1001,13 +1148,16 @@ const MyBookings: React.FC = () => {
                       d="M8 16l2.879-2.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  <p className="mt-4 text-gray-500 text-lg">No flights match your current filters</p> {/* Increased text size */}
-                  <button
+                  <h3 className="mt-4 text-lg font-medium text-gray-900">No matching flights</h3>
+                  <p className="mt-1 text-gray-500">No flights match your current filters</p>
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
                     onClick={() => setActiveFilters([])}
-                    className="mt-4 text-blue-600 hover:text-blue-800 inline-flex items-center"
+                    className="mt-5 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                   >
                     <svg
-                      className="w-4 h-4 mr-1.5"
+                      className="w-4 h-4 mr-2"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -1020,21 +1170,33 @@ const MyBookings: React.FC = () => {
                       />
                     </svg>
                     Clear filters
-                  </button>
-                </div>
+                  </motion.button>
+                </motion.div>
               )}
-            </div>
-
-            <div className="text-right text-sm text-gray-500 mb-6"> {/* Added bottom margin */}
-              Showing {filteredBookings.length} of {bookings.length} flights
-            </div>
+              
+              <div className="px-6 py-4 border-t border-gray-200 flex justify-between">
+                <div className="text-sm text-gray-600">
+                  {filteredBookings.length > 0 ? `Showing ${filteredBookings.length} of ${bookings.length} flights` : ''}
+                </div>
+                <Link to="/assets" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                  Book New Flight
+                </Link>
+              </div>
+            </motion.div>
           </>
         )}
       </main>
 
-      <footer className="bg-white border-t border-gray-200 py-4 px-8 mt-auto">
-        <div className="container mx-auto text-center text-gray-500 text-sm">
-          &copy; {new Date().getFullYear()} PilotForce. All rights reserved.
+      <footer className="bg-white border-t border-gray-200 py-4 px-4 mt-auto">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center text-sm">
+          <p className="text-gray-500">
+            &copy; {new Date().getFullYear()} PilotForce. All rights reserved.
+          </p>
+          <div className="flex space-x-6 mt-2 md:mt-0">
+            <a href="#" className="text-gray-500 hover:text-gray-900">Privacy</a>
+            <a href="#" className="text-gray-500 hover:text-gray-900">Terms</a>
+            <a href="#" className="text-gray-500 hover:text-gray-900">Contact</a>
+          </div>
         </div>
       </footer>
     </div>

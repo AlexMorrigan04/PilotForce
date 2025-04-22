@@ -65,7 +65,7 @@ const AdminBookingDetails: React.FC = () => {
     }
     
     if (bookingId) {
-      fetchBooking();
+      fetchBookingDetails();
       fetchResources();
     } else {
       setError('No booking ID provided');
@@ -85,16 +85,20 @@ const AdminBookingDetails: React.FC = () => {
   }, [resources]);
 
   // Fetch booking details
-  const fetchBooking = async () => {
-    if (!bookingId) return;
-    
+  const fetchBookingDetails = async () => {
     setLoading(true);
     try {
-      const response = await adminService.getBookingById(bookingId);
+      // Make sure bookingId is not undefined
+      if (!bookingId) {
+        setError("Booking ID is missing");
+        setLoading(false);
+        return;
+      }
+      const response = await adminService.getBooking(bookingId);
       setBooking(response.booking || null);
     } catch (err: any) {
       console.error(`Error fetching booking ${bookingId}:`, err);
-      setError(err.message || 'Failed to load booking details');
+      setError(err.message || 'An error occurred while loading booking details');
     } finally {
       setLoading(false);
     }

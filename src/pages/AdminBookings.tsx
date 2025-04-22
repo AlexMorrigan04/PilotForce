@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import AdminNavbar from '../components/AdminNavbar';
 import ResourceUploadModal from '../components/admin/ResourceUploadModal';
 import BookingResourcesModal from '../components/admin/BookingResourcesModal';
-import { FiCalendar, FiSearch, FiRefreshCw, FiDownload, FiFilter, FiX, FiEye, FiUpload, FiTrash2 } from 'react-icons/fi';
+import { FiCalendar, FiSearch, FiRefreshCw, FiDownload, FiFilter, FiX, FiEye, FiUpload, FiTrash2, FiCheck } from 'react-icons/fi';
 import * as adminService from '../services/adminService';
 import { validateAmplifyConfig } from '../utils/apiUtils';
 
@@ -55,6 +55,9 @@ const AdminBookings: React.FC = () => {
   const [selectedBookingForUpload, setSelectedBookingForUpload] = useState<string | null>(null);
   const [selectedBookingForResources, setSelectedBookingForResources] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<boolean>(false);
+  const [updatingBookingId, setUpdatingBookingId] = useState<string | null>(null);
+  const [statusUpdateSuccess, setStatusUpdateSuccess] = useState<boolean>(false);
+  const [statusUpdateMessage, setStatusUpdateMessage] = useState<string>('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -253,10 +256,59 @@ const AdminBookings: React.FC = () => {
     if (statusLower === 'confirmed') return 'bg-blue-100 text-blue-800';
     if (statusLower === 'pending') return 'bg-yellow-100 text-yellow-800';
     if (statusLower === 'cancelled') return 'bg-red-100 text-red-800';
+    if (statusLower === 'scheduled') return 'bg-purple-100 text-purple-800';
     return 'bg-gray-100 text-gray-800';
   };
 
+  const handleUpdateBookingStatus = async (bookingId: string, newStatus: string) => {
+    try {
+      setUpdatingBookingId(bookingId);
+      
+      const response = await adminService.updateBookingStatus(bookingId, newStatus);
+      
+      if (response.success || (response.message && response.message.includes('success'))) {
+        setBookings(bookings.map(booking => 
+          booking.id === bookingId 
+            ? { ...booking, status: newStatus } 
+            : booking
+        ));
+        
+        setStatusUpdateSuccess(true);
+        setStatusUpdateMessage(`Booking successfully marked as ${newStatus}`);
+        
+        setTimeout(() => {
+          setStatusUpdateSuccess(false);
+          setStatusUpdateMessage('');
+        }, 5000);
+      } else {
+        setError(`Failed to update booking: ${response.message || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      if (err.response?.data?.message?.includes('successfully')) {
+        setBookings(bookings.map(booking => 
+          booking.id === bookingId 
+            ? { ...booking, status: newStatus } 
+            : booking
+        ));
+        
+        setStatusUpdateSuccess(true);
+        setStatusUpdateMessage(`Booking successfully marked as ${newStatus}`);
+        
+        setTimeout(() => {
+          setStatusUpdateSuccess(false);
+          setStatusUpdateMessage('');
+        }, 5000);
+      } else {
+        setError(`Error updating booking status: ${err.message || 'Unknown error'}`);
+      }
+    } finally {
+      setUpdatingBookingId(null);
+    }
+  };
+
   const renderTableActions = (booking: Booking) => {
+    const statusLower = booking.status.toLowerCase();
+    
     return (
       <div className="flex space-x-2 justify-end">
         <button
@@ -266,6 +318,43 @@ const AdminBookings: React.FC = () => {
         >
           <FiEye size={18} />
         </button>
+        
+        {statusLower === 'pending' && (
+          <button
+            onClick={() => handleUpdateBookingStatus(booking.id, 'Scheduled')}
+            disabled={updatingBookingId === booking.id}
+            className={`text-blue-600 hover:text-blue-800 ${updatingBookingId === booking.id ? 'opacity-50' : ''}`}
+            title="Schedule Booking"
+          >
+            {updatingBookingId === booking.id ? (
+              <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : (
+              <FiCalendar size={18} />
+            )}
+          </button>
+        )}
+        
+        {statusLower === 'scheduled' && (
+          <button
+            onClick={() => handleUpdateBookingStatus(booking.id, 'Completed')}
+            disabled={updatingBookingId === booking.id}
+            className={`text-green-600 hover:text-green-800 ${updatingBookingId === booking.id ? 'opacity-50' : ''}`}
+            title="Mark as Completed"
+          >
+            {updatingBookingId === booking.id ? (
+              <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : (
+              <FiCheck size={18} />
+            )}
+          </button>
+        )}
+        
         <button
           onClick={() => handleViewResources(booking.id)}
           className="text-indigo-600 hover:text-indigo-800"
@@ -291,7 +380,6 @@ const AdminBookings: React.FC = () => {
     );
   };
 
-  // Format Service Options data for display in a more user-friendly format
   const formatServiceOptions = (serviceOptions: any): JSX.Element => {
     if (!serviceOptions || Object.keys(serviceOptions).length === 0) {
       return <span className="text-sm">None</span>;
@@ -366,6 +454,19 @@ const AdminBookings: React.FC = () => {
           </div>
         )}
 
+        {statusUpdateSuccess && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded relative">
+            <span className="block sm:inline">{statusUpdateMessage}</span>
+            <button
+              className="absolute top-0 bottom-0 right-0 px-4 py-3"
+              onClick={() => setStatusUpdateSuccess(false)}
+            >
+              <span className="sr-only">Close</span>
+              <FiX className="h-6 w-6" />
+            </button>
+          </div>
+        )}
+
         <div className="bg-white p-4 mb-6 rounded-lg shadow-sm border border-gray-200">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4">
             <h2 className="text-lg font-medium text-gray-800 flex items-center">
@@ -399,6 +500,7 @@ const AdminBookings: React.FC = () => {
                 <option value="confirmed">Confirmed</option>
                 <option value="completed">Completed</option>
                 <option value="cancelled">Cancelled</option>
+                <option value="scheduled">Scheduled</option>
               </select>
             </div>
             

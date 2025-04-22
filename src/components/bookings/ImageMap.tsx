@@ -50,7 +50,8 @@ export const ImageMap: React.FC<ImageMapProps> = ({
   const [viewState, setViewState] = useState({
     longitude: -2.587910,
     latitude: 51.454514,
-    zoom: 12
+    zoom: 12,
+    pitch: 0
   });
   const [mapLoaded, setMapLoaded] = useState(false);
   const [geoTiffLoaded, setGeoTiffLoaded] = useState(false);
@@ -80,7 +81,8 @@ export const ImageMap: React.FC<ImageMapProps> = ({
       setViewState({
         latitude: avgLat,
         longitude: avgLng,
-        zoom: 15
+        zoom: 15,
+        pitch: viewState.pitch
       });
     }
   }, [imageLocations]);
@@ -474,6 +476,13 @@ export const ImageMap: React.FC<ImageMapProps> = ({
     }, 100);
   };
 
+  const toggle3DView = () => {
+    setViewState({
+      ...viewState, 
+      pitch: viewState.pitch === 0 ? 45 : 0
+    });
+  };
+
   const handleMapClick = (event: MapLayerMouseEvent) => {
     const map = internalMapRef.current || (externalMapRef?.current as MapRef | null);
     const mapboxMap = map ? (map as any).getMap() : null;
@@ -635,22 +644,57 @@ export const ImageMap: React.FC<ImageMapProps> = ({
           </Popup>
         )}
       </Map>
-      <button 
-        onClick={toggleEnlargedView}
-        className={`absolute ${isEnlarged ? 'top-6 right-6' : 'top-4 right-4'} bg-white rounded-md shadow-md p-2 z-30 hover:bg-gray-100`}
-        title={isEnlarged ? "Exit fullscreen" : "View fullscreen"}
-        style={{ fontSize: isEnlarged ? '16px' : '14px' }}
-      >
-        {isEnlarged ? (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        ) : (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
-          </svg>
-        )}
-      </button>
+      <div className="absolute top-4 right-4 flex flex-col gap-2">
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <button 
+            className="p-2 hover:bg-gray-100 transition-colors"
+            onClick={() => setViewState(prev => ({ ...prev, zoom: prev.zoom + 1 }))}
+            aria-label="Zoom in"
+          >
+            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+          </button>
+          <div className="border-t border-gray-200"></div>
+          <button 
+            className="p-2 hover:bg-gray-100 transition-colors"
+            onClick={() => setViewState(prev => ({ ...prev, zoom: prev.zoom - 1 }))}
+            aria-label="Zoom out"
+          >
+            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
+            </svg>
+          </button>
+        </div>
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <button 
+            className="p-2 hover:bg-gray-100 transition-colors"
+            onClick={toggle3DView}
+            aria-label="Toggle 3D view"
+          >
+            <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
+            </svg>
+          </button>
+        </div>
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          <button 
+            onClick={toggleEnlargedView}
+            className="p-2 hover:bg-gray-100 transition-colors"
+            title={isEnlarged ? "Exit fullscreen" : "View fullscreen"}
+          >
+            {isEnlarged ? (
+              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+              </svg>
+            )}
+          </button>
+        </div>
+      </div>
       {geoTiffUrl && (
         <div className="absolute top-4 left-4 bg-white rounded-md shadow-md p-2 max-w-xs z-10">
           <div className="flex items-center space-x-2">
