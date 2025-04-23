@@ -127,7 +127,6 @@ class ChunkReassembler {
       
       return { blob: reassembledBlob, fileName, contentType };
     } catch (error) {
-      console.error('Error reassembling chunks:', error);
       throw error;
     }
   }

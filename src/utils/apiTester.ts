@@ -10,12 +10,10 @@ export const testUserEndpoint = async () => {
   const token = localStorage.getItem('idToken');
   
   if (!token) {
-    console.error('No token available for testing. Ensure you are logged in.');
     return { success: false, message: 'No token available' };
   }
   
   try {
-    console.log('Testing /user endpoint directly with token:', token.substring(0, 10) + '...');
     
     // Create a direct request to the API Gateway
     const response = await axios.get(`${getApiEndpoint()}/user`, {
@@ -25,13 +23,11 @@ export const testUserEndpoint = async () => {
       }
     });
     
-    console.log('Direct API response:', response.data);
     return { 
       success: true, 
       data: response.data
     };
   } catch (error: any) {
-    console.error('API test error:', error);
     return {
       success: false,
       message: error.message,
@@ -44,16 +40,8 @@ export const testUserEndpoint = async () => {
 export const inspectToken = () => {
   const token = localStorage.getItem('idToken');
   if (!token) {
-    console.error('No token found in localStorage');
     return null;
   }
-  
-  // Log token info (DO NOT do this in production with real tokens)
-  console.log('Token from localStorage:', {
-    first10Chars: token.substring(0, 10) + '...',
-    length: token.length,
-    hasBearer: token.startsWith('Bearer ')
-  });
   
   // Check if token has Bearer prefix (it shouldn't in localStorage)
   if (token.startsWith('Bearer ')) {

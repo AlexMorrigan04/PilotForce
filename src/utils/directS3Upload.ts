@@ -23,11 +23,9 @@ interface S3UploadResult {
 export const extractImageMetadata = async (file: File): Promise<any> => {
   try {
     if (!file.type.startsWith('image/')) {
-      console.log('Not an image file, skipping metadata extraction');
       return null;
     }
     
-    console.log(`Extracting metadata from ${file.name}`);
     
     // Use exifr to parse metadata with extended options for maximum compatibility
     const exifData = await exifr.parse(file, {
@@ -40,11 +38,9 @@ export const extractImageMetadata = async (file: File): Promise<any> => {
     });
     
     if (!exifData) {
-      console.log(`No EXIF data found in ${file.name}`);
       return null;
     }
     
-    console.log(`Found metadata in ${file.name}:`, exifData);
     
     // Extract GPS coordinates
     const metadata: any = {};
@@ -52,19 +48,16 @@ export const extractImageMetadata = async (file: File): Promise<any> => {
     if (exifData.latitude !== undefined && exifData.longitude !== undefined) {
       metadata.latitude = exifData.latitude;
       metadata.longitude = exifData.longitude;
-      console.log(`Coordinates: ${metadata.latitude}, ${metadata.longitude}`);
     }
     
     // Extract altitude if available
     if (exifData.altitude !== undefined) {
       metadata.altitude = exifData.altitude;
-      console.log(`Altitude: ${metadata.altitude}`);
     }
     
     // Extract heading/direction - look in common fields
     if (exifData.GPSImgDirection !== undefined) {
       metadata.direction = exifData.GPSImgDirection;
-      console.log(`Image direction: ${metadata.direction}°`);
     }
     
     // Look for heading in DJI-specific XMP data
@@ -83,13 +76,11 @@ export const extractImageMetadata = async (file: File): Promise<any> => {
       }
       
       if (metadata.direction !== undefined) {
-        console.log(`Found heading in XMP data: ${metadata.direction}°`);
       }
     }
     
     return metadata;
   } catch (error) {
-    console.error(`Error extracting metadata from ${file.name}:`, error);
     return null;
   }
 };
@@ -110,14 +101,11 @@ export const uploadDirectlyToS3 = async (
 
   try {
     if (isGeoTiff) {
-      console.log(`Uploading GeoTIFF using optimized chunking: ${file.name}`);
       return await uploadGeoTiffWithChunks(file, bookingId, onProgress);
     } else {
-      console.log(`Uploading regular file using standard chunking: ${file.name}`);
       return await uploadRegularFileWithChunks(file, bookingId, onProgress);
     }
   } catch (error) {
-    console.error(`Error uploading ${file.name}:`, error);
     throw error;
   }
 };
@@ -151,7 +139,6 @@ const uploadGeoTiffWithChunks = async (
       true // isManifest flag
     );
     
-    console.log("Manifest uploaded:", manifestUploadResult);
     
     // Upload each chunk sequentially with progress tracking
     let totalUploaded = 0;
@@ -174,7 +161,6 @@ const uploadGeoTiffWithChunks = async (
       const progress = Math.round((totalUploaded / file.size) * 100);
       if (onProgress) onProgress(progress);
       
-      console.log(`Uploaded chunk ${i+1}/${chunks.length}: ${chunk.fileName}`);
     }
 
     // Return success information
@@ -186,7 +172,6 @@ const uploadGeoTiffWithChunks = async (
       chunks: chunks.map(c => c.fileName)
     };
   } catch (error) {
-    console.error("Error uploading GeoTIFF with chunks:", error);
     throw error;
   }
 };
@@ -200,12 +185,10 @@ const uploadRegularFileWithChunks = async (
   onProgress?: (progress: number) => void
 ): Promise<any> => {
   try {
-    console.log(`Using chunked API upload for: ${file.name}`);
     onProgress?.(10);
     
     // Step 1: Create chunks from the file
     const chunks = await createChunksFromFile(file, CHUNK_SIZE);
-    console.log(`File split into ${chunks.length} chunks`);
     
     // Step 2: Create a unique resource ID for tracking this upload
     const resourceId = `resource_${Date.now()}_${uuidv4().substring(0, 8)}`;
@@ -254,17 +237,14 @@ const uploadRegularFileWithChunks = async (
         completedChunks++;
         const progress = Math.round((completedChunks / chunks.length) * 100);
         onProgress?.(progress);
-        console.log(`Chunk ${i + 1}/${chunks.length} uploaded successfully`);
         
       } catch (error) {
-        console.error(`Error uploading chunk ${i + 1}:`, error);
         throw new Error(`Failed to upload chunk ${i + 1}`);
       }
     }
     
     // Step 4: Return success result
     onProgress?.(100);
-    console.log(`Successfully uploaded large file with chunking: ${file.name}`);
     
     return {
       resourceId,
@@ -273,7 +253,6 @@ const uploadRegularFileWithChunks = async (
       success: true
     };
   } catch (error) {
-    console.error('Chunked upload failed:', error);
     throw error;
   }
 };
@@ -352,7 +331,6 @@ const uploadSingleChunk = async (
     
     return response.json();
   } catch (error) {
-    console.error(`Error uploading chunk ${fileName}:`, error);
     throw error;
   }
 };
@@ -399,7 +377,6 @@ const generateSimpleChecksum = async (blob: Blob): Promise<string> => {
     // Return as hex string
     return (hash >>> 0).toString(16);
   } catch (error) {
-    console.error("Error generating checksum:", error);
     return Date.now().toString(16); // Fallback
   }
 };

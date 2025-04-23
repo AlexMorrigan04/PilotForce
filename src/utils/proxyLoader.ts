@@ -13,11 +13,9 @@ const GeoTiffLoader = {
    * @returns A Promise that resolves to a GeoTIFF object
    */
   loadGeoTiffWithFallbacks: async (url: string, bookingId?: string): Promise<any> => {
-    console.log('GeoTiffLoader: Starting load process for', url.substring(0, 100) + '...');
     
     // First try: direct load with GeoTIFF.fromUrl
     try {
-      console.log('GeoTiffLoader: Attempting direct GeoTIFF load...');
       const response = await fetch(url, {
         credentials: 'include',
         headers: {
@@ -33,7 +31,6 @@ const GeoTiffLoader = {
       // Second try: Try proxy API if we have a booking ID
       if (bookingId) {
         try {
-          console.log('GeoTiffLoader: Attempting to proxy GeoTIFF through backend API...');
           const API_BASE_URL = process.env.REACT_APP_API_URL;
           const encodedUrl = encodeURIComponent(url);
           
@@ -63,7 +60,6 @@ const GeoTiffLoader = {
       
       // Third try: using fetch + blob with a modified access approach
       try {
-        console.log('GeoTiffLoader: Attempting fetch + blob with modified access...');
         
         // Extract the key from the URL (everything after the bucket name)
         let key = '';
@@ -73,7 +69,6 @@ const GeoTiffLoader = {
           // Remove the first empty segment
           pathSegments.shift();
           key = pathSegments.join('/');
-          console.log('Extracted key from URL:', key);
         } catch (parseError) {
           console.warn('Failed to extract key from URL:', parseError);
           key = url.split('/').slice(3).join('/').split('?')[0];
@@ -96,7 +91,6 @@ const GeoTiffLoader = {
             
             if (freshenResponse.data && freshenResponse.data.url) {
               const freshUrl = freshenResponse.data.url;
-              console.log('GeoTiffLoader: Got fresh URL:', freshUrl.substring(0, 100) + '...');
               
               // Try with the fresh URL
               const response = await fetch(freshUrl);
@@ -152,7 +146,6 @@ const GeoTiffLoader = {
    */
   createDownloadUrl: async (url: string, bookingId?: string): Promise<string> => {
     try {
-      console.log('GeoTiffLoader: Creating download URL from', url.substring(0, 100) + '...');
       
       // If we have a booking ID, try to use the proxy
       if (bookingId) {
@@ -188,7 +181,6 @@ const GeoTiffLoader = {
       // Fall back to the original URL
       return url;
     } catch (error) {
-      console.error('GeoTiffLoader: Failed to create download URL:', error);
       return url; // Return original URL as a fallback
     }
   }

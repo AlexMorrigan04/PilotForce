@@ -35,7 +35,6 @@ export const calculateSecretHash = (
     hmac.update(message);
     return hmac.digest('base64');
   } catch (error) {
-    console.error('Error calculating secret hash:', error);
     return '';
   }
 };

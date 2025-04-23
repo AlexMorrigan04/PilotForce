@@ -8,7 +8,6 @@ export const secureStorage = {
       const encryptedValue = encryptData(value, SECRET_KEY);
       localStorage.setItem(key, encryptedValue);
     } catch (error) {
-      console.error('Error setting secure item:', error);
     }
   },
   
@@ -18,7 +17,6 @@ export const secureStorage = {
       if (!encryptedValue) return null;
       return decryptData(encryptedValue, SECRET_KEY);
     } catch (error) {
-      console.error('Error getting secure item:', error);
       return null;
     }
   },

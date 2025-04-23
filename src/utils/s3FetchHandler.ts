@@ -28,35 +28,28 @@ export const fetchFromS3WithFallbacks = async (url: string): Promise<Response> =
     redirect: 'follow',
   };
   
-  console.log(`🔄 S3Fetch: Trying ${urlsToTry.length} URL variations`);
   
   // Try each URL in sequence
   for (let i = 0; i < urlsToTry.length; i++) {
     const currentUrl = urlsToTry[i];
     
     try {
-      console.log(`🔄 S3Fetch attempt ${i+1}/${urlsToTry.length}`);
       
       const response = await fetch(currentUrl, fetchOptions);
       
       if (!response.ok) {
         const errorMessage = `Failed with status ${response.status}: ${response.statusText}`;
-        console.error(`❌ S3Fetch attempt ${i+1} failed:`, errorMessage);
         
         if (response.status === 403 || response.status === 401) {
-          console.log('🔄 Got authentication error, this URL likely requires proper presigned parameters');
         } else if (response.status === 404) {
-          console.log('🔄 Got 404 Not Found, the resource may not exist or the URL is malformed');
         }
         
         throw new Error(errorMessage);
       }
       
-      console.log(`✅ S3Fetch attempt ${i+1} succeeded!`);
       return response;
       
     } catch (error) {
-      console.error(`❌ S3Fetch attempt ${i+1} error:`, error);
       lastError = error instanceof Error ? error : new Error(String(error));
       
       // Continue to next URL variation
@@ -71,17 +64,13 @@ export const fetchFromS3WithFallbacks = async (url: string): Promise<Response> =
  * Fetch a GeoTIFF file from S3 and return as ArrayBuffer
  */
 export const fetchGeoTiffFromS3 = async (url: string): Promise<ArrayBuffer> => {
-  console.log('🔄 Fetching GeoTIFF from S3:', url.substring(0, 100) + '...');
   
   try {
     const response = await fetchFromS3WithFallbacks(url);
     
-    console.log(`✅ GeoTIFF fetch succeeded, content-type: ${response.headers.get('content-type')}`);
-    console.log(`✅ Content-length: ${response.headers.get('content-length')} bytes`);
     
     return await response.arrayBuffer();
   } catch (error) {
-    console.error('❌ GeoTIFF fetch failed:', error);
     throw error;
   }
 };
@@ -96,7 +85,6 @@ export const checkParenthesesHandling = async (url: string): Promise<boolean> =>
     return false;
   }
   
-  console.log('🔄 Checking if URL with parentheses needs special handling');
   
   try {
     // Try a HEAD request first to avoid downloading the whole file
@@ -107,7 +95,6 @@ export const checkParenthesesHandling = async (url: string): Promise<boolean> =>
     });
     
     if (headResponse.ok) {
-      console.log('✅ Original URL works fine with HEAD request');
       return false; // No special handling needed
     }
     
@@ -122,7 +109,6 @@ export const checkParenthesesHandling = async (url: string): Promise<boolean> =>
     });
     
     if (normalizedHeadResponse.ok) {
-      console.log('✅ Normalized URL works with HEAD request');
       return true; // Special handling helpful
     }
     
@@ -130,7 +116,6 @@ export const checkParenthesesHandling = async (url: string): Promise<boolean> =>
     return true;
     
   } catch (error) {
-    console.error('❌ Error checking parentheses handling:', error);
     // If we can't check, assume we need special handling
     return true;
   }

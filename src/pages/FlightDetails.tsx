@@ -1175,7 +1175,7 @@ const FlightDetails: React.FC = () => {
   };
 
   const isBookingActive = () => {
-    return booking?.status === 'in-progress' || booking?.status === 'completed'|| booking?.status === 'Completed';
+    return booking?.status?.toLowerCase() === 'in-progress' || booking?.status?.toLowerCase() === 'completed';
   };
 
   // Define breadcrumbs for the navigation
@@ -1185,10 +1185,10 @@ const FlightDetails: React.FC = () => {
     { label: 'Flight Details', href: '#', current: true }
   ];
 
-  // Status color utility function
+  // Status color utility function - Updated to handle case sensitivity
   const getStatusColor = (status?: string): string => {
     switch (status?.toLowerCase()) {
-      case 'Completed':
+      case 'completed':
         return 'bg-green-100 text-green-800';
       case 'in-progress':
         return 'bg-blue-100 text-blue-800';
@@ -1203,10 +1203,10 @@ const FlightDetails: React.FC = () => {
     }
   };
 
-  // Status text utility function
+  // Status text utility function - Updated to handle case sensitivity
   const getStatusText = (status?: string): string => {
     switch (status?.toLowerCase()) {
-      case 'Completed':
+      case 'completed':
         return 'Completed';
       case 'in-progress':
         return 'In Progress';
@@ -1492,8 +1492,11 @@ const FlightDetails: React.FC = () => {
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking?.status)}`}>
                   {getStatusText(booking?.status)}
                 </span>
-                {booking?.status === 'pending' && (
+                {booking?.status?.toLowerCase() === 'pending' && (
                   <p className="text-xs text-gray-500 mt-1">Awaiting confirmation</p>
+                )}
+                {booking?.status?.toLowerCase() === 'cancelled' && (
+                  <p className="text-xs text-red-500 mt-1">Flight was cancelled</p>
                 )}
               </div>
             </div>
@@ -1539,10 +1542,42 @@ const FlightDetails: React.FC = () => {
               </div>
             </div>
             
-            {(booking?.status === 'scheduled' || booking?.status === 'pending' || 
-              booking?.status === 'Completed' || booking?.status === 'in-progress') && (
+            {/* Status banner for cancelled bookings */}
+            {booking?.status?.toLowerCase() === 'cancelled' && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-red-50">
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span className="text-sm text-red-700 font-medium">
+                    This flight has been cancelled and will not be performed.
+                  </span>
+                </div>
+              </div>
+            )}
+            
+            {/* Status banner for scheduled bookings */}
+            {booking?.status?.toLowerCase() === 'scheduled' && (
+              <div className="px-6 py-4 border-t border-gray-200 bg-blue-50">
+                <div className="flex items-center">
+                  <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span className="text-sm text-blue-700 font-medium">
+                    This flight is scheduled for {new Date(booking?.flightDate || booking?.scheduling?.date).toLocaleDateString('en-GB', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric'
+                    })} {booking?.scheduling?.timeSlot && `at ${booking.scheduling.timeSlot.replace(/-/g, ' to ')}`}
+                  </span>
+                </div>
+              </div>
+            )}
+            
+            {(booking?.status?.toLowerCase() === 'scheduled' || booking?.status?.toLowerCase() === 'pending' || 
+              booking?.status?.toLowerCase() === 'completed' || booking?.status?.toLowerCase() === 'in-progress') && (
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                {(booking?.status === 'Completed' || booking?.status === 'in-progress') && (
+                {(booking?.status?.toLowerCase() === 'completed' || booking?.status?.toLowerCase() === 'in-progress') && (
                   <button 
                     onClick={scrollToFlightData}
                     className="w-full bg-blue-600 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -1550,16 +1585,16 @@ const FlightDetails: React.FC = () => {
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4 4L19 7" />
                     </svg>
-                    {booking?.status === 'Completed' ? 'View Flight Data' : 'Track Progress'}
+                    {booking?.status?.toLowerCase() === 'completed' ? 'View Flight Data' : 'Track Progress'}
                   </button>
                 )}
-                {(booking?.status === 'scheduled' || booking?.status === 'pending') && (
+                {(booking?.status?.toLowerCase() === 'scheduled' || booking?.status?.toLowerCase() === 'pending') && (
                   <div className="flex space-x-3">
                     <div className="flex items-center text-sm text-gray-500">
                       <svg className="w-4 h-4 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      {booking?.status === 'scheduled' ? 'Flight scheduled' : 'Awaiting confirmation'}
+                      {booking?.status?.toLowerCase() === 'scheduled' ? 'Flight scheduled' : 'Awaiting confirmation'}
                     </div>
                   </div>
                 )}
@@ -1908,14 +1943,40 @@ const FlightDetails: React.FC = () => {
           <div className="p-0">
             {!isBookingActive() ? (
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                <div className="bg-blue-50 rounded-full p-4 mb-4">
-                  <svg className="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
+                <div className={`rounded-full p-4 mb-4 ${
+                  booking?.status?.toLowerCase() === 'cancelled' 
+                    ? 'bg-red-50' 
+                    : booking?.status?.toLowerCase() === 'scheduled'
+                    ? 'bg-blue-50'
+                    : 'bg-blue-50'
+                }`}>
+                  {booking?.status?.toLowerCase() === 'cancelled' ? (
+                    <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  ) : booking?.status?.toLowerCase() === 'scheduled' ? (
+                    <svg className="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  )}
                 </div>
-                <h3 className="text-xl font-medium text-gray-900 mb-2">Flight Not Yet Completed</h3>
+                <h3 className="text-xl font-medium text-gray-900 mb-2">
+                  {booking?.status?.toLowerCase() === 'cancelled' 
+                    ? 'Flight Cancelled' 
+                    : booking?.status?.toLowerCase() === 'scheduled'
+                    ? 'Flight Scheduled'
+                    : 'Flight Not Yet Completed'}
+                </h3>
                 <p className="text-base text-gray-600 max-w-md">
-                  {booking?.status === 'pending' 
+                  {booking?.status?.toLowerCase() === 'cancelled' 
+                    ? "This flight has been cancelled and will not be performed."
+                    : booking?.status?.toLowerCase() === 'scheduled'
+                    ? `This flight is scheduled for ${new Date(booking?.flightDate || booking?.scheduling?.date).toLocaleDateString()}. Images and data will be available after the flight is completed.`
+                    : booking?.status?.toLowerCase() === 'pending' 
                     ? "This booking is awaiting confirmation. Once confirmed, we'll schedule the flight date."
                     : `This flight is scheduled for ${new Date(booking?.flightDate).toLocaleDateString()}. Images and data will be available after the flight is completed.`
                   }

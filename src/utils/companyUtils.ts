@@ -22,12 +22,10 @@ export const getCompanyId = (user?: any): string | null => {
       const payload = JSON.parse(atob(idToken.split('.')[1]));
       if (payload && payload['custom:companyId']) {
         companyId = payload['custom:companyId'];
-        console.log("Extracted companyId from token:", companyId);
         return companyId;
       }
     }
   } catch (tokenError) {
-    console.error("Error extracting company ID from token:", tokenError);
   }
   
   // If we have a user object, try to get companyId from it
@@ -35,28 +33,24 @@ export const getCompanyId = (user?: any): string | null => {
     // Direct property access
     if (user.companyId && typeof user.companyId === 'string' && user.companyId.trim() !== '') {
       companyId = user.companyId;
-      console.log("Found companyId via user property:", companyId);
       return companyId;
     }
     
     // Nested property access
     if (user.user && user.user.companyId) {
       companyId = user.user.companyId;
-      console.log("Found companyId via nested user property:", companyId);
       return companyId;
     }
     
     // Data wrapper property
     if (user.data && user.data.companyId) {
       companyId = user.data.companyId;
-      console.log("Found companyId via data property:", companyId);
       return companyId;
     }
     
     // Custom attribute format
     if (user['custom:companyId']) {
       companyId = user['custom:companyId'];
-      console.log("Found companyId via custom attribute:", companyId);
       return companyId;
     }
   }
@@ -64,13 +58,11 @@ export const getCompanyId = (user?: any): string | null => {
   // Try localStorage/sessionStorage
   const localStorageCompanyId = localStorage.getItem('companyId');
   if (localStorageCompanyId) {
-    console.log("Found companyId in localStorage:", localStorageCompanyId);
     return localStorageCompanyId;
   }
   
   const sessionStorageCompanyId = sessionStorage.getItem('companyId');
   if (sessionStorageCompanyId) {
-    console.log("Found companyId in sessionStorage:", sessionStorageCompanyId);
     return sessionStorageCompanyId;
   }
   
@@ -80,7 +72,6 @@ export const getCompanyId = (user?: any): string | null => {
     if (userData) {
       const parsedUser = JSON.parse(userData);
       if (parsedUser.companyId) {
-        console.log("Found companyId in stored userData:", parsedUser.companyId);
         return parsedUser.companyId;
       }
     }
@@ -89,12 +80,10 @@ export const getCompanyId = (user?: any): string | null => {
     if (userString) {
       const parsedUser = JSON.parse(userString);
       if (parsedUser.companyId) {
-        console.log("Found companyId in stored user:", parsedUser.companyId);
         return parsedUser.companyId;
       }
     }
   } catch (e) {
-    console.error("Error parsing stored user data:", e);
   }
   
   console.warn("Could not find companyId in any source");

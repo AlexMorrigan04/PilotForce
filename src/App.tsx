@@ -68,28 +68,19 @@ const AdminAwareRoute = ({ children }: { children: React.ReactNode }) => {
           // Only consider a user an admin if they belong to the specific Administrators group
           const isInAdministratorsGroup = groups.includes('Administrators');
           
-          console.log('Admin group check result:', { 
-            groups: groups, 
-            isAdmin: isInAdministratorsGroup
-          });
-          
           if (isInAdministratorsGroup) {
-            console.log('User confirmed as administrator via Cognito group membership');
             setIsUserAdmin(true);
             localStorage.setItem('isAdmin', 'true');
           } else {
             // If not in Administrators group, clear any incorrect flag
-            console.log('User is not in Administrators group, clearing any incorrect admin flags');
             localStorage.removeItem('isAdmin');
             setIsUserAdmin(false);
           }
         } else {
-          console.log('No token available, user cannot be an admin');
           localStorage.removeItem('isAdmin');
           setIsUserAdmin(false);
         }
       } catch (error) {
-        console.error('Error checking admin status:', error);
         setIsUserAdmin(false);
       } finally {
         setCheckingAdmin(false);
@@ -114,7 +105,6 @@ const AdminAwareRoute = ({ children }: { children: React.ReactNode }) => {
   
   // Redirect admins to admin dashboard
   if (isUserAdmin) {
-    console.log('User is admin, redirecting to admin dashboard');
     return <Navigate to="/admin-dashboard" />;
   }
   

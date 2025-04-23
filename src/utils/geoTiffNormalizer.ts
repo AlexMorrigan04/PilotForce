@@ -27,7 +27,6 @@ export const normalizeGeoTiffUrl = (url: string): string => {
     
     return url;
   } catch (error) {
-    console.error('Error normalizing GeoTiff URL:', error);
     return url;
   }
 };
@@ -78,7 +77,6 @@ export const extractGeoTiffUrlParts = (url: string): {
       key
     };
   } catch (e) {
-    console.error('Error extracting GeoTIFF URL parts:', e);
     return null;
   }
 };
@@ -178,10 +176,8 @@ export const generateAlternativeGeoTiffUrls = (originalUrl: string): string[] =>
       }
     }
     
-    console.log(`Generated ${alternativeUrls.length} alternative URLs for GeoTiff`);
     return alternativeUrls;
   } catch (error) {
-    console.error('Error generating alternative GeoTiff URLs:', error);
     return [];
   }
 };

@@ -40,7 +40,6 @@ export const normalizeS3Url = (url: string): string => {
     
     return url;
   } catch (e) {
-    console.error('Error normalizing S3 URL:', e);
     return url;
   }
 };
@@ -107,7 +106,6 @@ export const generateAlternativeUrls = (url: string): string[] => {
     }
     
   } catch (e) {
-    console.error('Error generating alternative URLs:', e);
   }
   
   return alternatives;
@@ -160,7 +158,6 @@ export const proxyFetchGeoTiff = async (url: string): Promise<ArrayBuffer | null
     
     return await response.arrayBuffer();
   } catch (error) {
-    console.error('Error in proxyFetchGeoTiff:', error);
     return null;
   }
 };
@@ -185,7 +182,6 @@ export const downloadGeoTiff = async (urlParam: string, filename: string, onProg
       }
     }
     
-    console.log(`Starting download of ${filename} from ${normalizedUrl.substring(0, 100)}...`);
     onProgress?.(5);
     
     // Use fetch with streams for larger files
@@ -260,10 +256,8 @@ export const downloadGeoTiff = async (urlParam: string, filename: string, onProg
     }, 100);
     
     onProgress?.(100);
-    console.log(`Downloaded ${receivedBytes} bytes for ${filename}`);
     return true;
   } catch (error) {
-    console.error('Error downloading GeoTiff:', error);
     return false;
   }
 };
@@ -273,20 +267,13 @@ export const downloadGeoTiff = async (urlParam: string, filename: string, onProg
  * Useful for debugging presigned URL issues
  */
 export const analyzeS3Url = (url: string): void => {
-  console.log('S3 URL Analysis:');
-  console.log('URL length:', url.length);
   
   try {
     // Basic URL properties
     const urlObj = new URL(url);
-    console.log('Protocol:', urlObj.protocol);
-    console.log('Hostname:', urlObj.hostname);
-    console.log('Pathname:', urlObj.pathname);
-    console.log('Search params count:', urlObj.searchParams.toString().split('&').length);
     
     // Check for S3 presigned URL components
     const hasAmzSignature = url.includes('X-Amz-Signature');
-    console.log('Is presigned URL:', hasAmzSignature ? 'Yes' : 'No');
     
     if (hasAmzSignature) {
       try {
@@ -294,7 +281,6 @@ export const analyzeS3Url = (url: string): void => {
         const expirationMatch = url.match(/X-Amz-Expires=(\d+)/);
         if (expirationMatch && expirationMatch[1]) {
           const expiresSeconds = parseInt(expirationMatch[1]);
-          console.log('Configured to expire in:', `${expiresSeconds} seconds (${(expiresSeconds / 3600).toFixed(2)} hours)`);
         }
         
         // Extract date
@@ -315,8 +301,6 @@ export const analyzeS3Url = (url: string): void => {
           const diffMs = now.getTime() - amzDate.getTime();
           const diffHours = diffMs / (1000 * 60 * 60);
           
-          console.log('URL timestamp:', amzDate.toISOString());
-          console.log('Age:', `${diffHours.toFixed(2)} hours`);
           
           // Check if likely expired
           if (expirationMatch && expirationMatch[1]) {
@@ -324,9 +308,7 @@ export const analyzeS3Url = (url: string): void => {
             const expiresHours = expiresSeconds / 3600;
             
             if (diffHours > expiresHours) {
-              console.log('⚠️ URL appears to be expired!');
             } else {
-              console.log('✅ URL should still be valid');
             }
           }
         }
@@ -335,7 +317,6 @@ export const analyzeS3Url = (url: string): void => {
       }
     }
   } catch (error) {
-    console.error('Error analyzing URL:', error);
   }
 };
 

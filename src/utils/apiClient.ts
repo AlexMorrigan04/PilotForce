@@ -35,11 +35,9 @@ export const createApiClient = () => {
         originalRequest._retry = true;
         
         try {
-          console.log('Token appears invalid, attempting refresh...');
           const refreshResult = await refreshToken();
           
           if (refreshResult.success) {
-            console.log('Token refreshed successfully, retrying request');
             // Update the auth header with the new token
             const newToken = localStorage.getItem('idToken');
             if (newToken) {
@@ -51,7 +49,6 @@ export const createApiClient = () => {
           // If refresh failed, reject with the original error
           return Promise.reject(error);
         } catch (refreshError) {
-          console.error('Error refreshing token:', refreshError);
           return Promise.reject(error);
         }
       }
@@ -85,7 +82,6 @@ export const apiGet = async <T = any>(
     });
     return response.data;
   } catch (error) {
-    console.error(`API GET error for ${endpoint}:`, error);
     throw error;
   }
 };

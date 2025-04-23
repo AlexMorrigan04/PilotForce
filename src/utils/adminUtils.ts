@@ -31,11 +31,6 @@ export const isAdminFromToken = (idToken: string): boolean => {
   try {
     const decodedToken = jwtDecode<DecodedToken>(idToken);
     
-    console.log('Token decoded, checking for admin status', { 
-      hasGroups: !!decodedToken['cognito:groups'],
-      role: decodedToken['custom:role'] || decodedToken['custom:userRole'] || decodedToken.role || 'none found',
-      email: decodedToken.email
-    });
     
     // Check if the user is in the admin group
     const groups = decodedToken['cognito:groups'] || [];
@@ -62,22 +57,15 @@ export const isAdminFromToken = (idToken: string): boolean => {
        userRole.toLowerCase() === 'companyadmin');
     
     const result = Boolean(isAdminGroup || isAdminRole);
-    console.log('Admin check result:', {
-      isAdminGroup,
-      isAdminRole,
-      finalResult: result
-    });
     
     // Store result in localStorage to persist across page reloads
     if (result) {
       localStorage.setItem('isAdmin', 'true');
-      console.log('Admin status stored in localStorage');
     }
     
     // Return true if admin is found in either groups or role
     return result;
   } catch (error) {
-    console.error('Error decoding or validating admin token:', error);
     return false;
   }
 };
@@ -96,7 +84,6 @@ export const checkAdminStatus = async (): Promise<boolean> => {
                   localStorage.getItem('token');
     
     if (!token) {
-      console.error('No token available for admin check');
       
       // Check if we have a user object with role information
       const userDataStr = localStorage.getItem('user') || localStorage.getItem('userData');
@@ -112,19 +99,16 @@ export const checkAdminStatus = async (): Promise<boolean> => {
               role.toLowerCase() === 'administrator' ||
               role.toLowerCase() === 'systemadmin' ||
               role.toLowerCase() === 'companyadmin')) {
-            console.log('Admin role found in user data:', role);
             localStorage.setItem('isAdmin', 'true');
             return true;
           }
         } catch (e) {
-          console.error('Error parsing user data:', e);
         }
       }
       
       return false;
     }
     
-    console.log('Checking admin status with API using token');
     const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/admin', {
       method: 'GET',
       headers: {
@@ -134,12 +118,10 @@ export const checkAdminStatus = async (): Promise<boolean> => {
     });
     
     if (!response.ok) {
-      console.error('Admin status check failed:', response.status, response.statusText);
       return false;
     }
     
     const data = await response.json();
-    console.log('Admin API check result:', data);
     
     // Store the admin status in localStorage
     if (data.isAdmin === true) {
@@ -148,7 +130,6 @@ export const checkAdminStatus = async (): Promise<boolean> => {
     
     return data.isAdmin === true;
   } catch (error) {
-    console.error('Error checking admin status:', error);
     return false;
   }
 };
@@ -185,7 +166,6 @@ export const getCurrentUserRole = (): string => {
     
     return 'User'; // Default to User role
   } catch (error) {
-    console.error('Error getting user role:', error);
     return 'User';
   }
 };
@@ -230,7 +210,6 @@ export const callAdminApi = async (endpoint: string, method: string = 'GET', dat
     
     return await response.json();
   } catch (error) {
-    console.error(`Error calling admin API (${endpoint}):`, error);
     throw error;
   }
 };
@@ -258,7 +237,6 @@ export const isAdminLocally = (): boolean => {
       }
     }
   } catch (e) {
-    console.error('Error parsing user data in isAdminLocally:', e);
   }
   
   return false;

@@ -65,7 +65,6 @@ export class S3UrlManager {
         return { bucket, key };
       }
     } catch (e) {
-      console.error('Error parsing S3 URL:', e);
     }
     
     return null;
@@ -127,7 +126,6 @@ export function needsUrlRefreshing(url: string): boolean {
         }
       }
     } catch (error) {
-      console.error('Error parsing pre-signed URL:', error);
       // If we can't parse it properly, assume it needs refreshing to be safe
       return true;
     }
@@ -153,7 +151,6 @@ function parseAmzDate(dateStr: string): Date | null {
     
     return new Date(Date.UTC(year, month, day, hour, minute, second));
   } catch (error) {
-    console.error('Error parsing AWS date:', error);
     return null;
   }
 }
@@ -225,7 +222,6 @@ export function convertToDirectS3Url(url: string): string {
       return url.split('?')[0];
     }
   } catch (error) {
-    console.error('Error converting to direct S3 URL:', error);
   }
   
   return url;
@@ -292,7 +288,6 @@ export function tryAlternativeS3Urls(url: string): string[] {
       alternativeUrls.push(url.replace('s3-eu-north-1.amazonaws.com', 's3.eu-north-1.amazonaws.com'));
     }
   } catch (error) {
-    console.error('Error generating alternative S3 URLs:', error);
   }
   
   return [...new Set(alternativeUrls)]; // Remove duplicates

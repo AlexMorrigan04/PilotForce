@@ -93,7 +93,6 @@ export const handleImageError = (
     return;
   }
   
-  console.error(`Failed to load image: ${url}`, error);
   
   // Add structured logging for better tracking
   const logData = {
@@ -116,7 +115,6 @@ export const reportInvalidImageToAPI = (
   // Implementation depends on your API
   // Example: 
   // axios.post('/api/report-invalid-image', { imageUrl, reason })
-  //   .catch(err => console.error('Failed to report invalid image', err));
   
   // For now, just log
   console.info(`Image reported as invalid: ${imageUrl}, Reason: ${reason}`);
@@ -138,7 +136,6 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
   const password = localStorage.getItem('auth_password');
   
   if (username && password) {
-    console.log(`Making credentials-based request to ${endpoint} for user: ${username}`);
     
     // Parse any existing body (if it's a string)
     let existingBody = {};
@@ -159,11 +156,6 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
       password
     });
     
-    console.log('Request payload:', { 
-      ...existingBody, 
-      username, 
-      password: '********' 
-    });
     
     // Prepare request with credentials
     const requestOptions = {
@@ -181,18 +173,15 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
       const response = await fetch(url, requestOptions);
       
       // Log the response status
-      console.log(`API response from ${endpoint}: ${response.status}`);
       
       // Check if the response is ok
       if (!response.ok) {
         const errorData = await response.text();
-        console.error(`API error (${response.status}): ${errorData}`);
         throw new Error(`API error: ${response.status} ${response.statusText}`);
       }
       
       // Get response as text first to log
       const responseText = await response.text();
-      console.log(`Raw API response from ${endpoint}:`, responseText);
       
       if (!responseText) {
         return null;
@@ -206,22 +195,17 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
         if (data.body && typeof data.body === 'string') {
           try {
             const parsedBody = JSON.parse(data.body);
-            console.log(`Parsed API response from ${endpoint}:`, parsedBody);
             return parsedBody;
           } catch (error) {
-            console.error('Error parsing response body:', error);
             return data;
           }
         }
         
         return data;
       } catch (jsonError) {
-        console.error('Error parsing response as JSON:', jsonError);
-        console.log('Raw response was:', responseText);
         return responseText;
       }
     } catch (error) {
-      console.error(`Error fetching from ${endpoint}:`, error);
       throw error;
     }
   }
@@ -231,7 +215,6 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
   const idToken = tokens?.idToken || localStorage.getItem('idToken');
   
   if (!idToken) {
-    console.error('No authentication token found for API request to ' + endpoint);
     throw new Error('No authentication token found');
   }
   
@@ -242,7 +225,6 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
     'Content-Type': 'application/json'
   };
   
-  console.log(`Making authenticated request to ${endpoint} with token: ${idToken.substring(0, 15)}...`);
   
   // Make the request
   try {
@@ -252,12 +234,10 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
     });
     
     // Log the response status
-    console.log(`API response from ${endpoint}: ${response.status}`);
     
     // Check if the response is ok
     if (!response.ok) {
       const errorData = await response.text();
-      console.error(`API error (${response.status}): ${errorData}`);
       throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
     
@@ -268,17 +248,14 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
     if (data.body && typeof data.body === 'string') {
       try {
         const parsedBody = JSON.parse(data.body);
-        console.log(`Parsed API response from ${endpoint}:`, parsedBody);
         return parsedBody;
       } catch (error) {
-        console.error('Error parsing response body:', error);
         return data;
       }
     }
     
     return data;
   } catch (error) {
-    console.error(`Error fetching from ${endpoint}:`, error);
     throw error;
   }
 };
@@ -290,15 +267,12 @@ export const fetchWithAuth = async (endpoint: string, options: RequestInit = {})
 export const fetchCurrentUser = async () => {
   try {
     const data = await fetchWithAuth('user');
-    console.log('User data fetched from API:', data);
     return data;
   } catch (error) {
-    console.error('Error fetching current user:', error);
     
     // Fallback to localStorage
     const localUser = getUser();
     if (localUser) {
-      console.log('Using user data from localStorage');
       return { user: localUser };
     }
     
@@ -312,13 +286,6 @@ export const fetchCurrentUser = async () => {
 export const logUserData = () => {
   const user = getUser();
   const tokens = getTokens();
-  
-  console.log('User data from localStorage:', user);
-  console.log('User tokens (redacted):', {
-    idToken: tokens?.idToken ? `${tokens.idToken.substring(0, 10)}...` : 'N/A',
-    accessToken: tokens?.accessToken ? `${tokens.accessToken.substring(0, 10)}...` : 'N/A',
-    refreshToken: tokens?.refreshToken ? 'Present' : 'N/A'
-  });
   
   // Make an API call to fetch user data
   fetchCurrentUser()
@@ -345,12 +312,7 @@ export const validateAmplifyConfig = () => {
   
   // Check if we have authentication tokens
   const hasToken = !!localStorage.getItem('idToken');
-  
-  console.log('API Configuration check:', { 
-    apiUrlConfigured: !!apiUrl,
-    cognitoConfigured: !!cognitoPoolId,
-    hasAuthToken: hasToken
-  });
+
   
   return true;
 };
@@ -362,7 +324,6 @@ export const API = {
     try {
       return await fetchWithAuth('admin/users', { method: 'GET' });
     } catch (error) {
-      console.error('Error fetching users:', error);
       throw error;
     }
   },
@@ -372,7 +333,6 @@ export const API = {
     try {
       return await fetchWithAuth(`admin/users/${userId}`, { method: 'GET' });
     } catch (error) {
-      console.error(`Error fetching user ${userId}:`, error);
       throw error;
     }
   },
@@ -385,7 +345,6 @@ export const API = {
         body: JSON.stringify(userData)
       });
     } catch (error) {
-      console.error(`Error updating user ${userId}:`, error);
       throw error;
     }
   },
@@ -395,7 +354,6 @@ export const API = {
     try {
       return await fetchWithAuth(`admin/users/${userId}`, { method: 'DELETE' });
     } catch (error) {
-      console.error(`Error deleting user ${userId}:`, error);
       throw error;
     }
   },
@@ -408,7 +366,6 @@ export const API = {
         body: JSON.stringify({ isEnabled })
       });
     } catch (error) {
-      console.error(`Error toggling access for user ${userId}:`, error);
       throw error;
     }
   },
@@ -416,11 +373,6 @@ export const API = {
   // Add signup function
   signup: async (userData: any) => {
     try {
-      console.log('Attempting signup with data:', {
-        ...userData,
-        password: userData.password ? '********' : undefined
-      });
-      
       // Make sure we're using the production API URL
       const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
       const url = `${apiUrl}/signup`;
@@ -435,14 +387,12 @@ export const API = {
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`Signup failed with status ${response.status}:`, errorText);
         throw new Error(`Signup failed: ${response.statusText}`);
       }
       
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('Error during signup:', error);
       throw error;
     }
   },
@@ -450,7 +400,6 @@ export const API = {
   // Add confirmation function
   confirmSignup: async (username: string, code: string) => {
     try {
-      console.log(`Confirming signup for user: ${username}`);
       
       // Make sure we're using the production API URL
       const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
@@ -469,14 +418,12 @@ export const API = {
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`Confirmation failed with status ${response.status}:`, errorText);
         throw new Error(`Confirmation failed: ${response.statusText}`);
       }
       
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('Error during confirmation:', error);
       throw error;
     }
   }
@@ -498,12 +445,10 @@ export const getApiBaseUrl = () => {
     // Check if we have a defined local API URL
     const localApiUrl = process.env.REACT_APP_LOCAL_API_URL;
     if (localApiUrl) {
-      console.log(`Using local API URL: ${localApiUrl}`);
       return localApiUrl;
     }
     
     // If running locally, but the API isn't, make sure we use the production API
-    console.log(`Local development detected, but using production API`);
   }
   
   // Default to production API

@@ -20,42 +20,33 @@ export const loadGeoTiff = async (url: string): Promise<{
     throw new Error('No URL provided for GeoTIFF loading');
   }
   
-  console.log('🗺️ Starting GeoTIFF loading from URL:', url.substring(0, 100) + '...');
   
   // Try to repair the URL if needed
   const repairedUrl = await repairGeoTiffUrl(url);
   if (repairedUrl !== url) {
-    console.log('🗺️ URL was repaired:', repairedUrl.substring(0, 100) + '...');
   }
   
   // Load the data
-  console.log('🗺️ Fetching GeoTIFF data...');
   const buffer = await fetchGeoTiffData(repairedUrl);
   
   // Validate the buffer
   if (!validateTiffBuffer(buffer)) {
-    console.error('🗺️ Invalid TIFF data');
     throw new Error('Invalid TIFF file format');
   }
   
-  console.log(`🗺️ Received valid TIFF data, ${buffer.byteLength} bytes`);
   
   // Parse the GeoTIFF
-  console.log('🗺️ Parsing GeoTIFF with geotiff library...');
   const { fromArrayBuffer } = await import('geotiff');
   const tiff = await fromArrayBuffer(buffer);
-  console.log('🗺️ GeoTIFF parsed successfully');
   
   // Get the first image
   const image = await tiff.getImage();
-  console.log('🗺️ Got image from GeoTIFF');
   
   // Extract basic metadata
   const width = image.getWidth();
   const height = image.getHeight();
   const bbox = image.getBoundingBox();
   
-  console.log(`🗺️ GeoTIFF dimensions: ${width}x${height}, bbox:`, bbox);
   
   const metadata = {
     width,
@@ -90,7 +81,6 @@ export const fetchGeoTiffData = async (url: string, maxRetries = 3): Promise<Arr
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`🗺️ Fetch attempt ${attempt}/${maxRetries}`);
       
       const response = await fetch(url, {
         method: 'GET',
@@ -110,8 +100,6 @@ export const fetchGeoTiffData = async (url: string, maxRetries = 3): Promise<Arr
       const contentType = response.headers.get('content-type');
       const contentLength = response.headers.get('content-length');
       
-      console.log(`🗺️ Response: ${response.status} ${response.statusText}`);
-      console.log(`🗺️ Headers: Content-Type=${contentType}, Content-Length=${contentLength}`);
       
       // Check for obviously wrong content type
       if (contentType && 
@@ -122,7 +110,6 @@ export const fetchGeoTiffData = async (url: string, maxRetries = 3): Promise<Arr
       }
       
       const buffer = await response.arrayBuffer();
-      console.log(`🗺️ Received ${buffer.byteLength} bytes`);
       
       if (buffer.byteLength === 0) {
         throw new Error('Received empty response');
@@ -131,13 +118,11 @@ export const fetchGeoTiffData = async (url: string, maxRetries = 3): Promise<Arr
       return buffer;
       
     } catch (error) {
-      console.error(`🗺️ Error in fetch attempt ${attempt}:`, error);
       lastError = error instanceof Error ? error : new Error(String(error));
       
       if (attempt < maxRetries) {
         // Exponential backoff between retries
         const delay = Math.pow(2, attempt - 1) * 500;
-        console.log(`🗺️ Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -163,18 +148,15 @@ export const renderGeoTiffToCanvas = async (
 }> => {
   const { transparent = false, quality = 0.9 } = options;
   
-  console.log('🗺️ Rendering GeoTIFF to canvas...');
   
   const width = image.getWidth();
   const height = image.getHeight();
   const bbox = image.getBoundingBox();
   
   // Read rasters
-  console.log('🗺️ Reading raster data...');
   const rasterData = await image.readRasters();
   const samplesPerPixel = image.getSamplesPerPixel();
   
-  console.log(`🗺️ Processing ${samplesPerPixel} bands...`);
   
   // Process raster data
   const rgba = new Uint8ClampedArray(width * height * 4);
@@ -202,7 +184,6 @@ export const renderGeoTiffToCanvas = async (
   }
   
   // Create canvas and draw image data
-  console.log('🗺️ Creating canvas...');
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -217,11 +198,9 @@ export const renderGeoTiffToCanvas = async (
   ctx.putImageData(imageData, 0, 0);
   
   // Convert to data URL
-  console.log('🗺️ Converting to data URL...');
   const format = transparent ? 'image/png' : 'image/jpeg';
   const dataUrl = canvas.toDataURL(format, quality);
   
-  console.log(`🗺️ Canvas data URL created (${dataUrl.length} characters)`);
   
   return {
     dataUrl,

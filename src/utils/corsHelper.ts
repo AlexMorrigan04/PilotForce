@@ -20,7 +20,6 @@ export const testCorsEndpoint = async (endpoint: string): Promise<boolean> => {
     
     return response.ok;
   } catch (error) {
-    console.error('CORS test failed:', error);
     return false;
   }
 };

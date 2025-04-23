@@ -14,10 +14,8 @@ module.exports = function(app) {
       },
       onProxyRes: function(proxyRes, req, res) {
         // Log proxy response status
-        console.log(`Proxy: ${req.method} ${req.path} => ${proxyRes.statusCode}`);
       },
       onError: function(err, req, res) {
-        console.error('Proxy error:', err);
         res.writeHead(500, {
           'Content-Type': 'text/plain',
         });

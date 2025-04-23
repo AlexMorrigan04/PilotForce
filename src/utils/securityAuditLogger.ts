@@ -58,7 +58,6 @@ export class SecurityAuditLogger {
       
       await dynamoDb.put(params).promise();
     } catch (error) {
-      console.error('Error saving audit log:', error);
     }
   }
 }

@@ -16,13 +16,8 @@ const BOOKING_ID = process.argv[2] || 'TEST_BOOKING_ID';
 const AUTH_TOKEN = process.argv[3] || process.env.TEST_AUTH_TOKEN || 'TEST_TOKEN_REQUIRED';
 
 async function testApi() {
-  console.log('🔍 API Gateway Test Script');
-  console.log('==========================');
   
   if (AUTH_TOKEN === 'TEST_TOKEN_REQUIRED') {
-    console.log('⚠️ WARNING: No auth token provided. Please provide a token as the second argument:');
-    console.log('node apiTestScript.js <booking_id> <auth_token>');
-    console.log('Or set the TEST_AUTH_TOKEN environment variable.');
     return;
   }
   
@@ -35,11 +30,9 @@ async function testApi() {
     `${API_URL}/bookings?bookingId=${BOOKING_ID}`          // Query param lowercase
   ];
   
-  console.log(`Testing endpoints for booking ID: ${BOOKING_ID}\n`);
   
   // Test each endpoint
   for (const endpoint of endpoints) {
-    console.log(`Testing: ${endpoint}`);
     
     try {
       const response = await axios.get(endpoint, {
@@ -49,24 +42,16 @@ async function testApi() {
         }
       });
       
-      console.log(`✅ SUCCESS: Status ${response.status}`);
-      console.log(`Response data: ${JSON.stringify(response.data).substring(0, 100)}...\n`);
     } catch (error) {
-      console.log(`❌ ERROR: ${error.message}`);
       
       if (error.response) {
-        console.log(`Status: ${error.response.status}`);
-        console.log(`Response: ${JSON.stringify(error.response.data)}\n`);
       } else {
-        console.log('No response received\n');
       }
     }
   }
   
-  console.log('Test complete!');
 }
 
 // Run the test
 testApi().catch(err => {
-  console.error('Unhandled error:', err);
 });

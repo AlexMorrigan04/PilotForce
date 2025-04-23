@@ -41,43 +41,70 @@ export const getAssets = async (companyId: string): Promise<Asset[]> => {
     const data = await response.json();
     return data.assets || [];
   } catch (error) {
-    console.error('Error fetching assets:', error);
     throw error;
   }
 };
 
 /**
- * Gets the count of assets for a company
- * @param companyId - The ID of the company to count assets for
- * @returns Promise resolving to the number of assets
+ * Fetch the total count of assets for a company
+ * @param companyId - The company ID to get assets count for
+ * @returns Promise<number> - The count of assets
  */
 export const getAssetCount = async (companyId: string): Promise<number> => {
   try {
     const apiUrl = getApiUrl();
-    const token = getAuthToken();
+    // Get token directly from localStorage as a fallback
+    const token = getAuthToken() || localStorage.getItem('idToken');
     
     if (!token) {
-      throw new Error('Authentication token not found');
+      console.warn('No authentication token available, trying alternate methods');
+      
+      // Try fallback to see if we can get assets from localStorage
+      try {
+        const cachedAssets = localStorage.getItem(`assets_${companyId}`);
+        if (cachedAssets) {
+          const parsedAssets = JSON.parse(cachedAssets);
+          return Array.isArray(parsedAssets) ? parsedAssets.length : 0;
+        }
+      } catch (e) {
+      }
+      
+      // Return a default value since we can't authenticate
+      return 0;
     }
-    
-    // Use the countOnly parameter to only get the count, not all assets
-    const response = await fetch(`${apiUrl}/assets?companyId=${companyId}&countOnly=true`, {
+
+    // First try to get count from API endpoint if available
+    const response = await fetch(`${apiUrl}/assets/count?companyId=${companyId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+        'Content-Type': 'application/json',
+      },
     });
     
-    if (!response.ok) {
-      throw new Error(`Failed to fetch asset count: ${response.status}`);
+    // If the API supports count endpoint
+    if (response.ok) {
+      const data = await response.json();
+      return data.count || 0;
     }
     
-    const data = await response.json();
-    return data.count || 0;
+    // Fallback: If count endpoint doesn't exist, fetch all assets and count them
+    const assets = await getAssets(companyId);
+    return assets.length;
   } catch (error) {
-    console.error('Error fetching asset count:', error);
-    return 0; // Return 0 as fallback in case of error
+    
+    // Try one more fallback - if we have assets in local storage, use that
+    try {
+      const cachedAssets = localStorage.getItem(`assets_${companyId}`);
+      if (cachedAssets) {
+        const parsedAssets = JSON.parse(cachedAssets);
+        return Array.isArray(parsedAssets) ? parsedAssets.length : 0;
+      }
+    } catch (e) {
+    }
+    
+    // Return 0 as default if all methods fail
+    return 0;
   }
 };
 

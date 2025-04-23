@@ -17,7 +17,6 @@ export const testGeoTiffAccess = async (url: string): Promise<{
   isTiff?: boolean;
 }> => {
   try {
-    console.log('🧪 Testing GeoTIFF access:', url);
     
     // First try a HEAD request to check if file exists
     try {
@@ -37,12 +36,6 @@ export const testGeoTiffAccess = async (url: string): Promise<{
       const contentType = headResponse.headers.get('content-type');
       const contentLength = headResponse.headers.get('content-length');
       
-      console.log('🧪 HEAD request succeeded:', {
-        status: headResponse.status,
-        contentType,
-        contentLength
-      });
-      
       return {
         accessible: true,
         statusCode: headResponse.status,
@@ -51,7 +44,6 @@ export const testGeoTiffAccess = async (url: string): Promise<{
       };
       
     } catch (headError) {
-      console.log('🧪 HEAD request failed, trying GET for first bytes');
       
       // Try GET for first few bytes
       const response = await fetch(url, {
@@ -108,7 +100,6 @@ export const testGeoTiffParsing = async (url: string): Promise<{
   parsingTime?: number;
 }> => {
   try {
-    console.log('🧪 Testing GeoTIFF parsing:', url);
     const startTime = performance.now();
     
     // Fetch the GeoTIFF file
@@ -126,17 +117,14 @@ export const testGeoTiffParsing = async (url: string): Promise<{
     
     // Get the data as ArrayBuffer
     const arrayBuffer = await response.arrayBuffer();
-    console.log(`🧪 GeoTIFF download completed: ${arrayBuffer.byteLength} bytes`);
     
     try {
       // Try to parse with geotiff.js
       const { fromArrayBuffer } = await import('geotiff');
       const tiff = await fromArrayBuffer(arrayBuffer);
-      console.log('🧪 GeoTIFF successfully parsed');
       
       // Get the first image
       const image = await tiff.getImage();
-      console.log('🧪 Successfully retrieved first image from GeoTIFF');
       
       // Get basic info
       const width = image.getWidth();

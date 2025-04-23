@@ -56,7 +56,6 @@ export const getTokenInfo = (token: string | null): {
       timeToExpiry
     };
   } catch (error) {
-    console.error('Error decoding token:', error);
     return {
       isValid: false,
       isExpired: true
@@ -109,28 +108,19 @@ export const debugAuthState = (): void => {
   const token = localStorage.getItem('idToken') || sessionStorage.getItem('idToken');
   const refreshToken = localStorage.getItem('refreshToken') || sessionStorage.getItem('refreshToken');
   
-  console.log('====== AUTH STATE DEBUG ======');
   
   // Check token existence
-  console.log('Token exists:', !!token);
-  console.log('Refresh token exists:', !!refreshToken);
   
   // If token exists, analyze it
   if (token) {
     const tokenInfo = getTokenInfo(token);
-    console.log('Token valid:', tokenInfo.isValid);
     
     if (tokenInfo.isValid) {
-      console.log('Token expired:', tokenInfo.isExpired);
-      console.log('Token issuer:', tokenInfo.issuer);
-      console.log('Token subject:', tokenInfo.subject);
       
       if (tokenInfo.expiresAt) {
-        console.log('Token expires at:', tokenInfo.expiresAt.toISOString());
         
         if (!tokenInfo.isExpired) {
           const minutesToExpiry = Math.round(tokenInfo.timeToExpiry! / (60 * 1000));
-          console.log('Minutes until token expires:', minutesToExpiry);
         }
       }
     }
@@ -138,9 +128,7 @@ export const debugAuthState = (): void => {
   
   // Check for other auth indicators in storage
   const userStr = localStorage.getItem('user') || sessionStorage.getItem('user');
-  console.log('User data exists:', !!userStr);
   
-  console.log('====== END AUTH DEBUG ======');
 };
 
 /**

@@ -7,9 +7,7 @@ export const setItem = (key: string, value: any): void => {
   try {
     const jsonValue = JSON.stringify(value);
     localStorage.setItem(key, jsonValue);
-    console.log(`Saved ${key} to localStorage`);
   } catch (error) {
-    console.error(`Error saving ${key} to localStorage:`, error);
   }
 };
 
@@ -22,7 +20,6 @@ export const getItem = <T>(key: string, defaultValue: T | null = null): T | null
     if (!item) return defaultValue;
     return JSON.parse(item) as T;
   } catch (error) {
-    console.error(`Error getting ${key} from localStorage:`, error);
     return defaultValue;
   }
 };
@@ -47,9 +44,7 @@ export const getTokens = (): Tokens | null => {
 export const removeItem = (key: string): void => {
   try {
     localStorage.removeItem(key);
-    console.log(`Removed ${key} from localStorage`);
   } catch (error) {
-    console.error(`Error removing ${key} from localStorage:`, error);
   }
 };
 
@@ -64,7 +59,6 @@ export const storeAuthData = (responseData: any): void => {
     try {
       parsedData = JSON.parse(responseData.body);
     } catch (error) {
-      console.error('Error parsing auth response body:', error);
     }
   }
   

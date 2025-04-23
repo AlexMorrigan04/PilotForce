@@ -65,7 +65,6 @@ export function getAuthHeaderValue(): string | null {
         return `Bearer ${tokens.idToken}`;
       }
     } catch (e) {
-      console.error('Error parsing tokens from localStorage:', e);
     }
   }
   
@@ -125,12 +124,10 @@ export async function callApiGateway(
   };
   
   try {
-    console.log(`Making ${method} request to ${url}`);
     const response = await fetch(url, options);
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`API error: ${response.status} - ${errorText}`);
       throw new Error(`API request failed: ${response.status}`);
     }
     
@@ -149,7 +146,6 @@ export async function callApiGateway(
       return textResponse;
     }
   } catch (error) {
-    console.error(`API call to ${url} failed:`, error);
     throw error;
   }
 }

@@ -9,7 +9,6 @@ const generateSecretHash = (username: string, clientId: string, clientSecret: st
     hmac.update(message);
     return hmac.digest('base64');
   } catch (error) {
-    console.error('Error generating secret hash:', error);
     return '';
   }
 };

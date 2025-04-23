@@ -66,7 +66,6 @@ export const splitGeoTiffIntoChunks = async (
     
     return chunks;
   } catch (error) {
-    console.error('Error splitting GeoTIFF into chunks:', error);
     throw error;
   }
 };
@@ -123,7 +122,6 @@ const generateBlobChecksum = async (blob: Blob): Promise<string> => {
     
     return (hash >>> 0).toString(16);
   } catch (error) {
-    console.error('Error generating checksum:', error);
     return Date.now().toString(16); // Fallback to timestamp if there's an error
   }
 };

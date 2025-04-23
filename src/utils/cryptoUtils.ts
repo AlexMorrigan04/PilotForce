@@ -21,7 +21,6 @@ export const generateSecretHash = (
     hmac.update(message);
     return hmac.digest('base64');
   } catch (error) {
-    console.error('Error generating secret hash:', error);
     return '';
   }
 };
@@ -35,7 +34,6 @@ export const generateRandomValue = (length: number = 32): string => {
   try {
     return crypto.randomBytes(length).toString('hex');
   } catch (error) {
-    console.error('Error generating random value:', error);
     // Fallback using Math.random (less secure but better than nothing)
     return Array.from(
       { length }, 
@@ -55,7 +53,6 @@ export const generateRandomBytes = (length: number = 16): string => {
     const randomBytes = crypto.randomBytes(length);
     return randomBytes.toString('hex');
   } catch (error) {
-    console.error('Error generating random bytes:', error);
     
     // Fallback for environments where crypto might not be fully available
     let result = '';

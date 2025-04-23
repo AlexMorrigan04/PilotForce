@@ -13,7 +13,6 @@ const getResendInstance = () => {
     return {
       emails: {
         send: async (emailData: any) => {
-          console.log('Would send email if API key was provided:', emailData);
           return { data: null, error: new Error('API key not configured') };
         }
       }
@@ -41,7 +40,6 @@ export const FORMSPREE_ENDPOINTS = {
 };
 
 // Log the endpoints for debugging (remove in production)
-console.log('Formspree endpoints:', FORMSPREE_ENDPOINTS);
 
 /**
  * Send an email notification to the admin when a new user signs up
@@ -116,7 +114,6 @@ export const sendNewUserNotification = async (
 
     return formspreeResponse;
   } catch (error) {
-    console.error('Error sending new user notification:', error);
     throw error;
   }
 };
@@ -129,7 +126,6 @@ export const sendNewUserNotification = async (
  */
 export const getCompanyAdminEmails = async (companyId: string, dynamoDb: AWS.DynamoDB.DocumentClient) => {
   try {
-    console.log(`Fetching admin emails for company: ${companyId}`);
     
     // First try to get admins by company ID
     const companyParams = {
@@ -144,7 +140,6 @@ export const getCompanyAdminEmails = async (companyId: string, dynamoDb: AWS.Dyn
     };
     
     const companyAdmins = await dynamoDb.scan(companyParams).promise();
-    console.log(`Found ${companyAdmins.Items?.length || 0} admins by company ID`);
     
     if (companyAdmins.Items && companyAdmins.Items.length > 0) {
       // Extract email addresses
@@ -152,7 +147,6 @@ export const getCompanyAdminEmails = async (companyId: string, dynamoDb: AWS.Dyn
         .map(admin => admin.Email || admin.email)
         .filter(Boolean) as string[];
       
-      console.log(`Admin emails by company ID: ${adminEmails.join(', ')}`);
       return adminEmails;
     }
     
@@ -174,7 +168,6 @@ export const getCompanyAdminEmails = async (companyId: string, dynamoDb: AWS.Dyn
       
       if (userEmail && userEmail.includes('@')) {
         const emailDomain = userEmail.split('@')[1];
-        console.log(`Trying to find admins by email domain: ${emailDomain}`);
         
         // Try to find admins with the same email domain
         const domainParams = {
@@ -189,7 +182,6 @@ export const getCompanyAdminEmails = async (companyId: string, dynamoDb: AWS.Dyn
         };
         
         const domainAdmins = await dynamoDb.scan(domainParams).promise();
-        console.log(`Found ${domainAdmins.Items?.length || 0} admins by email domain`);
         
         if (domainAdmins.Items && domainAdmins.Items.length > 0) {
           // Extract email addresses
@@ -197,17 +189,14 @@ export const getCompanyAdminEmails = async (companyId: string, dynamoDb: AWS.Dyn
             .map(admin => admin.Email || admin.email)
             .filter(Boolean) as string[];
           
-          console.log(`Admin emails by domain: ${adminEmails.join(', ')}`);
           return adminEmails;
         }
       }
     }
     
-    console.log("No admin emails found for company, using system admin email");
     // Fallback to system admin email
     return ['Mike@morriganconsulting.co.uk'];
   } catch (error) {
-    console.error('Error getting company admin emails:', error);
     // Fallback to system admin email in case of error
     return ['Mike@morriganconsulting.co.uk'];
   }
@@ -289,7 +278,6 @@ export const sendNewCompanyNotification = async (
 
     return formspreeResponse;
   } catch (error) {
-    console.error('Error sending new company notification:', error);
     throw error;
   }
 };
@@ -325,7 +313,6 @@ export const sendNewUserNotificationV2 = async (userData: any, isNewCompany: boo
     
     return { success: true };
   } catch (error) {
-    console.error('Failed to send notification email:', error);
     return { success: false, error };
   }
 };
@@ -358,7 +345,6 @@ export const sendBookingNotification = async (bookingData: any) => {
     
     return { success: true };
   } catch (error) {
-    console.error('Failed to send booking notification:', error);
     return { success: false, error };
   }
 };
@@ -382,7 +368,6 @@ export const sendViaProxy = async (formId: string, data: any) => {
     
     return await response.json();
   } catch (error) {
-    console.error('Error sending via proxy:', error);
     throw error;
   }
 };
@@ -399,7 +384,6 @@ export const sendEmail = async (data: {
     const result = await resend.emails.send(data);
     return { success: true, data: result };
   } catch (error) {
-    console.error('Error sending email:', error);
     return { success: false, error };
   }
 };

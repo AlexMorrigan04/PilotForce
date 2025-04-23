@@ -12,7 +12,6 @@ export const geocodePostcode = async (postcode: string): Promise<[number, number
     const mapboxToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
     
     if (!mapboxToken) {
-      console.error('Mapbox access token is not defined in environment variables');
       return null;
     }
     
@@ -35,7 +34,6 @@ export const geocodePostcode = async (postcode: string): Promise<[number, number
     
     return null;
   } catch (error) {
-    console.error('Error geocoding postcode:', error);
     return null;
   }
 }
@@ -54,7 +52,6 @@ export const reverseGeocode = async (
     const mapboxToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
     
     if (!mapboxToken) {
-      console.error('Mapbox access token is not defined in environment variables');
       return null;
     }
     
@@ -97,7 +94,6 @@ export const reverseGeocode = async (
     
     return null;
   } catch (error) {
-    console.error('Error reverse geocoding:', error);
     return null;
   }
 }

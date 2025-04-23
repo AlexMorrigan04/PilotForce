@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, ReactNode } from 'react';
-import authServices from '../services/authServices';
+import authServices, { AuthResponse } from '../services/authServices';
 
 interface AuthContextProps {
   isAuthenticated: boolean;
@@ -20,19 +20,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
 
     try {
-      const response = await authServices.login(username, password);
+      const response = await authServices.login({ username, password });
 
       if (response.success) {
-        if (response.tokens) {
-          if (response.tokens.idToken) {
-            localStorage.setItem('idToken', response.tokens.idToken);
-          }
-          if (response.tokens.accessToken) {
-            localStorage.setItem('accessToken', response.tokens.accessToken);
-          }
-          if (response.tokens.refreshToken) {
-            localStorage.setItem('refreshToken', response.tokens.refreshToken);
-          }
+        // Create a tokens object that handles both formats of tokens in the response
+        const tokens = {
+          idToken: response.tokens?.idToken || response.idToken,
+          accessToken: response.tokens?.accessToken || response.accessToken,
+          refreshToken: response.tokens?.refreshToken || response.refreshToken
+        };
+        
+        // Store tokens in localStorage if available
+        if (tokens.idToken) {
+          localStorage.setItem('idToken', tokens.idToken);
+        }
+        if (tokens.accessToken) {
+          localStorage.setItem('accessToken', tokens.accessToken);
+        }
+        if (tokens.refreshToken) {
+          localStorage.setItem('refreshToken', tokens.refreshToken);
         }
 
         if (response.user) {
@@ -47,7 +53,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } else {
         setIsLoading(false);
 
-        if (response.needsConfirmation) {
+        // Handle confirmation required case
+        const needsConfirmation = response.needsConfirmation || false;
+        if (needsConfirmation) {
           return {
             success: false,
             needsConfirmation: true,

@@ -37,7 +37,6 @@ export const recoverableFetch = async (
   try {
     const alternatives = generateAlternativePresignedUrls(originalUrl);
     urlsToTry = [...new Set([originalUrl, ...alternatives])];
-    console.log(`🔄 S3FetchRecovery: Generated ${urlsToTry.length} URLs to try`);
   } catch (error) {
     console.warn('🔄 S3FetchRecovery: Failed to generate alternative URLs:', error);
   }
@@ -68,19 +67,16 @@ export const recoverableFetch = async (
     
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        console.log(`🔄 S3FetchRecovery: Trying URL ${urlIndex + 1}/${urlsToTry.length}, attempt ${attempt + 1}/${maxRetries}`);
         
         const response = await fetch(currentUrl, fetchOptions);
         
         if (response.ok) {
-          console.log(`✅ S3FetchRecovery: Successful fetch with URL ${urlIndex + 1}, attempt ${attempt + 1}`);
           clearTimeout(timeoutId);
           return response;
         }
         
         // If we get a 404, quickly move to the next URL variant
         if (response.status === 404) {
-          console.log(`🔄 S3FetchRecovery: Got 404 for URL variant ${urlIndex + 1}, trying next variant`);
           break; // Exit retry loop for this URL and try next URL
         }
         
@@ -102,10 +98,8 @@ export const recoverableFetch = async (
       } catch (error: unknown) {
         // Handle network errors or aborts
         if (error instanceof Error && error.name === 'AbortError') {
-          console.error('🔄 S3FetchRecovery: Request timed out');
           lastError = new Error('Request timed out');
         } else {
-          console.error(`🔄 S3FetchRecovery: Fetch error:`, error);
           lastError = error instanceof Error ? error : new Error(String(error));
         }
         
@@ -136,8 +130,6 @@ export const downloadRecoverableS3Binary = async (
   onProgress?: (progress: number) => void
 ): Promise<void> => {
   try {
-    console.log(`🔄 S3FetchRecovery: Starting download of "${filename}"`);
-    console.log(`🔄 S3FetchRecovery: URL: ${originalUrl.substring(0, 100)}...`);
     
     // Clean up filename for download
     const safeFilename = filename
@@ -147,7 +139,6 @@ export const downloadRecoverableS3Binary = async (
     const response = await recoverableFetch(originalUrl, {
       onProgress,
       onRetry: (attempt, error) => {
-        console.log(`🔄 S3FetchRecovery: Retry ${attempt}, error: ${error.message}`);
       }
     });
     
@@ -202,10 +193,8 @@ export const downloadRecoverableS3Binary = async (
     URL.revokeObjectURL(url);
     document.body.removeChild(a);
     
-    console.log(`✅ S3FetchRecovery: Download complete: ${safeFilename}`);
     
   } catch (error) {
-    console.error('❌ S3FetchRecovery: Download failed:', error);
     throw error;
   }
 };

@@ -76,12 +76,10 @@ export const createBooking = async (bookingData: BookingRequest): Promise<Bookin
     
     return response.data;
   } catch (error: any) {
-    console.error('Error creating booking:', error);
     
     // Handle specific error scenarios
     if (error.response) {
       // The request was made and the server responded with a status code
-      console.error('Server error response:', error.response.data);
       
       // Return server error message if available
       return {
@@ -91,7 +89,6 @@ export const createBooking = async (bookingData: BookingRequest): Promise<Bookin
       };
     } else if (error.request) {
       // The request was made but no response was received
-      console.error('No response received:', error.request);
       return {
         success: false,
         message: 'No response received from server',
@@ -121,7 +118,6 @@ export const getBookings = async (companyId?: string) => {
     
     return response.data?.bookings || [];
   } catch (error) {
-    console.error('Error fetching bookings:', error);
     throw error;
   }
 };
@@ -151,14 +147,12 @@ export const getBookingCount = async (companyId: string): Promise<number> => {
     });
     
     if (!response.ok) {
-      console.error(`Failed to fetch booking count: ${response.status}`);
       return 0;
     }
     
     const data = await response.json();
     return data.count || 0;
   } catch (error) {
-    console.error('Error fetching booking count:', error);
     return 0; // Return 0 as fallback in case of error
   }
 };
@@ -168,7 +162,6 @@ export const getBookingCount = async (companyId: string): Promise<number> => {
  */
 export const getBookingById = async (bookingId: string) => {
   try {
-    console.log(`Fetching booking with ID: ${bookingId}`);
     
     const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
     const endpoint = `${apiUrl}/bookings/${bookingId}`;
@@ -179,7 +172,6 @@ export const getBookingById = async (bookingId: string) => {
       throw new Error('Authentication token not found');
     }
     
-    console.log(`Calling API endpoint: ${endpoint}`);
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
@@ -198,11 +190,9 @@ export const getBookingById = async (bookingId: string) => {
     }
     
     const bookingData = await response.json();
-    console.log('Booking data received from API:', bookingData);
     
     // Process and validate the images array if it exists
     if (bookingData.images && Array.isArray(bookingData.images)) {
-      console.log(`Validating ${bookingData.images.length} images received from API`);
       
       // Check for expired S3 URLs and refresh if needed
       const currentTime = new Date().getTime();
@@ -255,7 +245,6 @@ export const getBookingById = async (bookingId: string) => {
       
       // If any URLs are expiring soon, make a special request to refresh them
       if (needsRefresh) {
-        console.log("Detected expiring S3 URLs, requesting fresh URLs...");
         
         try {
           // Call the endpoint with an additional parameter to request fresh URLs
@@ -271,7 +260,6 @@ export const getBookingById = async (bookingId: string) => {
             const refreshedData = await refreshResponse.json();
             
             if (refreshedData.images && Array.isArray(refreshedData.images)) {
-              console.log(`Received ${refreshedData.images.length} images with refreshed URLs`);
               bookingData.images = refreshedData.images;
             }
           }
@@ -299,7 +287,6 @@ export const getBookingById = async (bookingId: string) => {
         
         if (url) {
           normalizedImage.url = url;
-          console.log(`Normalized URL for image ${img.name || 'unknown'}: ${url.substring(0, 50)}...`);
         } else {
           console.warn(`Missing URL for image: ${img.name || 'unknown'}`);
         }
@@ -311,7 +298,6 @@ export const getBookingById = async (bookingId: string) => {
     return bookingData;
     
   } catch (error) {
-    console.error('Error in getBookingById:', error);
     throw error;
   }
 };

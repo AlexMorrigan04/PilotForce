@@ -82,7 +82,6 @@ const getResourceMetadata = async (bookingId: string, resourceId: string, token?
       size: resource.Size
     };
   } catch (error) {
-    console.error('Error fetching resource metadata:', error);
     throw new Error('Failed to fetch resource metadata. Please try again.');
   }
 };
@@ -118,7 +117,6 @@ const downloadRegularResource = async (
     
     throw new Error('Resource URL not found');
   } catch (error) {
-    console.error('Error downloading resource:', error);
     throw new Error('Failed to download resource. Please try again.');
   }
 };
@@ -133,12 +131,10 @@ const downloadAndReassembleChunks = async (
   options: DownloadOptions = {}
 ): Promise<{ blob: Blob; metadata: ResourceMetadata }> => {
   try {
-    console.log(`Downloading chunked resource: ${metadata.originalFileName || metadata.fileName}`);
     options.onProgress?.(15);
     
     // Get list of all chunks
     const chunks = await getChunksList(bookingId, resourceId, options.token);
-    console.log(`Found ${chunks.length} chunks to download`);
     
     if (!chunks.length) {
       throw new Error('No chunks found for this resource');
@@ -151,7 +147,6 @@ const downloadAndReassembleChunks = async (
     
     for (let i = 0; i < totalChunks; i++) {
       const chunk = chunks[i];
-      console.log(`Downloading chunk ${i + 1}/${totalChunks}...`);
       
       let chunkData: Blob;
       
@@ -170,7 +165,6 @@ const downloadAndReassembleChunks = async (
     }
     
     // Reassemble the chunks into a single blob
-    console.log('Reassembling chunks...');
     const reassembledBlob = new Blob(chunkBlobs, { type: metadata.contentType });
     options.onProgress?.(95);
     
@@ -182,7 +176,6 @@ const downloadAndReassembleChunks = async (
       size: reassembledBlob.size
     };
     
-    console.log(`Successfully reassembled ${finalMetadata.fileName} (${reassembledBlob.size} bytes)`);
     options.onProgress?.(100);
     
     return {
@@ -190,7 +183,6 @@ const downloadAndReassembleChunks = async (
       metadata: finalMetadata
     };
   } catch (error) {
-    console.error('Error downloading and reassembling chunks:', error);
     throw new Error('Failed to download and reassemble file chunks. Please try again.');
   }
 };
@@ -224,7 +216,6 @@ const getChunksList = async (bookingId: string, resourceId: string, token?: stri
         });
       }
     } catch (e) {
-      console.log('Chunks endpoint not available, trying alternative approach');
     }
     
     // If that fails, try to search all resources for chunks with matching resource ID
@@ -261,7 +252,6 @@ const getChunksList = async (bookingId: string, resourceId: string, token?: stri
       return parseInt(partA[1]) - parseInt(partB[1]);
     });
   } catch (error) {
-    console.error('Error getting chunks list:', error);
     return [];
   }
 };

@@ -16,7 +16,6 @@ export const testImageUrl = (url: string): Promise<boolean> => {
   return new Promise((resolve) => {
     // Return from cache if available
     if (imageCache[url] !== undefined) {
-      console.log(`Using cached result for URL: ${url.substring(0, 50)}...`);
       resolve(imageCache[url]);
       return;
     }
@@ -27,7 +26,6 @@ export const testImageUrl = (url: string): Promise<boolean> => {
     // Set timeout to avoid waiting too long
     const timeoutId = setTimeout(() => {
       if (!hasResolved) {
-        console.log(`Timeout loading URL: ${url.substring(0, 50)}...`);
         imageCache[url] = false;
         setTimeout(() => { delete imageCache[url]; }, CACHE_TIMEOUT);
         hasResolved = true;
@@ -38,7 +36,6 @@ export const testImageUrl = (url: string): Promise<boolean> => {
     img.onload = () => {
       if (!hasResolved) {
         clearTimeout(timeoutId);
-        console.log(`✅ URL works: ${url.substring(0, 50)}...`);
         imageCache[url] = true;
         setTimeout(() => { delete imageCache[url]; }, CACHE_TIMEOUT);
         hasResolved = true;
@@ -49,7 +46,6 @@ export const testImageUrl = (url: string): Promise<boolean> => {
     img.onerror = () => {
       if (!hasResolved) {
         clearTimeout(timeoutId);
-        console.log(`❌ URL failed: ${url.substring(0, 50)}...`);
         imageCache[url] = false;
         setTimeout(() => { delete imageCache[url]; }, CACHE_TIMEOUT);
         hasResolved = true;
@@ -57,7 +53,6 @@ export const testImageUrl = (url: string): Promise<boolean> => {
       }
     };
     
-    console.log(`Trying URL: ${url.substring(0, 50)}...`);
     
     // For S3 presigned URLs, don't use crossorigin attribute
     // as it can cause CORS issues when the presigned URL is already valid

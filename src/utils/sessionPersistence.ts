@@ -119,7 +119,6 @@ export const storeAuthTokens = (
         }
       }
     } catch (e) {
-      console.error('Error calculating token expiry:', e);
     }
   }
 };
@@ -152,7 +151,6 @@ export const getAuthToken = (): string | null => {
         if (tokens.idToken) return tokens.idToken;
       }
     } catch (e) {
-      console.error('Error parsing tokens object:', e);
     }
   }
   
@@ -186,7 +184,6 @@ export const getRefreshToken = (): string | null => {
         if (tokens.refreshToken) return tokens.refreshToken;
       }
     } catch (e) {
-      console.error('Error parsing tokens object:', e);
     }
   }
   
@@ -220,7 +217,6 @@ export const getAccessToken = (): string | null => {
         if (tokens.accessToken) return tokens.accessToken;
       }
     } catch (e) {
-      console.error('Error parsing tokens object:', e);
     }
   }
   
@@ -250,7 +246,6 @@ export const getStoredUserData = (): any | null => {
     try {
       return JSON.parse(userDataStr);
     } catch (e) {
-      console.error('Error parsing user data:', e);
     }
   }
   

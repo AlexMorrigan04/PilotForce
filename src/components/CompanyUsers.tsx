@@ -590,7 +590,7 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       if (username && password) {
         try {
           const { login } = await import('../services/authServices');
-          const loginResult = await login(username, password);
+          const loginResult = await login({ username, password }); // Fix: Use object parameter
           
           if (loginResult.success && loginResult.idToken) {
             console.log('Successfully refreshed tokens via direct login');
@@ -718,7 +718,7 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       try {
         // Try to import and use the authServices login function
         const authServices = await import('../services/authServices');
-        const loginResponse = await authServices.login(username, password);
+        const loginResponse = await authServices.login({ username, password }); // Fix: Use object parameter
         
         if (loginResponse.success && loginResponse.idToken) {
           console.log('Successfully obtained fresh token via authServices.login');
@@ -1203,7 +1203,7 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         </div>
       )}
       
-      {/* User Details Modal - unchanged */}
+      {/* User Details Modal - updated to remove sensitive IDs */}
       {isModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
           <motion.div 
@@ -1250,11 +1250,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <h5 className="text-sm font-medium text-gray-500 mb-2">User ID</h5>
-                <p className="text-sm">{selectedUser.UserId}</p>
-              </div>
-
-              <div>
                 <h5 className="text-sm font-medium text-gray-500 mb-2">Username</h5>
                 <p className="text-sm">{selectedUser.Username}</p>
               </div>
@@ -1265,11 +1260,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
                   <p className="text-sm">{selectedUser.phone || selectedUser.phoneNumber}</p>
                 </div>
               )}
-
-              <div>
-                <h5 className="text-sm font-medium text-gray-500 mb-2">Company ID</h5>
-                <p className="text-sm">{selectedUser.companyId || selectedUser.CompanyId}</p>
-              </div>
 
               {selectedUser.department && (
                 <div>

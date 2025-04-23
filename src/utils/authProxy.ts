@@ -20,7 +20,6 @@ export const validateTokenLocally = (): boolean => {
     const currentTime = Math.floor(Date.now() / 1000);
     return decoded.exp > currentTime;
   } catch (error) {
-    console.error('Error validating token locally:', error);
     return false;
   }
 };
@@ -50,7 +49,6 @@ export const isAdminLocally = (): boolean => {
       }
     }
   } catch (error) {
-    console.error('Error checking admin status from local storage:', error);
   }
   
   // Check token if present
@@ -74,7 +72,6 @@ export const isAdminLocally = (): boolean => {
       }
     }
   } catch (error) {
-    console.error('Error checking admin status from token:', error);
   }
   
   return false;
@@ -97,7 +94,6 @@ export const getUserInfo = (): any => {
     
     return null;
   } catch (error) {
-    console.error('Error getting user info:', error);
     return null;
   }
 };

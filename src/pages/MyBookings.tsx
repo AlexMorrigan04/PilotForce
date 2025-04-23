@@ -446,9 +446,13 @@ const MyBookings: React.FC = () => {
   };
 
   const handleFilterChange = (status: BookingStatus) => {
-    if (activeFilters.includes(status)) {
-      setActiveFilters(activeFilters.filter((s) => s !== status));
+    // Normalize case for consistent comparison
+    const normalizedStatus = status.toLowerCase() as BookingStatus;
+    
+    if (activeFilters.some(filter => filter.toLowerCase() === normalizedStatus)) {
+      setActiveFilters(activeFilters.filter((s) => s.toLowerCase() !== normalizedStatus));
     } else {
+      // Keep the original capitalization for display purposes
       setActiveFilters([...activeFilters, status]);
     }
   };
@@ -462,7 +466,11 @@ const MyBookings: React.FC = () => {
 
     // Apply status filters if any are active
     if (activeFilters.length > 0) {
-      filtered = filtered.filter((booking) => activeFilters.includes(booking.status as BookingStatus));
+      filtered = filtered.filter((booking) => {
+        // Case-insensitive comparison to match status regardless of capitalization
+        const bookingStatus = booking.status?.toLowerCase() || '';
+        return activeFilters.some(filter => filter.toLowerCase() === bookingStatus);
+      });
     }
 
     // Apply search term if not empty
@@ -658,27 +666,34 @@ const MyBookings: React.FC = () => {
               />
             </div>
             <div className="flex flex-wrap gap-3">
-              {['Pending', 'Scheduled', 'Completed', 'Cancelled'].map((status) => (
-                <motion.button
-                  key={status}
-                  onClick={() => handleFilterChange(status as BookingStatus)}
-                  className={`px-3 py-2 rounded-md text-sm font-medium ${
-                    activeFilters.includes(status as BookingStatus)
-                      ? status === 'Pending'
-                        ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
-                        : status === 'scheduled'
-                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                        : status === 'Completed'
-                        ? 'bg-green-100 text-green-800 border border-green-300' 
-                        : 'bg-red-100 text-red-800 border border-red-300'
-                      : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
-                  }`}
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  {status.charAt(0).toUpperCase() + status.slice(1)}
-                </motion.button>
-              ))}
+              {['Pending', 'Scheduled', 'Completed', 'Cancelled'].map((status) => {
+                // Check if this filter is active using case-insensitive comparison
+                const isActive = activeFilters.some(filter => 
+                  filter.toLowerCase() === status.toLowerCase()
+                );
+                
+                return (
+                  <motion.button
+                    key={status}
+                    onClick={() => handleFilterChange(status as BookingStatus)}
+                    className={`px-3 py-2 rounded-md text-sm font-medium ${
+                      isActive
+                        ? status === 'Pending'
+                          ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+                          : status === 'Scheduled'
+                          ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                          : status === 'Completed'
+                          ? 'bg-green-100 text-green-800 border border-green-300' 
+                          : 'bg-red-100 text-red-800 border border-red-300'
+                        : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                    }`}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    {status}
+                  </motion.button>
+                );
+              })}
             </div>
             {activeFilters.length > 0 && (
               <motion.button
@@ -811,7 +826,9 @@ const MyBookings: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-yellow-100 text-sm font-medium">Pending</p>
-                      <p className="text-white text-2xl font-bold mt-1">{bookings.filter((b) => b.status === 'pending').length}</p>
+                      <p className="text-white text-2xl font-bold mt-1">
+                        {bookings.filter((b) => b.status?.toLowerCase() === 'pending').length}
+                      </p>
                     </div>
                     <div className="bg-white/20 p-2.5 rounded-lg">
                       <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -837,7 +854,9 @@ const MyBookings: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-purple-100 text-sm font-medium">Scheduled</p>
-                      <p className="text-white text-2xl font-bold mt-1">{bookings.filter((b) => b.status === 'scheduled').length}</p>
+                      <p className="text-white text-2xl font-bold mt-1">
+                        {bookings.filter((b) => b.status?.toLowerCase() === 'scheduled').length}
+                      </p>
                     </div>
                     <div className="bg-white/20 p-2.5 rounded-lg">
                       <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -863,7 +882,9 @@ const MyBookings: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-green-100 text-sm font-medium">Completed</p>
-                      <p className="text-white text-2xl font-bold mt-1">{bookings.filter((b) => b.status === 'Completed').length}</p>
+                      <p className="text-white text-2xl font-bold mt-1">
+                        {bookings.filter((b) => b.status?.toLowerCase() === 'completed').length}
+                      </p>
                     </div>
                     <div className="bg-white/20 p-2.5 rounded-lg">
                       <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -979,7 +1000,12 @@ const MyBookings: React.FC = () => {
                                 <svg className="w-3 h-3 mr-1 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                 </svg>
-                                <span className="truncate">{booking.UserId || userInfo?.name || 'User'}</span>
+                                <span className="truncate">
+                                  {booking.userName || 
+                                   userInfo?.name || 
+                                   (booking.userEmail && booking.userEmail.split('@')[0]) || 
+                                   'User'}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -988,19 +1014,19 @@ const MyBookings: React.FC = () => {
                           <span
                             className={`px-2 py-1 inline-flex text-xs leading-5 font-medium rounded-full 
                             ${
-                              booking.status === 'pending'
+                              booking.status?.toLowerCase() === 'pending'
                                 ? 'bg-yellow-100 text-yellow-800'
-                                : booking.status === 'scheduled'
+                                : booking.status?.toLowerCase() === 'scheduled'
                                 ? 'bg-blue-100 text-blue-800'
-                                : booking.status === 'Completed'
+                                : booking.status?.toLowerCase() === 'completed'
                                 ? 'bg-green-100 text-green-800'
-                                : booking.status === 'cancelled'
+                                : booking.status?.toLowerCase() === 'cancelled'
                                 ? 'bg-red-100 text-red-800'
                                 : 'bg-gray-100 text-gray-800'
                             }`}
                           >
                             {booking.status
-                              ? booking.status.charAt(0).toUpperCase() + booking.status.slice(1)
+                              ? booking.status.charAt(0).toUpperCase() + booking.status.slice(1).toLowerCase()
                               : 'Pending'}
                           </span>
                         </td>
@@ -1104,7 +1130,7 @@ const MyBookings: React.FC = () => {
                               </svg>
                               Details
                             </motion.button>
-                            {booking.status !== 'Cancelled' && booking.status !== 'Completed' && (
+                            {booking.status?.toLowerCase() !== 'cancelled' && booking.status?.toLowerCase() !== 'completed' && (
                               <motion.button
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}

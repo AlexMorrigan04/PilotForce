@@ -11,7 +11,6 @@ export const MapboxLogger = {
    */
   log: (message: string, ...data: any[]) => {
     if (DEBUG_ENABLED) {
-      console.log(`[Mapbox] ${message}`, ...data);
     }
   },
   
@@ -29,7 +28,6 @@ export const MapboxLogger = {
    */
   error: (message: string, ...data: any[]) => {
     // Always log errors, even in production
-    console.error(`[Mapbox] 🔴 ${message}`, ...data);
   },
   
   /**
@@ -66,7 +64,6 @@ export const MapboxLogger = {
    * Log information about GeoTIFF processing
    */
   logGeoTiff: (message: string, ...data: any[]) => {
-    console.log(`🗺️ [GeoTIFF] ${message}`, ...data);
   },
   
   /**
@@ -130,7 +127,6 @@ export const MapboxLogger = {
    */
   logMapEvent: (eventName: string, event: mapboxgl.MapboxEvent) => {
     if (DEBUG_ENABLED) {
-      console.log(`[Mapbox Event] ${eventName}`, event);
     }
   },
 
@@ -141,7 +137,6 @@ export const MapboxLogger = {
     if (DEBUG_ENABLED) {
       const layer = map.getLayer(layerId);
       if (layer) {
-        console.log(`[Mapbox Layer] ${layerId}`, layer);
       } else {
         console.warn(`[Mapbox Layer] Layer ${layerId} does not exist`);
       }

@@ -35,7 +35,6 @@ class ErrorLogger {
     if (process.env.NODE_ENV === 'production') {
       this.sendToLoggingService(errorLog);
     } else {
-      console.error('Application error:', errorLog);
     }
   }
   

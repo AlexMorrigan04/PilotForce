@@ -63,7 +63,6 @@ export class SessionManager {
     // Also check token health immediately
     this.checkTokenHealth();
 
-    console.log('Auth session heartbeat started');
   }
 
   /**
@@ -73,7 +72,6 @@ export class SessionManager {
     if (this.heartbeatInterval) {
       window.clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
-      console.log('Auth session heartbeat stopped');
     }
   }
 
@@ -85,7 +83,6 @@ export class SessionManager {
       const result = await refreshAuthToken();
       return result.success;
     } catch (error) {
-      console.error('Default token refresh failed:', error);
       return false;
     }
   }
@@ -124,7 +121,6 @@ export class SessionManager {
       this.updateSessionTimestamp();
       this.startHeartbeat();
     } catch (error) {
-      console.error('Error storing auth tokens:', error);
     }
   }
 
@@ -139,7 +135,6 @@ export class SessionManager {
       // Use the enhanced storeAuthTokens utility to also store user data
       storeAuthTokens(null, null, null, user);
     } catch (error) {
-      console.error('Error storing user data:', error);
     }
   }
 
@@ -197,7 +192,6 @@ export class SessionManager {
         return JSON.parse(userStr);
       }
     } catch (error) {
-      console.error('Error retrieving user data:', error);
     }
     return null;
   }
@@ -262,7 +256,6 @@ export class SessionManager {
     const { isAuthenticated, token } = initializeSession();
     
     if (isAuthenticated && token) {
-      console.log('Existing session detected, restarting heartbeat');
       this.startHeartbeat();
     } else if (token) {
       // We have a token but it might be expired, try to refresh it
@@ -300,18 +293,15 @@ export class SessionManager {
     if (!this.hasAutoRefreshEnabled) return;
     
     if (idToken && shouldRefreshToken(idToken, TOKEN_REFRESH_THRESHOLD_MINUTES)) {
-      console.log('Token needs refreshing');
       
       if (this.canRefreshToken()) {
         try {
           const success = await this.refreshTokenCallback!();
           if (success) {
-            console.log('Token refreshed successfully');
           } else {
             console.warn('Token refresh failed');
           }
         } catch (error) {
-          console.error('Error during token refresh:', error);
         }
       } else {
         console.warn('Token needs refreshing but no refresh callback is available');
@@ -343,7 +333,6 @@ export class SessionManager {
         const success = await this.refreshTokenCallback!();
         return success;
       } catch (error) {
-        console.error('Forced token refresh failed:', error);
         return false;
       }
     }

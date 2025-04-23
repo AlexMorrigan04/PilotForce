@@ -50,7 +50,6 @@ export const ASSET_ENDPOINTS = {
 // Logging helper for debugging API calls
 export const logEndpoint = (name: string, url: string) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log(`Using API endpoint ${name}: ${url}`);
   }
 };
 

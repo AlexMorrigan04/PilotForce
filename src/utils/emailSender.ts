@@ -19,7 +19,6 @@ export async function sendReliableEmail(emailData: any): Promise<boolean> {
   const ccRecipients = emailData.cc ? emailData.cc.join(', ') : '';
   const bccRecipients = emailData.bcc ? emailData.bcc.join(', ') : '';
 
-  console.log(`Attempting to send email to ${recipient} with CC: ${ccRecipients} and BCC: ${bccRecipients}`);
 
   // Create a standardized payload for Formspree
   const payload: any = {
@@ -39,7 +38,6 @@ export async function sendReliableEmail(emailData: any): Promise<boolean> {
   while (attempts <= MAX_RETRIES && !success) {
     try {
       attempts++;
-      console.log(`Email send attempt ${attempts}/${MAX_RETRIES + 1}`);
 
       const response = await fetch(FORMSPREE_ENDPOINT, {
         method: 'POST',
@@ -52,21 +50,16 @@ export async function sendReliableEmail(emailData: any): Promise<boolean> {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Email sent successfully:', data);
         success = true;
         break;
       } else {
         const errorText = await response.text();
-        console.error(`Attempt ${attempts} failed:`, errorText);
         if (attempts <= MAX_RETRIES) {
-          console.log(`Retrying in ${RETRY_DELAY}ms...`);
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         }
       }
     } catch (error) {
-      console.error(`Attempt ${attempts} error:`, error);
       if (attempts <= MAX_RETRIES) {
-        console.log(`Retrying in ${RETRY_DELAY}ms...`);
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
       }
     }
@@ -139,15 +132,8 @@ Company Name: ${companyName || 'Unknown'}
   const companyAdmins = adminEmails || await getCompanyAdminEmails(companyId);
   
   // Log the email delivery plan
-  console.log('------------------------------');
-  console.log('EMAIL DELIVERY PLAN:');
-  console.log(`User: ${username} (${email})`);
-  console.log(`Company: ${companyName} (${companyId})`);
-  console.log(`Admin emails found: ${companyAdmins.length}`);
   if (companyAdmins.length > 0) {
-    console.log(`Admin emails: ${companyAdmins.join(', ')}`);
   }
-  console.log('------------------------------');
   
   try {
     // If we have company admins, notify them (with system admin in BCC)
@@ -183,7 +169,6 @@ Company Name: ${companyName || 'Unknown'}
       phoneNumber
     });
   } catch (error) {
-    console.error('Error in sendNewUserNotification:', error);
     
     // Fallback - send directly to system admin as a last resort
     return await sendReliableEmail({
@@ -206,7 +191,6 @@ Company Name: ${companyName || 'Unknown'}
  */
 async function getCompanyAdminEmails(companyId: string): Promise<string[]> {
   try {
-    console.log(`Attempting to fetch admin emails for company ID: ${companyId}`);
     
     // Use AWS SDK with environment variables
     const AWS = require('aws-sdk');
@@ -236,14 +220,11 @@ async function getCompanyAdminEmails(companyId: string): Promise<string[]> {
         .map((admin: { Email?: string; email?: string }) => admin.Email || admin.email)
         .filter(Boolean) as string[];
       
-      console.log(`Found ${adminEmails.length} admin emails:`, adminEmails);
       return adminEmails;
     } else {
-      console.log('No company admins found');
       return [];
     }
   } catch (error) {
-    console.error('Error fetching company admin emails:', error);
     return [];
   }
 }

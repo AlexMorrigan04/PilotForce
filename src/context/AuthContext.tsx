@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import * as authService from '../services/authServices';
 import { isAdminFromToken } from '../utils/adminUtils';
 import { AuthContextType } from '../types/auth';
+import { AuthResponse } from '../services/authServices';
 import { 
   storeAuthTokens, 
   getAuthToken, 
@@ -452,7 +453,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Call the service with the sanitized credentials
-      const response = await authService.login(sanitizedUsername, sanitizedPassword);
+      const response = await authService.login({ 
+        username: sanitizedUsername, 
+        password: sanitizedPassword 
+      });
       console.log('Login response received:', response);
 
       // CRITICAL: Check if login was actually successful
@@ -506,13 +510,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        // Save tokens using sessionManager
-        if (response.tokens) {
-          sessionManager.storeTokens(response.tokens);
+        // Create a tokens object to store all possible token formats from the response
+        const tokens = {
+          idToken: response.tokens?.idToken || response.idToken,
+          accessToken: response.tokens?.accessToken || response.accessToken,
+          refreshToken: response.tokens?.refreshToken || response.refreshToken
+        };
+
+        // Check if we have any valid tokens
+        if (tokens.idToken || tokens.accessToken) {
+          // Save tokens using sessionManager
+          sessionManager.storeTokens(tokens);
           console.log('Tokens saved via sessionManager:', {
-            idToken: response.tokens.idToken ? `${response.tokens.idToken.substring(0, 15)}...` : null,
-            accessToken: response.tokens.accessToken ? 'Present' : null,
-            refreshToken: response.tokens.refreshToken ? 'Present' : null
+            idToken: tokens.idToken ? `${tokens.idToken.substring(0, 15)}...` : null,
+            accessToken: tokens.accessToken ? 'Present' : null,
+            refreshToken: tokens.refreshToken ? 'Present' : null
           });
           setIsAuthenticated(true);
         } else {
@@ -529,9 +541,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Make sure to store the token in localStorage
-        if (response.idToken) {
+        if (tokens.idToken) {
           // Use storeAuthTokens for better cross-storage consistency
-          storeAuthTokens(response.idToken, null, null);
+          storeAuthTokens(tokens.idToken, tokens.refreshToken || null, tokens.accessToken || null);
         }
 
         // After successful authentication, check for admin status
@@ -587,36 +599,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Handle sign in
-  const signIn = async (username: string, password: string) => {
+  const signIn = async (email: string, password: string) => {
+    setLoading(true);
+    setError(null);
+    
     try {
-      setLoading(true);
-      setError(null);
-      
-      console.log(`Attempting to sign in user: ${username}`);
-      
-      // Use the updated authService that points directly to API Gateway
-      const response = await authService.login(username, password);
-      console.log('Login result:', response);
-      
-      if (response.success) {
+      // Call the authentication service with email as the username parameter
+      const result = await authService.login({
+        username: email, // Keep using "username" as the parameter name for the API
+        password: password
+      });
+
+      // Process the login result
+      if (result.success) {
         // Store username and password in localStorage for Basic Authentication
-        // This is crucial for operations that require Basic Auth like PUT requests
-        localStorage.setItem('auth_username', username);
+        localStorage.setItem('auth_username', email);
         localStorage.setItem('auth_password', password);
         console.log('Stored authentication credentials for Basic Auth in signIn');
         
         // If we have user data, store it and set authenticated
-        if (response.user) {
-          setUser(response.user);
-          localStorage.setItem('user', JSON.stringify(response.user));
+        if (result.user) {
+          setUser(result.user);
+          localStorage.setItem('user', JSON.stringify(result.user));
         }
         
-        setIsAuthenticated(true);
-        // Check for admin status
-        await checkAdminStatus();
+        // Only set authenticated if we have tokens
+        if (result.idToken || result.accessToken) {
+          setIsAuthenticated(true);
+          // Check for admin status
+          await checkAdminStatus();
+        } else {
+          console.warn('Login succeeded but no tokens received');
+          setIsAuthenticated(false);
+        }
       }
       
-      return response;
+      // Pass the result through unchanged
+      return result;
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message || 'An error occurred during sign in');
@@ -677,6 +696,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const result = await authService.signup(username, password, attributes);
         
         console.log('Complete signup result from service:', result);
+        
+        // FOCUSED UPDATE: Check for email exists condition regardless of success flag
+        if (result.type === 'EmailExistsException' || 
+            (result.message && (
+              result.message.toLowerCase().includes('email already exists') || 
+              result.message.toLowerCase().includes('account with email')
+            ))) {
+          
+          // Ensure we return a consistent structure for email exists errors
+          return {
+            success: false, // Always mark email exists as error
+            message: result.message || `An account with email '${attributes.email}' already exists.`,
+            type: 'EmailExistsException',
+            email: attributes.email
+          };
+        }
 
         if (!result.success) {
           throw new Error(result.message || 'Signup failed');
@@ -696,7 +731,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (serviceError: any) {
         console.error('authService signup failed:', serviceError);
         
-        // Return structured error response for the UI
+        // FOCUSED UPDATE: Enhanced check for email exists error
+        if (serviceError.type === 'EmailExistsException' ||
+            serviceError.code === 'EmailExistsException' ||
+            serviceError.message?.toLowerCase().includes('email already exists') || 
+            serviceError.message?.toLowerCase().includes('account with email') ||
+            serviceError.response?.data?.type === 'EmailExistsException') {
+          
+          return {
+            success: false,
+            message: serviceError.message || `An account with email '${attributes.email}' already exists.`,
+            type: 'EmailExistsException',
+            email: attributes.email
+          };
+        }
+        
         if (serviceError.response?.status === 404) {
           console.log('API returned 404, attempting direct Cognito signup');
           // Try direct Cognito signup via service (the service handles this internally)
@@ -716,14 +765,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
         
-        // Re-throw so the error is caught by the outer catch block
         throw serviceError;
       }
     } catch (err: any) {
       console.error('Error during signup:', err);
       setError({ message: err.message || 'Signup failed' });
       
-      // Return a structured error response that can be handled by the UI
+      // FOCUSED UPDATE: Enhanced check for email exists error
+      if (err.type === 'EmailExistsException' ||
+          err.code === 'EmailExistsException' ||
+          err.message?.toLowerCase().includes('email already exists') || 
+          err.message?.toLowerCase().includes('account with email') || 
+          err.response?.data?.type === 'EmailExistsException') {
+        
+        return {
+          success: false,
+          message: err.message || `An account with email '${attributes.email}' already exists.`,
+          type: 'EmailExistsException',
+          email: attributes.email
+        };
+      }
+      
       return {
         success: false,
         message: err.message || 'An unexpected error occurred during signup',

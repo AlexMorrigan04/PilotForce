@@ -29,7 +29,6 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
   // Add a debug function to check file sizes
   const debugFileSize = useCallback((file: File) => {
     const sizeInMB = file.size / (1024 * 1024);
-    console.log(`Debug - File: ${file.name}, Size: ${sizeInMB.toFixed(2)}MB, Exceeds limit: ${file.size > MAX_FILE_SIZE}`);
     return file.size > MAX_FILE_SIZE;
   }, []);
 
@@ -47,7 +46,6 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
       
       // Check for large files - just for notification
       const largeFiles = files.filter(file => file.size > MAX_FILE_SIZE);
-      console.log(`Found ${largeFiles.length} large files that will be uploaded directly to S3`);
       
       if (invalidFileTypes.length > 0) {
         setError(`Unsupported file types: ${invalidFileTypes.map(file => file.name).join(', ')}`);
@@ -60,7 +58,6 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
         
         // Inform about large files
         if (largeFiles.length > 0) {
-          console.log(`${largeFiles.length} large files will be uploaded directly to S3, bypassing API Gateway.`);
           setError(`Note: ${largeFiles.length} files exceed 4MB and will be uploaded directly to S3.`);
         }
       }
@@ -69,10 +66,8 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
 
   // Function to directly upload large files to S3
   const uploadLargeFilesToS3 = async (largeFiles: File[]) => {
-    console.log(`Starting S3 direct upload for ${largeFiles.length} files`);
     largeFiles.forEach(file => {
       const sizeInMB = file.size / (1024 * 1024);
-      console.log(`S3 upload - File: ${file.name}, Size: ${sizeInMB.toFixed(2)}MB`);
     });
     
     try {
@@ -94,7 +89,6 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
         const resourceId = `resource_${Date.now()}_${uuidv4().substring(0, 8)}`;
         const key = `${bookingId}/${resourceId}/${file.name}`;
         
-        console.log(`Uploading ${file.name} directly to S3 bucket ${S3_BUCKET}, key: ${key}`);
         
         // Upload to S3
         const uploadParams = {
@@ -106,7 +100,6 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
         
         try {
           const uploadResult = await s3Client.send(new PutObjectCommand(uploadParams));
-          console.log(`S3 upload successful for ${file.name}`, uploadResult);
           
           // API record keeping
           const resourceUrl = `https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
@@ -127,20 +120,16 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
             }
           });
           
-          console.log(`Resource record created for ${file.name}`);
           return resourceId;
         } catch (error) {
-          console.error(`Error uploading ${file.name} to S3:`, error);
           throw error;
         }
       });
       
       // Wait for all uploads to complete
       await Promise.all(uploadPromises);
-      console.log(`Successfully uploaded ${largeFiles.length} large files directly to S3`);
       return true;
     } catch (err) {
-      console.error('Error uploading large files directly to S3:', err);
       throw err;
     }
   };
@@ -155,13 +144,10 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
       return;
     }
     
-    console.log(`Uploading files for booking ID: ${bookingId}`);
-    console.log(`Total files: ${selectedFiles.length}`);
     
     // Debug file sizes before processing
     selectedFiles.forEach(file => {
       const sizeInMB = file.size / (1024 * 1024);
-      console.log(`Pre-upload - File: ${file.name}, Size: ${sizeInMB.toFixed(2)}MB, Type: ${file.type}`);
     });
     
     // Upload files
@@ -172,17 +158,13 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
       const standardFiles = selectedFiles.filter(file => file.size <= MAX_FILE_SIZE);
       const largeFiles = selectedFiles.filter(file => file.size > MAX_FILE_SIZE);
       
-      console.log(`Standard files (${standardFiles.length}):`, standardFiles.map(file => file.name).join(', '));
-      console.log(`Large files (${largeFiles.length}):`, largeFiles.map(file => file.name).join(', '));
       
       // Process large files first - make sure this runs
       if (largeFiles.length > 0) {
-        console.log(`Starting S3 direct upload for ${largeFiles.length} large files`);
         
         // DEBUG: Force file sizes
         largeFiles.forEach(file => {
           const sizeInMB = file.size / (1024 * 1024);
-          console.log(`Large file: ${file.name}, Size: ${sizeInMB.toFixed(2)}MB`);
         });
         
         await uploadLargeFilesToS3(largeFiles);
@@ -190,12 +172,10 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
       
       // Then process standard files through API Gateway
       if (standardFiles.length > 0) {
-        console.log(`Uploading ${standardFiles.length} standard files via API Gateway`);
         const formData = new FormData();
         
         standardFiles.forEach(file => {
           const sizeInMB = file.size / (1024 * 1024);
-          console.log(`Adding standard file to form: ${file.name}, size: ${sizeInMB.toFixed(2)}MB`);
           formData.append('files', file);
         });
         
@@ -221,7 +201,6 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
       } else {
         setError('An unexpected error occurred during upload');
       }
-      console.error('Error uploading files:', err);
     }
   };
 

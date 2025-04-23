@@ -30,10 +30,8 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
         
         // If cache is still valid (less than 24 hours old)
         if (now - timestamp < MEDIA_COUNT_CACHE_DURATION) {
-          console.log(`Using cached media count (${count}) for company ${companyId}`);
           return count;
         } else {
-          console.log('Cached media count expired, fetching fresh data');
         }
       } catch (parseError) {
         console.warn('Error parsing cached media count', parseError);
@@ -53,7 +51,6 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
     // Implement retry logic
     for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       if (attempt > 0) {
-        console.log(`Retry attempt ${attempt} for media count...`);
         // Wait before retrying
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
       }
@@ -94,12 +91,10 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
         
         // If we got a 502 error and this isn't the last attempt, continue to next retry
         if (response.status === 502 && attempt < MAX_RETRY_ATTEMPTS) {
-          console.error(`Failed to fetch media count: ${response.status}. Retrying...`);
           continue;
         }
         
         // For other errors or last attempt 502, log the error
-        console.error(`Failed to fetch media count: ${response.status}`);
         
         if (response.status === 502) {
           console.warn(`Gateway error (502) when fetching media count for company ${companyId}.`);
@@ -112,7 +107,6 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
         if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
           console.warn('Media count request timed out');
         } else {
-          console.error('Error fetching media count:', fetchError);
         }
         
         // If this is the last attempt, use fallback
@@ -126,7 +120,6 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
     // Should never reach here due to return statements in the loop
     return getEstimatedCountFallback(companyId);
   } catch (error) {
-    console.error('Unexpected error in getMediaCount:', error);
     return getEstimatedCountFallback(companyId);
   }
 };
@@ -144,7 +137,6 @@ const getEstimatedCountFallback = (companyId: string): number => {
     if (cachedData) {
       try {
         const { count } = JSON.parse(cachedData);
-        console.log(`Using expired cache as fallback for media count: ${count}`);
         return count;
       } catch (e) {
         // Ignore parse errors in fallback
@@ -155,7 +147,6 @@ const getEstimatedCountFallback = (companyId: string): number => {
     // TODO: Could potentially estimate based on booking count or asset count in the future
     return 0;
   } catch (error) {
-    console.error('Error in fallback media count estimation:', error);
     return 0;
   }
 };
@@ -168,7 +159,6 @@ export const clearMediaCountCache = (companyId?: string) => {
   if (companyId) {
     const cacheKey = `${MEDIA_COUNT_CACHE_KEY_PREFIX}${companyId}`;
     localStorage.removeItem(cacheKey);
-    console.log(`Cleared media count cache for company ${companyId}`);
   } else {
     // Clear all media count cache entries
     Object.keys(localStorage).forEach(key => {
@@ -176,7 +166,6 @@ export const clearMediaCountCache = (companyId?: string) => {
         localStorage.removeItem(key);
       }
     });
-    console.log('Cleared all media count cache entries');
   }
 };
 

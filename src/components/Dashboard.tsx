@@ -11,6 +11,13 @@ import { getAssetCount } from "../utils/assetUtils";
 import { Booking } from "../types/bookingTypes";
 import CompanyUsers from "./CompanyUsers";
 
+interface CompanyDetails {
+  name: string;
+  id: string;
+  plan: string;
+  status: string;
+}
+
 const Dashboard: React.FC = () => {
   const { user, isAuthenticated, isAdmin } = useAuth();
   const navigate = useNavigate();
@@ -26,11 +33,9 @@ const Dashboard: React.FC = () => {
   const [assetCountLoading, setAssetCountLoading] = useState<boolean>(false);
   const [bookingCount, setBookingCount] = useState<number>(0);
   const [bookingCountLoading, setBookingCountLoading] = useState<boolean>(false);
-  // New state variables for user details modal
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedUser, setSelectedUser] = useState<CompanyUser | null>(null);
 
-  // Helper functions for user details modal
   const openUserDetailsModal = (user: CompanyUser) => {
     setSelectedUser(user);
     setIsModalOpen(true);
@@ -92,16 +97,19 @@ const Dashboard: React.FC = () => {
 
   const getStatusBadgeStyle = (status: string) => {
     const lowerStatus = status.toLowerCase();
-    if (lowerStatus === 'confirmed') {
+    if (lowerStatus === 'completed') {
       return 'bg-green-100 text-green-800';
-    } else if (lowerStatus === 'unconfirmed') {
+    } else if (lowerStatus === 'scheduled') {
+      return 'bg-blue-100 text-blue-800';
+    } else if (lowerStatus === 'pending') {
       return 'bg-yellow-100 text-yellow-800';
+    } else if (lowerStatus === 'cancelled') {
+      return 'bg-red-100 text-red-800';
     } else {
       return 'bg-gray-100 text-gray-800';
     }
   };
 
-  // Animation variants
   const fadeIn = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { duration: 0.3 } }
@@ -119,27 +127,19 @@ const Dashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    // Check if user is admin and redirect to admin dashboard if needed
     const checkAndRedirectAdmin = async () => {
       try {
-        // ONLY redirect users who are explicitly in the Administrators group
-        // NOT CompanyAdmin or regular User roles
-        
-        // Check for EXACT match for Administrator role - not CompanyAdmin
         if (user?.role === 'Administrator') {
           console.log('True administrator detected via user role, redirecting to admin dashboard');
           navigate('/admin-dashboard');
           return;
         }
         
-        // Use the context value only if it has been confirmed through Cognito groups
         if (isAdmin === true) {
-          // Verify this is from a true admin check, not a role check
           const token = localStorage.getItem('idToken');
           if (token) {
             try {
               const { isAdminFromToken } = await import('../utils/adminUtils');
-              // Check specifically for Administrators group membership
               const adminGroups = await checkAdministratorsGroupMembership(token);
               if (adminGroups) {
                 console.log('Admin confirmed via Cognito groups, redirecting to admin dashboard');
@@ -152,16 +152,12 @@ const Dashboard: React.FC = () => {
           }
         }
         
-        // If we get here, user is not an admin, so don't redirect
-        // Clear any incorrect admin flags
         if (localStorage.getItem('isAdmin') === 'true') {
-          // Double check by validating against Cognito groups
           const token = localStorage.getItem('idToken');
           if (token) {
             try {
               const adminGroups = await checkAdministratorsGroupMembership(token);
               if (!adminGroups) {
-                // If the token shows user is not in Administrators group, clear the flag
                 console.log('Removing incorrect admin flag - user is not in Administrators group');
                 localStorage.removeItem('isAdmin');
               }
@@ -169,7 +165,6 @@ const Dashboard: React.FC = () => {
               console.error('Error validating admin token:', error);
             }
           } else {
-            // No token but flag is set - clear it
             localStorage.removeItem('isAdmin');
           }
         }
@@ -178,13 +173,10 @@ const Dashboard: React.FC = () => {
       }
     };
     
-    // Helper function to check specifically for Administrators group membership
     const checkAdministratorsGroupMembership = async (token: string): Promise<boolean> => {
       try {
         const { jwtDecode } = await import('jwt-decode');
         const decoded = jwtDecode<any>(token);
-        
-        // Only look for the exact Administrators group in cognito:groups
         const groups = decoded['cognito:groups'] || [];
         return groups.includes('Administrators');
       } catch (error) {
@@ -193,7 +185,6 @@ const Dashboard: React.FC = () => {
       }
     };
     
-    // Only run this check if the user is authenticated
     if (user && isAuthenticated) {
       checkAndRedirectAdmin();
     }
@@ -214,14 +205,12 @@ const Dashboard: React.FC = () => {
         setRecentBookings(sorted);
         setError(null);
 
-        // Also fetch the total booking count
         setBookingCountLoading(true);
         try {
           const count = await getBookingCount(user.companyId);
           setBookingCount(count);
         } catch (countError) {
           console.error("Error fetching booking count:", countError);
-          // Use the length of fetched bookings as fallback
           setBookingCount(bookings.length);
         } finally {
           setBookingCountLoading(false);
@@ -246,11 +235,11 @@ const Dashboard: React.FC = () => {
           name: user.username || user.name || "User",
           email: user.email || "No email provided",
           role: user.role || user["custom:userRole"] || "User",
-          id: user.id || user.sub || "Unknown",
           joinDate: new Date().toLocaleDateString(),
         });
 
         let companyId = user.companyId || user["custom:companyId"];
+        let companyName = user.companyName || "";
 
         if (!companyId) {
           const savedUser = localStorage.getItem("user");
@@ -258,43 +247,72 @@ const Dashboard: React.FC = () => {
             try {
               const parsedUser = JSON.parse(savedUser);
               companyId = parsedUser.companyId || parsedUser["custom:companyId"];
+              companyName = parsedUser.companyName || "";
             } catch (e) {
               console.error("Error parsing saved user data", e);
             }
           }
         }
 
-        // Fetch the actual asset count from the API
-        if (companyId) {
-          setAssetCountLoading(true);
-          try {
-            const count = await getAssetCount(companyId);
-            setAssetCount(count);
-          } catch (error) {
-            console.error("Error fetching asset count:", error);
-            // Use a default/fallback value when fetch fails
-            setAssetCount(0);
-          } finally {
-            setAssetCountLoading(false);
+        if (!companyName && user.email) {
+          const emailParts = user.email.split('@');
+          if (emailParts.length > 1) {
+            const domain = emailParts[1].split('.')[0];
+            companyName = domain.charAt(0).toUpperCase() + domain.slice(1);
           }
         }
 
         setCompanyDetails({
-          name: user.companyName || "Your Company",
+          name: companyName || "Your Organization",
           id: companyId || "Unknown",
           plan: "Professional",
-          assets: assetCount, // Use the actual asset count
           status: "Active",
         });
+
+        // Handle asset count fetching
+        if (companyId) {
+          setAssetCountLoading(true);
+          try {
+            console.log("Fetching asset count for company:", companyId);
+            
+            // Make sure the token is available before calling getAssetCount
+            const token = localStorage.getItem('idToken');
+            if (!token) {
+              console.warn("No idToken found in localStorage for asset count fetch");
+            }
+            
+            // Allow some time for token to be properly initialized if needed
+            setTimeout(async () => {
+              try {
+                const count = await getAssetCount(companyId);
+                console.log("Asset count result:", count);
+                setAssetCount(count);
+              } catch (delayedError) {
+                console.error("Error in delayed asset count fetch:", delayedError);
+                setAssetCount(0);
+              } finally {
+                setAssetCountLoading(false);
+              }
+            }, 500); // Short delay to ensure auth is fully initialized
+          } catch (error) {
+            console.error("Error initiating asset count fetch:", error);
+            setAssetCount(0);
+            setAssetCountLoading(false);
+          }
+        } else {
+          console.warn("No company ID available to fetch asset count");
+          setAssetCount(0);
+          setAssetCountLoading(false);
+        }
       } catch (error) {
         console.error("Error loading user or company information:", error);
+        setAssetCountLoading(false);
       }
     };
 
     loadUserAndCompanyInfo();
-  }, [user, assetCount]);
+  }, [user]);
 
-  // Updated effect to fetch company users using the same pattern as bookings
   useEffect(() => {
     const fetchCompanyUsers = async () => {
       if (!user) return;
@@ -302,10 +320,8 @@ const Dashboard: React.FC = () => {
       try {
         setUsersLoading(true);
         
-        // Extract company ID using the same pattern as other functions
         let companyId = user.companyId || user["custom:companyId"];
         
-        // If not in user object, try to get from localStorage
         if (!companyId) {
           const savedUser = localStorage.getItem("user");
           if (savedUser) {
@@ -324,13 +340,11 @@ const Dashboard: React.FC = () => {
           throw new Error("Missing company ID");
         }
         
-        // Use the getUsersByCompany function directly (same approach as getBookings)
         console.log("Fetching users for company ID:", companyId);
         const users = await getUsersByCompany(companyId);
         
         console.log(`Successfully fetched ${users.length} company users`);
         
-        // Map the returned users to match the CompanyUser interface
         const mappedUsers: CompanyUser[] = users.map(user => ({
           UserId: user.UserId || user.userId || '',
           email: user.Email || user.email || '',
@@ -359,7 +373,6 @@ const Dashboard: React.FC = () => {
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Navbar />
 
-      {/* Header Banner */}
       <motion.section
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -408,9 +421,7 @@ const Dashboard: React.FC = () => {
 
       <main className="flex-grow container mx-auto px-4 py-6 max-w-7xl">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Stats Summary */}
             <motion.section
               initial="hidden"
               animate="visible"
@@ -440,7 +451,7 @@ const Dashboard: React.FC = () => {
                   </div>
                   <div className="bg-white/30 p-2 rounded-lg">
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 1 0 012 2" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a1 1 0 012 2" />
                     </svg>
                   </div>
                 </div>
@@ -476,7 +487,6 @@ const Dashboard: React.FC = () => {
               </motion.div>
             </motion.section>
 
-            {/* Recent Flights */}
             <motion.section
               initial="hidden"
               animate="visible"
@@ -522,15 +532,7 @@ const Dashboard: React.FC = () => {
                           </div>
                         </div>
                         <span
-                          className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            booking.status === "completed"
-                              ? "bg-green-100 text-green-800"
-                              : booking.status === "scheduled"
-                              ? "bg-blue-100 text-blue-800"
-                              : booking.status === "cancelled"
-                              ? "bg-red-100 text-red-800"
-                              : "bg-yellow-100 text-yellow-800"
-                          }`}
+                          className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadgeStyle(booking.status)}`}
                         >
                           {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
                         </span>
@@ -562,7 +564,6 @@ const Dashboard: React.FC = () => {
               )}
             </motion.section>
 
-            {/* Company Users - NEW SECTION */}
             <motion.section
               initial="hidden"
               animate="visible"
@@ -584,9 +585,7 @@ const Dashboard: React.FC = () => {
             </motion.section>
           </div>
 
-          {/* Right Column */}
           <div className="space-y-6">
-            {/* User Profile Card */}
             <motion.div
               initial="hidden"
               animate="visible"
@@ -618,9 +617,8 @@ const Dashboard: React.FC = () => {
                         whileTap={{ scale: 0.97 }}
                         className="w-full bg-purple-100 hover:bg-purple-200 text-purple-800 font-medium py-2 px-4 rounded-md text-sm"
                         onClick={() => {
-                          // Create a CompanyUser object from the user profile data
                           const userAsCompanyUser: CompanyUser = {
-                            UserId: userProfile.id,
+                            UserId: userProfile.id || '',
                             email: userProfile.email,
                             name: userProfile.name,
                             Username: userProfile.name,
@@ -630,7 +628,6 @@ const Dashboard: React.FC = () => {
                             createdAt: userProfile.joinDate,
                           };
                           
-                          // Open the modal with the user details
                           openUserDetailsModal(userAsCompanyUser);
                         }}
                       >
@@ -650,7 +647,6 @@ const Dashboard: React.FC = () => {
               </div>
             </motion.div>
 
-            {/* Company Card */}
             <motion.div
               initial="hidden"
               animate="visible"
@@ -671,7 +667,6 @@ const Dashboard: React.FC = () => {
                       </div>
                       <div>
                         <h4 className="font-medium text-gray-900">{companyDetails.name}</h4>
-                        <p className="text-sm text-gray-500">ID: {companyDetails.id.substring(0, 8)}...</p>
                       </div>
                     </div>
 
@@ -695,7 +690,6 @@ const Dashboard: React.FC = () => {
               </div>
             </motion.div>
 
-            {/* Quick Actions */}
             <motion.div
               initial="hidden"
               animate="visible"
@@ -764,7 +758,6 @@ const Dashboard: React.FC = () => {
         </div>
       </main>
 
-      {/* User Details Modal */}
       {isModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
           <motion.div 
@@ -811,11 +804,6 @@ const Dashboard: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <h5 className="text-sm font-medium text-gray-500 mb-2">User ID</h5>
-                <p className="text-sm">{selectedUser.UserId}</p>
-              </div>
-
-              <div>
                 <h5 className="text-sm font-medium text-gray-500 mb-2">Username</h5>
                 <p className="text-sm">{selectedUser.Username}</p>
               </div>
@@ -826,11 +814,6 @@ const Dashboard: React.FC = () => {
                   <p className="text-sm">{selectedUser.phone || selectedUser.phoneNumber}</p>
                 </div>
               )}
-
-              <div>
-                <h5 className="text-sm font-medium text-gray-500 mb-2">Company ID</h5>
-                <p className="text-sm">{selectedUser.companyId || selectedUser.CompanyId}</p>
-              </div>
 
               {selectedUser.department && (
                 <div>

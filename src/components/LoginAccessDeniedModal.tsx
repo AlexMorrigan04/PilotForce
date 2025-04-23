@@ -1,133 +1,96 @@
 import React from 'react';
-import { motion } from 'framer-motion';
-import { FiAlertCircle, FiX, FiBriefcase, FiAlertOctagon, FiClock, FiCheckCircle } from 'react-icons/fi';
+import { motion, AnimatePresence } from 'framer-motion';
+import { FiAlertTriangle, FiX } from 'react-icons/fi';
 
-interface LoginAccessDeniedModalProps {
+export interface LoginAccessDeniedModalProps {
   isOpen: boolean;
   onClose: () => void;
-  username: string;
-  email?: string;
+  email: string;
+  username?: string; // Make username optional to support both authentication methods
   isNewDomain: boolean;
   companyName: string;
-  approvalStatus?: string;
+  approvalStatus: string;
 }
 
 const LoginAccessDeniedModal: React.FC<LoginAccessDeniedModalProps> = ({
   isOpen,
   onClose,
-  username,
   email,
+  username, // Keep username as a prop but it's now optional
   isNewDomain,
   companyName,
-  approvalStatus = 'PENDING'
+  approvalStatus
 }) => {
   if (!isOpen) return null;
 
-  // Format company name for display, capitalize first letter if needed
-  const displayCompanyName = companyName ? 
-    (companyName.charAt(0).toUpperCase() + companyName.slice(1)) : 
-    'your company';
-  
-  // Set approval text based on whether this is a new domain or existing domain
-  const approvalText = isNewDomain
-    ? "Your account requires System Administrator approval."
-    : `Your account requires approval from a ${displayCompanyName} Administrator.`;
-    
-  const waitingText = isNewDomain
-    ? "Since you are the first user from your organization, a System Administrator will review your account."
-    : `An administrator from ${displayCompanyName} will review your account and approve your access.`;
-
-  const getStatusIcon = () => {
-    if (approvalStatus === 'REJECTED') {
-      return <FiAlertOctagon className="h-8 w-8 text-red-600" />;
-    } else if (approvalStatus === 'APPROVED') {
-      return <FiCheckCircle className="h-8 w-8 text-green-600" />;
-    } else {
-      return <FiClock className="h-8 w-8 text-amber-600" />;
-    }
-  };
-
-  const getStatusMessage = () => {
-    if (approvalStatus === 'REJECTED') {
-      return 'Your access request has been rejected. Please contact your administrator.';
-    } else if (approvalStatus === 'APPROVED') {
-      return 'Your account has been approved but is not yet activated. Please try again later or contact support.';
-    } else {
-      return 'Your account is pending approval.';
-    }
-  };
-
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-      <motion.div
-        className="relative bg-white rounded-lg max-w-md mx-auto p-6 shadow-xl"
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3 }}
-      >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-          aria-label="Close"
-        >
-          <FiX className="h-5 w-5" />
-        </button>
-        
-        <div className="text-center mb-5">
-          <div className="mx-auto flex items-center justify-center h-14 w-14 rounded-full bg-amber-100">
-            {getStatusIcon()}
-          </div>
-          <h3 className="text-lg font-medium text-gray-900 mt-4">Account Not Yet Active</h3>
-          <p className="text-sm text-gray-500 mt-2">{getStatusMessage()}</p>
-        </div>
-        
-        <div className="bg-gray-50 rounded-md p-4 mb-4">
-          <div className="flex items-center">
-            <FiBriefcase className="h-5 w-5 text-gray-400 mr-2" />
-            <span className="text-sm font-medium text-gray-700">Account Details</span>
-          </div>
-          
-          <div className="mt-2 space-y-2 text-sm">
-            <div className="flex items-start">
-              <span className="text-gray-500 w-24">Username:</span>
-              <span className="font-medium text-gray-800">{username}</span>
-            </div>
-            {email && (
-              <div className="flex items-start">
-                <span className="text-gray-500 w-24">Email:</span>
-                <span className="font-medium text-gray-800">{email}</span>
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4">
+            <motion.div
+              className="fixed inset-0 bg-black bg-opacity-50"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={onClose}
+            />
+            
+            <motion.div
+              className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full z-10 mx-auto overflow-hidden shadow-xl"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", duration: 0.5 }}
+            >
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center text-red-500">
+                    <FiAlertTriangle className="h-6 w-6 mr-2" />
+                    <h3 className="text-lg font-medium">Access Denied</h3>
+                  </div>
+                  <button
+                    onClick={onClose}
+                    className="text-gray-400 hover:text-gray-500 focus:outline-none"
+                  >
+                    <FiX className="h-5 w-5" />
+                  </button>
+                </div>
+                
+                <div className="mt-4">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                    Your account with email <span className="font-medium text-gray-900 dark:text-white">{email}</span> requires approval before you can access the system.
+                  </p>
+                  
+                  {isNewDomain && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                      This appears to be the first account from <span className="font-medium text-gray-900 dark:text-white">{companyName}</span>. New company domains require administrative approval.
+                    </p>
+                  )}
+                  
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                    Current status: <span className="font-medium text-orange-500">{approvalStatus}</span>
+                  </p>
+                  
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Please contact your administrator or support for assistance.
+                  </p>
+                </div>
+                
+                <div className="mt-6">
+                  <button
+                    onClick={onClose}
+                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:text-sm"
+                  >
+                    I Understand
+                  </button>
+                </div>
               </div>
-            )}
-            {companyName && (
-              <div className="flex items-start">
-                <span className="text-gray-500 w-24">Company:</span>
-                <span className="font-medium text-gray-800">{displayCompanyName}</span>
-              </div>
-            )}
-          </div>
-          
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            <div className="flex items-center">
-              <FiAlertCircle className="h-5 w-5 text-amber-500 mr-2" />
-              <h4 className="text-sm font-medium text-gray-700">Approval Required</h4>
-            </div>
-            <p className="mt-1 text-sm text-gray-600">{waitingText}</p>
+            </motion.div>
           </div>
         </div>
-        
-        <div className="text-xs text-gray-500 mb-4">
-          You'll receive an email notification once your account has been approved.
-          You can try logging in later to check your approval status.
-        </div>
-
-        <button
-          onClick={onClose}
-          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-        >
-          I Understand
-        </button>
-      </motion.div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 };
 

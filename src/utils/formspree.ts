@@ -49,7 +49,6 @@ export const sendEmailNotification = async (data: any) => {
     
     return await response.json();
   } catch (error) {
-    console.error('Error sending email notification:', error);
     throw error;
   }
 };
@@ -92,9 +91,7 @@ export const sendSignupNotification = async (data: any) => {
       recipients = 'Mike@morriganconsulting.co.uk';
     }
     
-    console.log(`Sending notification to recipients: ${recipients}`);
     if (ccRecipients.length > 0) {
-      console.log(`CC recipients: ${Array.isArray(ccRecipients) ? ccRecipients.join(', ') : ccRecipients}`);
     }
     
     // Prepare the email data with explicit _cc field that Formspree understands
@@ -168,13 +165,6 @@ export const sendSignupNotification = async (data: any) => {
     // Attach the HTML to the email data
     emailData.html = html;
     
-    // Log the final payload for debugging
-    console.log('Sending email with payload:', {
-      to: emailData.to,
-      _cc: emailData._cc,
-      subject: emailData.subject,
-    });
-    
     // Send via Formspree with the correct payload structure
     const response = await fetch(FORMSPREE_ENDPOINT, {
       method: 'POST',
@@ -186,14 +176,11 @@ export const sendSignupNotification = async (data: any) => {
     });
     
     if (!response.ok) {
-      console.error('Formspree API error:', await response.text());
       throw new Error(`Formspree error: ${response.statusText}`);
     }
     
-    console.log('Email notification sent successfully via Formspree');
     return await response.json();
   } catch (error) {
-    console.error('Error sending signup notification:', error);
     throw error;
   }
 };

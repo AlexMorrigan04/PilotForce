@@ -14,30 +14,44 @@ export const getApiUrl = (): string => {
 };
 
 /**
- * Gets the authentication token from localStorage or other storage
- * @returns The current authentication token or null if not logged in
+ * Get the authentication token from localStorage with improved error handling
+ * @returns The authentication token or null if not found
  */
 export const getAuthToken = (): string | null => {
-  // First try to get the token from localStorage
-  const token = localStorage.getItem('token');
-  if (token) return token;
-  
-  // If not found directly, try to parse from user data (different storage format)
   try {
-    const userData = localStorage.getItem('user');
-    if (userData) {
-      const parsedData = JSON.parse(userData);
-      // Check common token fields in user data
-      return parsedData.accessToken || 
-             (parsedData.tokens && parsedData.tokens.accessToken) || 
-             parsedData.token || 
-             null;
+    // First try to get the idToken directly
+    let token = localStorage.getItem('idToken');
+    if (token) return token;
+    
+    // Try alternate storage locations or naming conventions
+    token = localStorage.getItem('accessToken');
+    if (token) return token;
+    
+    // Try parsing from stored user object
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        if (user && user.token) return user.token;
+      } catch (e) {
+      }
     }
-  } catch (error) {
-    console.error('Error parsing user data:', error);
+    
+    // Try auth data storage
+    const authStr = localStorage.getItem('authData');
+    if (authStr) {
+      try {
+        const authData = JSON.parse(authStr);
+        if (authData && authData.token) return authData.token;
+      } catch (e) {
+      }
+    }
+    
+    console.warn('No authentication token found in any storage location');
+    return null;
+  } catch (e) {
+    return null;
   }
-  
-  return null;
 };
 
 /**

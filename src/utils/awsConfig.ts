@@ -13,7 +13,6 @@ export const configureAWSSDK = (): boolean => { // Renamed from configureAWS to 
     const secretAccessKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
     
     // Log safely without exposing actual values
-    console.log(`AWS Config - Region: ${region ? 'SET' : 'MISSING'}, Access Key: ${accessKeyId ? 'SET' : 'MISSING'}, Secret Key: ${secretAccessKey ? 'SET' : 'MISSING'}`);
     
     if (region && accessKeyId && secretAccessKey) {
       AWS.config.update({
@@ -21,14 +20,12 @@ export const configureAWSSDK = (): boolean => { // Renamed from configureAWS to 
         accessKeyId,
         secretAccessKey
       });
-      console.log('AWS SDK configured successfully with credentials from environment variables');
       return true;
     } else {
       console.warn('AWS credentials not fully specified in environment variables');
       return false;
     }
   } catch (error) {
-    console.error('Error configuring AWS SDK:', error);
     return false;
   }
 };
@@ -43,10 +40,8 @@ export const testAwsCredentials = async (): Promise<boolean> => {
   try {
     const s3 = new AWS.S3();
     await s3.listBuckets().promise();
-    console.log('AWS credentials are valid');
     return true;
   } catch (error) {
-    console.error('AWS credentials test failed:', error);
     return false;
   }
 };
@@ -85,7 +80,6 @@ export const getAuthHeader = (): Record<string, string> => {
       };
     }
   } catch (error) {
-    console.error('Error getting auth header:', error);
   }
   return {};
 };

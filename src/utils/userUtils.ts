@@ -94,45 +94,37 @@ export const isCompanyAdmin = (userData: any): boolean => {
  * @returns Promise resolving to an array of company users
  */
 export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
-  console.log("Getting company users for user:", user);
 
   // Extract company ID from token first (most reliable method)
   let companyId = null;
   try {
     const idToken = localStorage.getItem('idToken');
     if (idToken) {
-      console.log("Attempting to extract companyId from token");
       // Simple JWT parsing without external library
       const payload = JSON.parse(atob(idToken.split('.')[1]));
       if (payload && payload['custom:companyId']) {
         companyId = payload['custom:companyId'];
-        console.log("Extracted companyId from token:", companyId);
       }
     }
   } catch (tokenError) {
-    console.error("Error extracting company ID from token:", tokenError);
   }
 
   // If token method failed, fall back to user object
   if (!companyId && user) {
     // Direct property access
     if (user.companyId && typeof user.companyId === 'string' && user.companyId.trim() !== '') {
-      console.log("Found companyId via direct property:", user.companyId);
       companyId = user.companyId;
     }
     // Nested property access if user comes from different contexts
     else if (user.user && user.user.companyId) {
-      console.log("Found companyId via nested user property:", user.user.companyId);
       companyId = user.user.companyId;
     }
     // If user is wrapped differently
     else if (user.data && user.data.companyId) {
-      console.log("Found companyId via data property:", user.data.companyId);
       companyId = user.data.companyId;
     }
     // Check for custom attribute format
     else if (user['custom:companyId']) {
-      console.log("Found companyId via custom attribute:", user['custom:companyId']);
       companyId = user['custom:companyId'];
     }
   }
@@ -145,7 +137,6 @@ export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
       if (userData) {
         const parsedUser = JSON.parse(userData);
         if (parsedUser.companyId) {
-          console.log("Found companyId in userData localStorage:", parsedUser.companyId);
           companyId = parsedUser.companyId;
         }
       } 
@@ -155,22 +146,18 @@ export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
         if (userString) {
           const parsedUser = JSON.parse(userString);
           if (parsedUser.companyId) {
-            console.log("Found companyId in user localStorage:", parsedUser.companyId);
             companyId = parsedUser.companyId;
           }
         }
       }
     } catch (e) {
-      console.error("Error getting user from localStorage:", e);
     }
   }
 
   if (!companyId) {
-    console.error("Could not determine company ID from any source");
     throw new Error("Could not determine company ID for the current user");
   }
 
-  console.log("Using company ID for API request:", companyId);
 
   try {
     // Get the authorization token with proper formatting
@@ -192,7 +179,6 @@ export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
     
     // Use the correct API endpoint from API Gateway configuration
     const apiUrl = `https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`;
-    console.log("Making request to:", apiUrl);
 
     const response = await fetch(apiUrl, {
       method: 'GET',
@@ -208,11 +194,9 @@ export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
     });
 
     if (!response.ok) {
-      console.error(`API response error: ${response.status} ${response.statusText}`);
       
       // Try alternate endpoint
       if (response.status === 401 || response.status === 403) {
-        console.log("Trying alternate endpoint due to authorization error");
         return await fallbackGetCompanyUsers(companyId);
       }
       
@@ -220,7 +204,6 @@ export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
     }
 
     const data = await response.json();
-    console.log("Company users data received:", data);
     
     // Handle different response formats
     let users = [];
@@ -234,14 +217,12 @@ export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
         const parsedBody = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
         users = Array.isArray(parsedBody) ? parsedBody : (parsedBody.users || []);
       } catch (e) {
-        console.error("Error parsing response body:", e);
         users = [];
       }
     }
     
     return users.map(normalizeCompanyUser);
   } catch (error: any) {
-    console.error("Error in primary company users fetch:", error);
     
     // Try alternate endpoint as fallback
     return await fallbackGetCompanyUsers(companyId);
@@ -253,7 +234,6 @@ export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
  */
 async function fallbackGetCompanyUsers(companyId: string): Promise<CompanyUser[]> {
   try {
-    console.log("Attempting fallback method to get company users");
     
     // Try to get a fresh token
     const refreshedToken = await refreshTokenIfNeeded();
@@ -268,7 +248,6 @@ async function fallbackGetCompanyUsers(companyId: string): Promise<CompanyUser[]
     
     // Try the alternative endpoint from API Gateway configuration
     const apiUrl = `https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/users/company/${companyId}`;
-    console.log("Making fallback request to:", apiUrl);
 
     const response = await fetch(apiUrl, {
       method: 'GET',
@@ -284,7 +263,6 @@ async function fallbackGetCompanyUsers(companyId: string): Promise<CompanyUser[]
     }
 
     const data = await response.json();
-    console.log("Fallback API returned data:", data);
     
     let users = [];
     if (Array.isArray(data)) {
@@ -296,14 +274,12 @@ async function fallbackGetCompanyUsers(companyId: string): Promise<CompanyUser[]
         const parsedBody = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
         users = Array.isArray(parsedBody) ? parsedBody : (parsedBody.users || []);
       } catch (e) {
-        console.error("Error parsing fallback response:", e);
         users = [];
       }
     }
     
     return users.map(normalizeCompanyUser);
   } catch (error) {
-    console.error("Fallback company users fetch also failed:", error);
     // If everything fails, return an empty array rather than throw
     return [];
   }
@@ -319,13 +295,11 @@ async function refreshTokenIfNeeded(): Promise<string | null> {
     const result = await refreshToken();
     
     if (result.success) {
-      console.log("Token refreshed successfully");
       return result.idToken || null;
     }
     
     return null;
   } catch (error) {
-    console.error("Error refreshing token:", error);
     return null;
   }
 }

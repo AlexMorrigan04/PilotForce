@@ -89,15 +89,12 @@ export async function findWorkingImageUrl(
     if (!url) continue;
     
     try {
-      console.log(`Testing URL: ${url.substring(0, 50)}...`);
       const works = await testImageUrl(url);
       
       if (works) {
-        console.log(`Found working URL: ${url.substring(0, 50)}...`);
         return url;
       }
     } catch (error) {
-      console.error(`Error testing URL: ${url.substring(0, 50)}...`, error);
     }
   }
   

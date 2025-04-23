@@ -21,10 +21,6 @@ export const testGeoTiffUrl = async (url: string): Promise<boolean> => {
   try {
     // Use HEAD request to check if the resource is accessible
     // without downloading the entire file
-    console.log(`
-            
-            
-           HEAD ${url}`);
     const response = await fetch(url, {
       method: 'HEAD',
       cache: 'no-store',
@@ -37,12 +33,10 @@ export const testGeoTiffUrl = async (url: string): Promise<boolean> => {
     });
     
     if (!response.ok) {
-      console.error(`GeoTIFF URL check failed: ${response.status} ${response.statusText}`);
       
       // If we get a 403 error, it's likely an authorization issue with the S3 bucket
       // The presigned URL might have expired
       if (response.status === 403) {
-        console.log('Authorization error (403 Forbidden) - trying again with different approach');
         
         // If this is an S3 URL, try again with a regular GET request
         // Sometimes HEAD requests are blocked but GET requests are allowed
@@ -60,11 +54,9 @@ export const testGeoTiffUrl = async (url: string): Promise<boolean> => {
             });
             
             if (rangeResponse.ok) {
-              console.log('GET request succeeded where HEAD failed - resource is accessible');
               return true;
             }
           } catch (e) {
-            console.log('GET request also failed:', e);
           }
         }
       }
@@ -94,7 +86,6 @@ export const testGeoTiffUrl = async (url: string): Promise<boolean> => {
     
     return true;
   } catch (error) {
-    console.error('Error testing GeoTIFF URL:', error);
     return false;
   }
 };
@@ -264,7 +255,6 @@ export const createGeoTiffDiagnosticReport = async (
       try {
         report.metadata = await getGeoTiffMetadata(url);
       } catch (e) {
-        console.error('Error getting GeoTIFF metadata:', e);
       }
     }
     
@@ -294,20 +284,17 @@ export const findValidGeoTiffUrl = async (
     return originalUrl;
   }
   
-  console.log('Original GeoTIFF URL invalid, trying alternatives...');
   
   // Try alternative URLs
   const alternativeUrls = generateAlternativeGeoTiffUrls(originalUrl);
   
   for (const url of alternativeUrls) {
     if (await testGeoTiffUrl(url)) {
-      console.log(`Found working alternative URL: ${url.substring(0, 50)}...`);
       return url;
     }
   }
   
   // No valid URLs found
-  console.log('No valid GeoTIFF URLs found');
   return null;
 };
 
@@ -342,7 +329,6 @@ export const getGeoTiffMetadata = async (url: string): Promise<any | null> => {
       url
     };
   } catch (e) {
-    console.error('Error getting GeoTIFF metadata:', e);
     return null;
   }
 };
@@ -376,7 +362,6 @@ export const validateTiffBuffer = (buffer: ArrayBuffer): boolean => {
     
     return false;
   } catch (e) {
-    console.error('Error validating TIFF buffer:', e);
     return false;
   }
 };
@@ -396,7 +381,6 @@ export const repairGeoTiffUrl = async (url: string): Promise<string> => {
       return url; // Original URL works, no repair needed
     }
   } catch (e) {
-    console.log('Error testing original URL:', e);
   }
   
   // Try alternative approaches to fix the URL
@@ -440,7 +424,6 @@ export const repairGeoTiffUrl = async (url: string): Promise<string> => {
       }
     }
   } catch (e) {
-    console.error('Error repairing GeoTIFF URL:', e);
   }
   
   // Return the original URL if all repair attempts fail
@@ -489,7 +472,6 @@ export const getDirectUrlFromPresigned = (presignedUrl: string): string | null =
     // Extract the base URL without query parameters
     return presignedUrl.split('?')[0];
   } catch (e) {
-    console.error('Error extracting direct URL:', e);
     return null;
   }
 };

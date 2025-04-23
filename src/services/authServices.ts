@@ -52,8 +52,8 @@ authApi.interceptors.request.use(config => {
   return config;
 });
 
-// Define response interface for better type safety
-interface AuthResponse {
+// Define response interface with expanded type for the login response
+export interface AuthResponse {
   success: boolean;
   message?: string;
   user?: any;
@@ -62,11 +62,22 @@ interface AuthResponse {
     accessToken: string;
     refreshToken: string;
   };
+  // For direct token returns
+  idToken?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  // For auth status
   needsConfirmation?: boolean;
   isSignUpComplete?: boolean;
   userId?: string;
   nextStep?: any;
   [key: string]: any;
+}
+
+// Update the login interface if needed
+export interface LoginParams {
+  username: string;
+  password: string;
 }
 
 /**
@@ -192,19 +203,37 @@ export const refreshToken = async (): Promise<AuthResponse> => {
 /**
  * Login with username and password via API Gateway
  */
-export const login = async (username: string, password: string): Promise<any> => {
+export const login = async (usernameOrParams: string | LoginParams, password?: string): Promise<AuthResponse> => {
+  // Handle both parameter formats
+  let username: string;
+  let pwd: string;
+
+  if (typeof usernameOrParams === 'object') {
+    // New format: single object parameter
+    username = usernameOrParams.username;
+    pwd = usernameOrParams.password;
+  } else {
+    // Old format: two separate parameters
+    username = usernameOrParams;
+    pwd = password || ''; // password should always be provided in old format
+  }
+
+  console.log(`Attempting login for: ${username} via API Gateway`);
+  
   try {
-    console.log(`Attempting login for: ${username} via API Gateway`);
-    
-    // Construct login request payload
+    // Create the proper payload for API Gateway Lambda function
+    // Important: Our Lambda function expects both email and username fields
+    // Even though they can both be the same value
     const payload = {
-      username,
-      password
+      username: username,      // Keep as-is for backward compatibility
+      email: username,         // Add email field with same value
+      password: pwd
     };
     
-    console.log('Login request payload:', {
-      username,
-      password: '********' // Mask password in logs
+    console.log('Login request payload:', { 
+      username: payload.username,
+      email: payload.email,
+      password: '********' 
     });
     
     // Get the API Gateway endpoint
@@ -254,6 +283,77 @@ export const login = async (username: string, password: string): Promise<any> =>
       };
     }
     
+    // CRITICAL: Check for error messages or unsuccessful responses
+    if (responseData.error || 
+        responseData.message?.includes('Incorrect username or password') || 
+        responseData.message?.includes('Incorrect email or password') ||
+        response.status === 401) {
+      console.log('Authentication failed:', responseData.message || 'Unknown error');
+      
+      // Try alternate endpoint using email explicit format
+      try {
+        console.log('First attempt failed. Trying alternate endpoint with explicit email format...');
+        
+        // Use the alternate login endpoint that explicitly handles email
+        const altApiUrl = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/email-login';
+        
+        const altResponse = await fetch(altApiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            email: username,
+            password: pwd
+          })
+        });
+        
+        if (altResponse.ok) {
+          console.log('Alt endpoint login successful');
+          const altData = await altResponse.json();
+          
+          // Process the successful response from alt endpoint
+          let idToken = null, accessToken = null, refreshToken = null, user = null;
+          
+          // Extract tokens and user data from altData
+          if (altData.tokens) {
+            idToken = altData.tokens.idToken;
+            accessToken = altData.tokens.accessToken;
+            refreshToken = altData.tokens.refreshToken;
+          } else if (altData.AuthenticationResult) {
+            idToken = altData.AuthenticationResult.IdToken;
+            accessToken = altData.AuthenticationResult.AccessToken;
+            refreshToken = altData.AuthenticationResult.RefreshToken;
+          }
+          
+          user = altData.user || altData.User;
+          
+          // Store tokens in localStorage
+          if (idToken) localStorage.setItem('idToken', idToken);
+          if (accessToken) localStorage.setItem('accessToken', accessToken);
+          if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+          if (user) localStorage.setItem('userData', JSON.stringify(user));
+          
+          return {
+            success: true,
+            idToken,
+            accessToken,
+            refreshToken,
+            user,
+            message: 'Login successful via alternate endpoint'
+          };
+        }
+      } catch (altError) {
+        console.log('Alternate endpoint also failed:', altError);
+      }
+      
+      return {
+        success: false,
+        message: responseData.message || 'Authentication failed'
+      };
+    }
+    
     // Check for successful login
     if (response.status === 200 && responseData.success !== false) {
       // Extract tokens from response based on our API structure
@@ -279,6 +379,15 @@ export const login = async (username: string, password: string): Promise<any> =>
         idToken = responseData.idToken || responseData.IdToken;
         accessToken = responseData.accessToken || responseData.AccessToken;
         refreshToken = responseData.refreshToken || responseData.RefreshToken;
+      }
+      
+      // IMPORTANT: Verify we actually have tokens
+      if (!idToken && !accessToken) {
+        console.warn('No tokens found in successful response');
+        return {
+          success: false,
+          message: 'Authentication succeeded but no tokens were returned'
+        };
       }
       
       // Extract user data from response
@@ -409,6 +518,20 @@ export const signup = async (
         }
       }
       
+      // FOCUSED UPDATE: Special handling for email exists even if API returns 200
+      if (userData.type === 'EmailExistsException' ||
+          (userData.message && (
+            userData.message.toLowerCase().includes('email already exists') || 
+            userData.message.toLowerCase().includes('account with email')
+          ))) {
+        return {
+          success: false,
+          message: userData.message || `An account with email '${attributes.email}' already exists.`,
+          type: 'EmailExistsException',
+          email: attributes.email
+        };
+      }
+      
       // Extract userId and isSignUpComplete from the proper location
       const userId = userData.userId || (userData.user ? userData.user.id : null);
       const isSignUpComplete = userData.isSignUpComplete || false;
@@ -431,6 +554,20 @@ export const signup = async (
           data: apiError.response.data
         } : 'No response'
       });
+      
+      // FOCUSED UPDATE: Enhanced check for email exists in error response
+      if (apiError.response?.data?.type === 'EmailExistsException' ||
+          (apiError.response?.data?.message && (
+            apiError.response.data.message.toLowerCase().includes('email already exists') ||
+            apiError.response.data.message.toLowerCase().includes('account with email')
+          ))) {
+        return {
+          success: false,
+          message: apiError.response.data.message || `An account with email '${attributes.email}' already exists.`,
+          type: 'EmailExistsException',
+          email: attributes.email
+        };
+      }
       
       // Fall back to Cognito direct signup for any API error (404, network, etc.)
       if (apiError.message === 'Network Error' || 
@@ -460,6 +597,20 @@ export const signup = async (
     }
   } catch (error: any) {
     console.error('Signup error:', error);
+    
+    // FOCUSED UPDATE: Enhanced check for email exists in general error
+    if (error.response?.data?.type === 'EmailExistsException' ||
+        (error.response?.data?.message && (
+          error.response?.data?.message.toLowerCase().includes('email already exists') ||
+          error.response?.data?.message.toLowerCase().includes('account with email')
+        ))) {
+      return {
+        success: false,
+        message: error.response.data.message || `An account with email '${attributes.email}' already exists.`,
+        type: 'EmailExistsException',
+        email: attributes.email
+      };
+    }
     
     // Parse API Gateway error responses
     if (error.response?.data) {
