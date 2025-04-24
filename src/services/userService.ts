@@ -21,7 +21,6 @@ function getAuthCredentials() {
       tokens = JSON.parse(tokensStr);
     }
   } catch (e) {
-    console.error('Error parsing tokens from localStorage:', e);
   }
   
   // If we have a token, prefer that for auth
@@ -51,7 +50,6 @@ function getAuthCredentials() {
         };
       }
     } catch (e) {
-      console.error('Error parsing user from localStorage:', e);
     }
   }
   
@@ -93,11 +91,9 @@ export async function getCurrentUser() {
         return data;
       }
     } catch (error) {
-      console.error('Error parsing user data response:', error);
       throw new Error('Failed to parse user data response');
     }
   } catch (error) {
-    console.error('Error in getCurrentUser:', error);
     // Try to fall back to cached user data if available
     const cachedUser = getUser();
     if (cachedUser) {
@@ -132,7 +128,6 @@ export async function updateUserAttributes(userId: string, attributes: Record<st
     const data = await response.json();
     return data;
   } catch (error) {
-    console.error('Error updating user attributes:', error);
     throw error;
   }
 }
@@ -143,7 +138,6 @@ export async function getUsersByCompany(companyId: string) {
   }
   
   try {
-    console.log(`Fetching users for company ID: ${companyId}`);
     
     // Using the format that matches your API Gateway configuration
     // Based on "/companies/{companyId}/users" in your API Gateway config
@@ -163,7 +157,6 @@ export async function getUsersByCompany(companyId: string) {
       return processUserResponse(fallbackData);
     }
   } catch (error) {
-    console.error('Error fetching company users:', error);
     throw error;
   }
 }
@@ -172,23 +165,18 @@ export async function getUsersByCompany(companyId: string) {
 function processUserResponse(data: any): any[] {
   // Process response data with better error handling
   if (data.users) {
-    console.log(`Found ${data.users.length} users in direct response`);
     return data.users;
   } else if (data.body) {
     try {
       const parsedBody = typeof data.body === 'string' ? JSON.parse(data.body) : data.body;
       if (parsedBody.users) {
-        console.log(`Found ${parsedBody.users.length} users in parsed body`);
         return parsedBody.users;
       } else if (Array.isArray(parsedBody)) {
-        console.log(`Found ${parsedBody.length} users in array body`);
         return parsedBody;
       }
     } catch (e) {
-      console.error('Error parsing response body:', e);
     }
   } else if (Array.isArray(data)) {
-    console.log(`Found ${data.length} users in array response`);
     return data;
   }
   
@@ -239,7 +227,6 @@ export async function getCurrentUserCompanyWithUsers() {
       users: companyUsers
     };
   } catch (error) {
-    console.error('Error fetching company with users:', error);
     throw error;
   }
 }
@@ -279,7 +266,6 @@ export async function getCompanyWithUsers(companyId: string) {
         const parsedBody = JSON.parse(companyData.body);
         company = parsedBody.company || parsedBody;
       } catch (e) {
-        console.error('Error parsing company data:', e);
       }
     }
     
@@ -288,7 +274,6 @@ export async function getCompanyWithUsers(companyId: string) {
       users
     };
   } catch (error) {
-    console.error('Error fetching company with users:', error);
     throw error;
   }
 }
@@ -303,16 +288,13 @@ export async function getCompanyWithUsers(companyId: string) {
  */
 export async function getCompanyUsersDirect(companyId: string): Promise<any[]> {
   if (!companyId) {
-    console.error('Company ID is required');
     return [];
   }
   
   try {
-    console.log(`Direct DB lookup for company ${companyId} users - no auth required`);
     
     // This endpoint has been modified to use only DynamoDB - no Cognito
     const url = `${API_BASE_URL}/companies/${companyId}/users`;
-    console.log(`Calling endpoint: ${url}`);
     
     // Add optional API token for semi-protected endpoint
     // This adds a light security layer without full authentication
@@ -332,34 +314,28 @@ export async function getCompanyUsersDirect(companyId: string): Promise<any[]> {
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`API error: ${response.status} - ${errorText}`);
       throw new Error(`Failed to fetch company users: ${response.status}`);
     }
     
     const data = await response.json();
     
     if (data.users) {
-      console.log(`Found ${data.users.length} users for company ${companyId}`);
       return data.users;
     }
     
     if (Array.isArray(data)) {
-      console.log(`Found ${data.length} users for company ${companyId} in array response`);
       return data;
     }
     
     console.warn('No users found in response');
     return [];
   } catch (error) {
-    console.error('Error in direct DB lookup for company users:', error);
     
     // Fall back to the authenticated endpoint as a backup
-    console.log('Falling back to authenticated endpoint after fetch error');
     try {
       const fallbackUsers = await getUsersByCompany(companyId);
       return fallbackUsers;
     } catch (fallbackError) {
-      console.error('Fallback also failed:', fallbackError);
       return [];
     }
   }
@@ -380,7 +356,6 @@ export async function getCompanyUsersSimplified() {
     }
     
     // If no company ID, use the authenticated endpoint
-    console.log('No company ID available, using authenticated endpoint');
     
     // Get authentication credentials
     const { username, password, authHeader } = getAuthCredentials();
@@ -408,12 +383,10 @@ export async function getCompanyUsersSimplified() {
       } : {})
     };
     
-    console.log(`Fetching company users from simplified endpoint: ${url}`);
     const response = await fetch(url, options);
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`API error: ${response.status} - ${errorText}`);
       throw new Error(`Failed to fetch company users: ${response.status}`);
     }
     
@@ -429,7 +402,6 @@ export async function getCompanyUsersSimplified() {
     
     return [];
   } catch (error) {
-    console.error('Error fetching company users:', error);
     // Fall back to the original method if this fails
     return getUsersByCompany(await getCurrentUserCompanyId());
   }
@@ -443,7 +415,6 @@ async function getCurrentUserCompanyId(): Promise<string> {
     const currentUser = await getCurrentUser();
     return currentUser?.companyId || currentUser?.CompanyId || '';
   } catch (error) {
-    console.error('Error getting company ID:', error);
     
     // Try to get from localStorage as fallback
     const user = getUser();

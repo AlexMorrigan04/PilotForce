@@ -25,7 +25,6 @@ export const fetchBookingResources = async (bookingId: string) => {
 
     return response.data.resources || [];
   } catch (error) {
-    console.error('Error fetching booking resources:', error);
     throw error;
   }
 };
@@ -55,7 +54,6 @@ export const getPresignedViewUrl = async (resourceUrl: string) => {
 
     return response.data.presignedUrl || resourceUrl;
   } catch (error) {
-    console.error('Error getting presigned URL:', error);
     return resourceUrl; // Fall back to original URL
   }
 };

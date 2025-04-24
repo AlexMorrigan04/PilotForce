@@ -64,7 +64,6 @@ export const authApi = {
       
       return response.data;
     } catch (error) {
-      console.error('Login error:', error);
       throw error;
     }
   },
@@ -81,7 +80,6 @@ export const authApi = {
       const response = await api.post('/auth/signup', userData);
       return response.data;
     } catch (error) {
-      console.error('Signup error:', error);
       throw error;
     }
   },
@@ -95,7 +93,6 @@ export const authApi = {
       });
       return response.data;
     } catch (error) {
-      console.error('Confirm signup error:', error);
       throw error;
     }
   },
@@ -106,7 +103,6 @@ export const authApi = {
       const response = await api.post('/auth/resend-code', { username });
       return response.data;
     } catch (error) {
-      console.error('Resend code error:', error);
       throw error;
     }
   },
@@ -124,7 +120,6 @@ export const authApi = {
       
       return { success: true };
     } catch (error) {
-      console.error('Logout error:', error);
       
       // Still clear localStorage even if server call fails
       localStorage.removeItem('idToken');
@@ -142,7 +137,6 @@ export const authApi = {
       const response = await api.get('/auth/user');
       return response.data;
     } catch (error) {
-      console.error('Get user error:', error);
       throw error;
     }
   },
@@ -153,7 +147,6 @@ export const authApi = {
       const response = await api.get('/auth/validate');
       return response.data;
     } catch (error) {
-      console.error('Auth check error:', error);
       throw error;
     }
   }
@@ -166,7 +159,6 @@ export const userApi = {
     try {
       return await api.get('/user');  // Updated to match API Gateway schema
     } catch (error) {
-      console.error('Get current user error:', error);
       throw error;
     }
   },
@@ -176,7 +168,6 @@ export const userApi = {
     try {
       return await api.get(`/user?userId=${userId}`);  // Updated to match API Gateway query parameter style
     } catch (error) {
-      console.error(`Get user error (ID: ${userId}):`, error);
       throw error;
     }
   },
@@ -186,7 +177,6 @@ export const userApi = {
     try {
       return await api.get(`/user-status?companyId=${companyId}`);
     } catch (error) {
-      console.error('Get user stats error:', error);
       throw error;
     }
   },
@@ -197,7 +187,6 @@ export const userApi = {
       // Note: Using bookings endpoint to get company-related data
       return await api.get(`/bookings?companyId=${companyId}`);
     } catch (error) {
-      console.error(`Get company error (ID: ${companyId}):`, error);
       throw error;
     }
   },
@@ -207,7 +196,6 @@ export const userApi = {
     try {
       return await api.put('/user-status', userData);  // Updated to match API Gateway schema
     } catch (error) {
-      console.error('Update profile error:', error);
       throw error;
     }
   }

@@ -19,12 +19,9 @@ export const fetchBookingsForUser = async (userId: string, companyId: string) =>
       }
     };
 
-    console.log("Fetching bookings for user ID:", userId, "and company ID:", companyId);
     const result = await docClient.query(params).promise();
-    console.log("Bookings result:", result);
     return result.Items;
   } catch (error) {
-    console.error("Error fetching bookings for user", userId, ":", error);
     throw error;
   }
 };

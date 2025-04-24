@@ -80,7 +80,6 @@ const cognitoSignIn = async (username: string, password: string): Promise<Cognit
       message: 'Login successful'
     };
   } catch (error: any) {
-    console.error('Direct Cognito sign-in error:', error);
     return {
       success: false,
       message: error.message || 'Failed to authenticate with Cognito'
@@ -127,7 +126,6 @@ const cognitoSignUp = async (
         Value: String(value) // Ensure all values are strings
       }));
     
-    console.log('Sending correctly formatted Cognito attributes:', JSON.stringify(userAttributes, null, 2));
     
     // Use the API Gateway proxy with properly formatted attributes
     const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/signup', {
@@ -158,7 +156,6 @@ const cognitoSignUp = async (
       message: 'Sign-up successful. Please check your email for verification code.'
     };
   } catch (error: any) {
-    console.error('Direct Cognito sign-up error:', error);
     return {
       success: false,
       message: error.message || 'Failed to sign up with Cognito'
@@ -195,7 +192,6 @@ const cognitoConfirmSignUp = async (
     // Calculate the secret hash required by Cognito
     const secretHash = calculateSecretHash(username, clientId, clientSecret);
     
-    console.log(`Attempting to confirm user ${username} with code ${confirmationCode.replace(/./g, '*')}`);
     
     // Use the API Gateway proxy
     const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/confirm-user', {
@@ -218,11 +214,9 @@ const cognitoConfirmSignUp = async (
       try {
         errorData = await response.json();
       } catch (jsonError) {
-        console.error('Error parsing confirmation error response:', jsonError);
         errorData = { message: 'Confirmation failed' };
       }
       
-      console.error('Confirmation error response:', errorData);
       
       // Extract the error message
       let errorMessage = 'Confirmation failed';
@@ -263,9 +257,7 @@ const cognitoConfirmSignUp = async (
     let data;
     try {
       data = await response.json();
-      console.log('Confirmation success response:', data);
     } catch (jsonError) {
-      console.log('Success response is not JSON, but confirmation succeeded');
     }
     
     return {
@@ -274,7 +266,6 @@ const cognitoConfirmSignUp = async (
       ...(data || {})
     };
   } catch (error: any) {
-    console.error('Direct Cognito confirm sign-up error:', error);
     return {
       success: false,
       message: error.message || 'Failed to confirm registration',
@@ -302,7 +293,6 @@ const parseJwt = (token: string): any => {
     
     return JSON.parse(jsonPayload);
   } catch (error) {
-    console.error('Error parsing JWT:', error);
     return {};
   }
 };

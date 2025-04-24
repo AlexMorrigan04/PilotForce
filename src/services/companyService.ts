@@ -74,7 +74,6 @@ export const getCompanyById = async (companyId: string): Promise<CompanyResponse
       message: data.message || 'Company retrieved successfully'
     };
   } catch (error: any) {
-    console.error('Error getting company:', error);
     
     return {
       success: false,
@@ -104,7 +103,6 @@ export const getCompanyUsers = async (companyId: string): Promise<CompanyRespons
       message: data.message || 'Company users retrieved successfully'
     };
   } catch (error: any) {
-    console.error('Error getting company users:', error);
     
     return {
       success: false,
@@ -132,7 +130,6 @@ export const updateCompany = async (companyId: string, updates: Partial<Company>
       message: data.message || 'Company updated successfully'
     };
   } catch (error: any) {
-    console.error('Error updating company:', error);
     
     return {
       success: false,

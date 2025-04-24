@@ -39,7 +39,6 @@ api.interceptors.response.use(
       try {
         response.data = JSON.parse(response.data.body);
       } catch (e) {
-        console.error('Error parsing response body:', e);
       }
     }
     return response;
@@ -49,7 +48,6 @@ api.interceptors.response.use(
     if (error.response) {
       if (error.response.status === 401) {
         // Handle unauthorized (expired token etc.)
-        console.log('Unauthorized request - redirecting to login');
         localStorage.removeItem('idToken');
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');

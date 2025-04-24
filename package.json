@@ -83,12 +83,17 @@
     "webpack": "^5.89.0",
     "webpack-cli": "^5.1.4"
   },
+  "browser": {
+    "crypto": "crypto-browserify"
+  },
   "scripts": {
     "build:css": "npx tailwindcss build src/styles/App.css -o src/styles/tailwind.css",
     "start": "react-app-rewired start",
     "build": "react-app-rewired build",
     "test": "react-app-rewired test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "security-audit": "node --experimental-modules scripts/security-audit.js",
+    "prebuild": "npm run security-audit"
   },
   "eslintConfig": {
     "extends": [

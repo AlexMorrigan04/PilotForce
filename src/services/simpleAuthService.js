@@ -17,7 +17,6 @@ export const getAuth = () => {
       const tokens = JSON.parse(tokensStr);
       if (tokens.idToken) return tokens.idToken;
     } catch (e) {
-      console.error('Error parsing tokens:', e);
     }
   }
   
@@ -57,7 +56,6 @@ export const clearAuth = () => {
  */
 export const registerUserWithCompany = async (userData) => {
   // Implementation can be added later
-  console.log('Register user (to be implemented):', userData);
   return { success: false, message: 'Not implemented' };
 };
 
@@ -67,6 +65,5 @@ export const registerUserWithCompany = async (userData) => {
  */
 export const signUp = async (userData) => {
   // Implementation can be added later
-  console.log('Sign up (to be implemented):', userData);
   return { success: false, message: 'Not implemented' };
 };

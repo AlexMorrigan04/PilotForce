@@ -35,10 +35,8 @@ export interface AuthResponse {
 // Sign in with Cognito
 export const login = async (username: string, password: string): Promise<AuthResponse> => {
   try {
-    console.log(`Attempting to sign in user: ${username}`);
     // Use direct API Gateway URL
     const apiUrl = API_BASE_URL;
-    console.log(`Using API URL for login: ${apiUrl}`);
     
     const { isSignedIn, nextStep } = await signIn({ username, password });
     
@@ -76,7 +74,6 @@ export const login = async (username: string, password: string): Promise<AuthRes
       message: 'Further authentication steps required' 
     };
   } catch (error: any) {
-    console.error('Login error:', error);
     
     // Handle specific Cognito errors
     if (error.name === 'UserNotConfirmedException') {
@@ -113,7 +110,6 @@ export const login = async (username: string, password: string): Promise<AuthRes
 // Sign up with Cognito
 export const signup = async (data: SignUpData): Promise<AuthResponse> => {
   try {
-    console.log(`Attempting to sign up user: ${data.username}`);
     
     // Prepare user attributes
     const userAttributes: Record<string, string> = {
@@ -170,7 +166,6 @@ export const signup = async (data: SignUpData): Promise<AuthResponse> => {
       message: 'Sign-up successful. Please check your email for verification code.'
     };
   } catch (error: any) {
-    console.error('Signup error:', error);
     
     // Map common Cognito errors to user-friendly messages
     let errorMessage = error.message || 'An error occurred during sign up';
@@ -190,7 +185,6 @@ export const signup = async (data: SignUpData): Promise<AuthResponse> => {
 // Confirm signup with verification code
 export const confirmUserSignup = async (username: string, code: string): Promise<AuthResponse> => {
   try {
-    console.log(`Confirming signup for user: ${username}`);
     
     // Validate the code format before sending to Cognito
     if (!code || !/^\d{6}$/.test(code.trim())) {
@@ -213,7 +207,6 @@ export const confirmUserSignup = async (username: string, code: string): Promise
         : 'There was an issue confirming your account'
     };
   } catch (error: any) {
-    console.error('Confirmation error:', error);
     
     if (error.name === 'CodeMismatchException') {
       return {
@@ -254,7 +247,6 @@ export const confirmUserSignup = async (username: string, code: string): Promise
 // Resend confirmation code
 export const resendVerificationCode = async (username: string): Promise<AuthResponse> => {
   try {
-    console.log(`Resending verification code for user: ${username}`);
     const { destination, deliveryMedium } = await resendSignUpCode({
       username
     });
@@ -264,7 +256,6 @@ export const resendVerificationCode = async (username: string): Promise<AuthResp
       message: `Verification code sent to ${destination} via ${deliveryMedium}`
     };
   } catch (error: any) {
-    console.error('Resend code error:', error);
     return {
       success: false,
       message: error.message || 'Failed to resend verification code',
@@ -290,7 +281,6 @@ export const getAuthenticatedUser = async (): Promise<any> => {
       isAuthenticated: true
     };
   } catch (error) {
-    console.error('Error getting authenticated user:', error);
     return {
       user: null,
       session: null,
@@ -313,7 +303,6 @@ export const logoutUser = async (): Promise<AuthResponse> => {
       message: 'Logout successful'
     };
   } catch (error: any) {
-    console.error('Logout error:', error);
     return {
       success: false,
       message: error.message || 'An error occurred during logout',
@@ -337,7 +326,6 @@ export const getAuth = (): string | null => {
       const tokens = JSON.parse(tokensStr);
       if (tokens.idToken) return tokens.idToken;
     } catch (e) {
-      console.error('Error parsing tokens:', e);
     }
   }
   

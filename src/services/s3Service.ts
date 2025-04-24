@@ -44,7 +44,6 @@ export const getPresignedUrl = async (
     
     return response.data;
   } catch (error) {
-    console.error('Error getting presigned URL:', error);
     throw error;
   }
 };
@@ -106,7 +105,6 @@ export const completeS3Upload = async (
     
     return response.data;
   } catch (error) {
-    console.error('Error completing S3 upload:', error);
     throw error;
   }
 };
@@ -190,7 +188,6 @@ export const uploadLargeFileWithChunks = async (
     
     return { resourceId, resourceUrl };
   } catch (error) {
-    console.error('Error in chunked file upload:', error);
     throw error;
   }
 };
@@ -265,7 +262,6 @@ export const simulateLargeFileUpload = async (
       },
       { headers }
     ).catch(() => {
-      console.log('Resource record creation failed but upload was simulated');
     });
     
     return { resourceId, resourceUrl };

@@ -17,11 +17,9 @@ export const getAssets = async (companyId: string): Promise<any[]> => {
     const token = localStorage.getItem('idToken');
     
     if (!token) {
-      console.error('Authentication token missing, cannot make API request');
       throw new Error('Authentication error: Please log in again');
     }
     
-    console.log(`Making API request to: ${API_URL}/assets with token: ${token.substring(0, 15)}...`);
     
     // Use the /assets endpoint to fetch all assets for the company
     const response = await axios.get(`${API_URL}/assets`, {
@@ -34,16 +32,13 @@ export const getAssets = async (companyId: string): Promise<any[]> => {
       timeout: 10000 // Add timeout to prevent hanging requests
     });
     
-    console.log('API response status:', response.status);
     
     // Parse response data based on structure
     let assets: any[] = [];
     
     if (response.data && response.data.assets) {
-      console.log(`Found ${response.data.assets.length} assets in response`);
       assets = response.data.assets;
     } else if (Array.isArray(response.data)) {
-      console.log(`Found ${response.data.length} assets in response (array format)`);
       assets = response.data;
     } else {
       console.warn('Unexpected API response format:', response.data);
@@ -51,17 +46,12 @@ export const getAssets = async (companyId: string): Promise<any[]> => {
     
     return assets;
   } catch (error: any) {
-    console.error('Error fetching assets:', error);
     
     // Log detailed error information
     if (error.response) {
-      console.error('Error response status:', error.response.status);
-      console.error('Error response data:', error.response.data);
-      console.error('Error response headers:', error.response.headers);
       
       // Try to refresh token if we got a 401 and we're not already refreshing
       if (error.response.status === 401 && !isRefreshingToken) {
-        console.log('Attempting to refresh token due to 401 error...');
         
         try {
           isRefreshingToken = true;
@@ -70,7 +60,6 @@ export const getAssets = async (companyId: string): Promise<any[]> => {
           
           if (refreshResult.success) {
             // Token refreshed successfully, try again with new token
-            console.log('Token refreshed successfully, retrying request...');
             return getAssets(companyId);
           } else {
             // If token refresh failed, we need to log in again
@@ -78,17 +67,14 @@ export const getAssets = async (companyId: string): Promise<any[]> => {
           }
         } catch (refreshError) {
           isRefreshingToken = false;
-          console.error('Error during token refresh:', refreshError);
           throw new Error('Authentication error: Please log in again');
         }
       }
     } else if (error.request) {
       // The request was made but no response was received
-      console.error('Error request:', error.request);
       throw new Error('Network error: Unable to connect to the server');
     } else {
       // Something happened in setting up the request that triggered an Error
-      console.error('Error message:', error.message);
     }
     
     // Handle specific error cases
@@ -136,7 +122,6 @@ export const getAssetById = async (assetId: string): Promise<any> => {
   } catch (error: any) {
     // Handle token refresh similar to getAssets
     if (error.response?.status === 401 && !isRefreshingToken) {
-      console.log('Attempting to refresh token due to 401 error...');
       
       try {
         isRefreshingToken = true;
@@ -145,7 +130,6 @@ export const getAssetById = async (assetId: string): Promise<any> => {
         
         if (refreshResult.success) {
           // Token refreshed successfully, try again with new token
-          console.log('Token refreshed successfully, retrying request...');
           return getAssetById(assetId);
         } else {
           // If token refresh failed, we need to log in again
@@ -153,7 +137,6 @@ export const getAssetById = async (assetId: string): Promise<any> => {
         }
       } catch (refreshError) {
         isRefreshingToken = false;
-        console.error('Error during token refresh:', refreshError);
         throw new Error('Authentication error: Please log in again');
       }
     }

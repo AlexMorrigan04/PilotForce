@@ -9,46 +9,38 @@ import { extractEmailDomain, getCompanyNameFromDomain } from '../utils/emailUtil
  */
 export const getOrCreateCompany = async (userEmail) => {
   try {
-    console.log('getOrCreateCompany called with email:', userEmail);
     const emailDomain = extractEmailDomain(userEmail);
     
     if (!emailDomain) {
       throw new Error('Invalid email format');
     }
     
-    console.log('Extracted domain:', emailDomain);
     
     // First try to get existing company
     try {
       const existingCompany = await getCompanyByDomain(emailDomain);
       
       if (existingCompany) {
-        console.log('Found existing company:', existingCompany);
         return existingCompany;
       }
     } catch (lookupError) {
-      console.log('Error looking up company, will try to create:', lookupError);
     }
     
     // If not found, create a new company
-    console.log('No existing company found, creating new one');
     const companyName = getCompanyNameFromDomain(emailDomain);
     
     // Try the company register API endpoint first
     try {
       const registeredCompany = await registerUserWithCompany(userEmail);
       if (registeredCompany) {
-        console.log('Successfully registered with company:', registeredCompany);
         return registeredCompany;
       }
     } catch (registerError) {
-      console.log('Error with registration endpoint, will try direct creation:', registerError);
     }
     
     // Fall back to direct company creation
     return await createCompany(emailDomain, companyName);
   } catch (error) {
-    console.error('Error in company processing:', error);
     throw error;
   }
 };
@@ -61,21 +53,15 @@ export const getOrCreateCompany = async (userEmail) => {
  */
 export const getCompanyByDomain = async (emailDomain) => {
   try {
-    console.log(`Looking up company with domain: ${emailDomain}`);
     const encodedDomain = encodeURIComponent(emailDomain);
-    console.log(`Making API call to: /companies/domain/${encodedDomain}`);
     
     const response = await API.get('PilotForceAPI', `/companies/domain/${encodedDomain}`);
-    console.log('API response from domain lookup:', response);
     
     if (response && response.company) {
-      console.log(`Found company:`, response.company);
       return response.company;
     }
-    console.log(`No company found for domain: ${emailDomain}`);
     return null;
   } catch (error) {
-    console.error('Error looking up company by domain:', error);
     if (error.response && error.response.status === 404) {
       return null; // Company not found
     }
@@ -91,13 +77,11 @@ export const getCompanyByDomain = async (emailDomain) => {
  */
 export const registerUserWithCompany = async (email) => {
   try {
-    console.log(`Registering user with company for email: ${email}`);
     
     const response = await API.post('PilotForceAPI', '/companies/register', {
       body: { email }
     });
     
-    console.log('Company registration response:', response);
     
     if (response && response.company) {
       return response.company;
@@ -106,7 +90,6 @@ export const registerUserWithCompany = async (email) => {
     console.warn('Company registration returned unexpected response:', response);
     throw new Error('Company registration did not return expected data');
   } catch (error) {
-    console.error('Error registering user with company:', error);
     throw error;
   }
 };
@@ -120,7 +103,6 @@ export const registerUserWithCompany = async (email) => {
  */
 export const createCompany = async (emailDomain, companyName) => {
   try {
-    console.log(`Creating company with domain: ${emailDomain}, name: ${companyName || '(derived from domain)'}`);
     
     const response = await API.post('PilotForceAPI', '/companies', {
       body: {
@@ -129,7 +111,6 @@ export const createCompany = async (emailDomain, companyName) => {
       }
     });
     
-    console.log('Create company response:', response);
     
     // Handle different response formats
     if (response && response.company) {
@@ -142,7 +123,6 @@ export const createCompany = async (emailDomain, companyName) => {
     console.warn('Create company returned unexpected response:', response);
     throw new Error('Create company did not return expected data');
   } catch (error) {
-    console.error('Error creating company:', error);
     throw error;
   }
 };

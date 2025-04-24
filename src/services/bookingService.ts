@@ -38,14 +38,12 @@ export const fetchUserBookings = async (): Promise<Booking[]> => {
 
     return response.data.bookings;
   } catch (error) {
-    console.error('Error fetching user bookings:', error);
     throw error;
   }
 };
 
 export const fetchBookingImages = async (bookingId: string): Promise<BookingImage[]> => {
   try {
-    console.log(`Fetching images for booking: ${bookingId}`);
     
     // Check for all possible field name variations of BookingId in DynamoDB
     const scanParams = {
@@ -57,11 +55,9 @@ export const fetchBookingImages = async (bookingId: string): Promise<BookingImag
     };
     
     const result = await dynamoDb.scan(scanParams).promise();
-    console.log(`Found ${result.Items?.length || 0} images for booking`);
     
     // Debug logging to see what we're getting from DynamoDB
     if (result.Items && result.Items.length > 0) {
-      console.log('First image sample:', JSON.stringify(result.Items[0]));
     }
     
     // Process and fix up the image URLs
@@ -86,11 +82,9 @@ export const fetchBookingImages = async (bookingId: string): Promise<BookingImag
         processedImage.s3Url = `https://drone-images-bucket.s3.amazonaws.com/${image.s3Key}`;
       }
       
-      console.log(`Processed image URL: ${processedImage.s3Url}`);
       return processedImage;
     });
   } catch (error) {
-    console.error('Error fetching booking images:', error);
     throw error;
   }
 };
@@ -111,10 +105,8 @@ export const verifyS3Object = async (key: string, bucket: string = 'drone-images
     
     // Just check if the object exists
     await s3.headObject(params).promise();
-    console.log(`S3 object verified: ${key}`);
     return true;
   } catch (error) {
-    console.error(`S3 object not accessible: ${key}`, error);
     return false;
   }
 };
@@ -126,8 +118,6 @@ export const verifyS3Object = async (key: string, bucket: string = 'drone-images
  */
 export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
   try {
-    console.log('===== FETCH BOOKING DETAILS STARTED =====');
-    console.log(`BookingID: ${bookingId}`);
     
     if (!bookingId) {
       throw new Error('Booking ID is required');
@@ -137,11 +127,9 @@ export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
     const token = localStorage.getItem('idToken') || localStorage.getItem('token');
     
     if (!token) {
-      console.error('No authentication token found');
       throw new Error('Authentication token not found');
     }
     
-    console.log('Token found with first 10 chars:', token.substring(0, 10));
     
     // Get the API URL from environment or use a default
     const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
@@ -155,7 +143,6 @@ export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
       `${apiUrl}/get-bookings-details/${bookingId}`            // Plural version
     ];
     
-    console.log('Will try these endpoints in sequence:', endpoints);
     
     let response = null;
     let endpointUsed = '';
@@ -163,7 +150,6 @@ export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
     // Try each endpoint until one succeeds
     for (const endpoint of endpoints) {
       try {
-        console.log(`Trying endpoint: ${endpoint}`);
         
         const result = await fetch(endpoint, {
           method: 'GET',
@@ -173,12 +159,10 @@ export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
           }
         });
         
-        console.log(`Response status from ${endpoint}: ${result.status}`);
         
         if (result.ok) {
           response = result;
           endpointUsed = endpoint;
-          console.log(`✅ Successful response from ${endpoint}`);
           break;
         } else {
           const errorText = await result.text();
@@ -195,20 +179,13 @@ export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
     
     try {
       const data = await response.json();
-      console.log(`✅ Successfully parsed response from ${endpointUsed}`);
-      console.log('Response data keys:', Object.keys(data));
-      console.log('===== FETCH BOOKING DETAILS COMPLETED =====');
       return data;
     } catch (error) {
       const parseError = error as Error;
-      console.error('❌ Error parsing response:', parseError);
       const rawText = await response.text();
-      console.error('Raw response text:', rawText.substring(0, 500));
       throw new Error(`Failed to parse booking details response: ${parseError.message}`);
     }
   } catch (error) {
-    console.error('===== FETCH BOOKING DETAILS FAILED =====');
-    console.error('Error in fetchBookingDetails:', error);
     throw error;
   }
 };
@@ -235,7 +212,6 @@ export const getBookingDetails = async (bookingId: string): Promise<any> => {
     const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
     const bookingDetailsUrl = `${apiUrl}/bookings/${bookingId}`;
     
-    console.log(`Requesting booking details from: ${bookingDetailsUrl}`);
     
     // Make a fetch request with detailed error handling
     const response = await fetch(bookingDetailsUrl, {
@@ -246,29 +222,23 @@ export const getBookingDetails = async (bookingId: string): Promise<any> => {
       }
     });
     
-    console.log(`Response status: ${response.status}`);
     
     // Get response details for debugging
     const contentType = response.headers.get('content-type');
-    console.log(`Response content type: ${contentType}`);
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Error from API [${response.status}]: ${errorText}`);
       throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
     
     // Parse the response as JSON
     try {
       const data = await response.json();
-      console.log('Successfully parsed booking details');
       return data;
     } catch (parseError) {
-      console.error('Failed to parse response as JSON:', parseError);
       throw new Error('Invalid response format from server');
     }
   } catch (error: any) {
-    console.error(`Error fetching booking ${bookingId}:`, error.message);
     throw error;
   }
 };
@@ -304,7 +274,6 @@ class BookingService {
     try {
       return await fetchBookingDetails(bookingId);
     } catch (error) {
-      console.error(`Error fetching booking ${bookingId}:`, error);
       throw error;
     }
   }

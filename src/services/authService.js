@@ -28,7 +28,6 @@ export const registerUserWithCompany = async (userData) => {
     
     throw new Error('Company registration failed');
   } catch (error) {
-    console.error('Error registering with company:', error);
     throw error;
   }
 };
@@ -41,7 +40,6 @@ export const registerUserWithCompany = async (userData) => {
  */
 export const registerUser = async (email, password, userAttributes = {}) => {
   try {
-    console.log('Signing up with email:', email);
     
     const signUpResult = await signUp({
       username: email,
@@ -54,7 +52,6 @@ export const registerUser = async (email, password, userAttributes = {}) => {
     
     return signUpResult;
   } catch (error) {
-    console.error('Error signing up:', error);
     throw error;
   }
 };
@@ -96,7 +93,6 @@ const getCurrentSession = async () => {
   try {
     return await fetchAuthSession();
   } catch (error) {
-    console.error('Error getting current session:', error);
     return null;
   }
 };

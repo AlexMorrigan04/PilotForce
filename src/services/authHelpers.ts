@@ -26,7 +26,6 @@ export const getAuthToken = (): string | null => {
         return tokens.idToken;
       }
     } catch (e) {
-      console.error('Error parsing tokens:', e);
     }
   }
   
@@ -72,7 +71,6 @@ export const getUserFromStorage = (): any | null => {
   try {
     return JSON.parse(userStr);
   } catch (e) {
-    console.error('Error parsing user data:', e);
     return null;
   }
 };

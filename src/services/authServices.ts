@@ -92,20 +92,17 @@ export const refreshToken = async (): Promise<AuthResponse> => {
     const refreshToken = getRefreshToken();
     
     if (!refreshToken) {
-      console.error('No refresh token available');
       return {
         success: false,
         message: 'No refresh token available'
       };
     }
     
-    console.log('Attempting token refresh...');
     
     // Get username for SECRET_HASH calculation
     const username = localStorage.getItem('auth_username');
     
     if (!username) {
-      console.error('Username not found in localStorage for SECRET_HASH calculation');
       return {
         success: false,
         message: 'Username required for token refresh'
@@ -131,7 +128,6 @@ export const refreshToken = async (): Promise<AuthResponse> => {
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Token refresh failed:', response.status, errorText);
       return {
         success: false,
         message: `Refresh failed: ${response.status} ${errorText}`
@@ -144,8 +140,6 @@ export const refreshToken = async (): Promise<AuthResponse> => {
     try {
       responseData = JSON.parse(responseText);
     } catch (parseError) {
-      console.error('Error parsing refresh token response:', parseError);
-      console.log('Raw response:', responseText);
       return {
         success: false,
         message: 'Invalid response format from server'
@@ -159,7 +153,6 @@ export const refreshToken = async (): Promise<AuthResponse> => {
       try {
         parsedData = JSON.parse(responseData.body);
       } catch (error) {
-        console.error('Error parsing refresh token response body:', error);
         return {
           success: false,
           message: 'Invalid response body format'
@@ -169,7 +162,6 @@ export const refreshToken = async (): Promise<AuthResponse> => {
     
     // If we have new tokens, store them using our persistence utility
     if (parsedData.tokens) {
-      console.log('New tokens received from server');
       
       // Store tokens in both localStorage and sessionStorage
       storeAuthTokens(
@@ -190,7 +182,6 @@ export const refreshToken = async (): Promise<AuthResponse> => {
       message: 'Could not refresh token: No tokens in response'
     };
   } catch (error: any) {
-    console.error('Token refresh error:', error);
     
     return {
       success: false,
@@ -218,7 +209,6 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
     pwd = password || ''; // password should always be provided in old format
   }
 
-  console.log(`Attempting login for: ${username} via API Gateway`);
   
   try {
     // Create the proper payload for API Gateway Lambda function
@@ -229,12 +219,6 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
       email: username,         // Add email field with same value
       password: pwd
     };
-    
-    console.log('Login request payload:', { 
-      username: payload.username,
-      email: payload.email,
-      password: '********' 
-    });
     
     // Get the API Gateway endpoint
     const apiGatewayUrl = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/login';
@@ -249,11 +233,9 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
       body: JSON.stringify(payload)
     });
     
-    console.log('Login response status:', response.status);
     
     // Get the raw text response to help with debugging
     const rawText = await response.text();
-    console.log('Raw response text:', rawText);
     
     // Parse the response text
     let responseData;
@@ -270,13 +252,10 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
         try {
           responseData = JSON.parse(responseData.body);
         } catch (parseError) {
-          console.error('Failed to parse body as JSON:', parseError);
         }
       }
       
-      console.log('Parsed response:', responseData);
     } catch (e) {
-      console.error('Failed to parse response:', e);
       return {
         success: false,
         message: 'Failed to parse server response'
@@ -288,11 +267,9 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
         responseData.message?.includes('Incorrect username or password') || 
         responseData.message?.includes('Incorrect email or password') ||
         response.status === 401) {
-      console.log('Authentication failed:', responseData.message || 'Unknown error');
       
       // Try alternate endpoint using email explicit format
       try {
-        console.log('First attempt failed. Trying alternate endpoint with explicit email format...');
         
         // Use the alternate login endpoint that explicitly handles email
         const altApiUrl = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/email-login';
@@ -310,7 +287,6 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
         });
         
         if (altResponse.ok) {
-          console.log('Alt endpoint login successful');
           const altData = await altResponse.json();
           
           // Process the successful response from alt endpoint
@@ -345,7 +321,6 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
           };
         }
       } catch (altError) {
-        console.log('Alternate endpoint also failed:', altError);
       }
       
       return {
@@ -421,7 +396,6 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
     } else {
       // Handle login failure
       const errorMessage = responseData.message || 'Login failed';
-      console.error('Login failed:', errorMessage);
       
       return {
         success: false,
@@ -429,7 +403,6 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
       };
     }
   } catch (error: any) {
-    console.error('Login error:', error);
     return {
       success: false,
       message: error.message || 'An unexpected error occurred during login'
@@ -446,8 +419,6 @@ export const signup = async (
   attributes: Record<string, string>
 ): Promise<AuthResponse> => {
   try {
-    console.log(`Attempting signup for: ${username} via API Gateway`);
-    console.log('Signup attributes:', attributes);
     
     // Create a clean attributes object with only standard Cognito attributes
     // that exactly match what the Lambda function expects
@@ -489,7 +460,6 @@ export const signup = async (
       attributes: validAttributes
     };
     
-    console.log('Sending signup request with attributes:', JSON.stringify(validAttributes, null, 2));
     
     try {
       // Use direct API URL to ensure proper endpoint connection
@@ -498,23 +468,14 @@ export const signup = async (
       // Send signup request to the API with complete URL
       const response = await axios.post(`${apiUrl}/signup`, signupData);
       
-      // Log the complete response for debugging
-      console.log('Signup API complete response:', {
-        status: response.status,
-        headers: response.headers,
-        data: response.data
-      });
-      
       // Parse the response data if needed (API Gateway sometimes returns nested data)
       let userData = response.data;
       
       if (response.data.body && typeof response.data.body === 'string') {
         try {
           const parsedBody = JSON.parse(response.data.body);
-          console.log('Parsed signup response body:', parsedBody);
           userData = parsedBody;
         } catch (parseError) {
-          console.error('Error parsing signup response body:', parseError);
         }
       }
       
@@ -547,13 +508,6 @@ export const signup = async (
       };
     } catch (apiError: any) {
       console.warn('API Gateway signup failed:', apiError.message);
-      console.error('Signup error details:', {
-        message: apiError.message,
-        response: apiError.response ? {
-          status: apiError.response.status,
-          data: apiError.response.data
-        } : 'No response'
-      });
       
       // FOCUSED UPDATE: Enhanced check for email exists in error response
       if (apiError.response?.data?.type === 'EmailExistsException' ||
@@ -573,7 +527,6 @@ export const signup = async (
       if (apiError.message === 'Network Error' || 
           apiError.code === 'ERR_NETWORK' || 
           apiError.response?.status === 404) {
-        console.log('Attempting direct Cognito signup as fallback');
         
         // Use our dedicated Cognito service that properly handles SECRET_HASH
         const result = await cognitoService.cognitoSignUp(username, password, attributes);
@@ -596,7 +549,6 @@ export const signup = async (
       throw apiError;
     }
   } catch (error: any) {
-    console.error('Signup error:', error);
     
     // FOCUSED UPDATE: Enhanced check for email exists in general error
     if (error.response?.data?.type === 'EmailExistsException' ||
@@ -638,19 +590,16 @@ export const confirmSignup = async (
   confirmationCode: string
 ): Promise<AuthResponse> => {
   try {
-    console.log(`Confirming signup for: ${username} via API Gateway`);
     
     try {
       // Fix the API endpoint URL to use the full URL instead of relative path
       const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
-      console.log(`Using confirmation endpoint: ${apiUrl}/confirm-user`);
       
       const response = await axios.post(`${apiUrl}/confirm-user`, {
         username,
         confirmationCode,
       });
       
-      console.log('Confirmation API response:', response);
       
       return {
         ...response.data,
@@ -663,19 +612,16 @@ export const confirmSignup = async (
       if (apiError.message === 'Network Error' || 
           apiError.code === 'ERR_NETWORK' || 
           apiError.response?.status === 404) {
-        console.log('Attempting direct Cognito confirmation as fallback');
         
         // Try the alternate endpoint format
         try {
           const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
-          console.log(`Trying alternate confirmation endpoint: ${apiUrl}/auth/confirm`);
           
           const altResponse = await axios.post(`${apiUrl}/auth/confirm`, {
             username,
             confirmationCode
           });
           
-          console.log('Alternate confirmation endpoint response:', altResponse);
           return {
             success: true,
             message: 'Account confirmed successfully'
@@ -684,7 +630,6 @@ export const confirmSignup = async (
           console.warn('Alternate confirmation endpoint failed:', altError);
           
           // Fall back to direct Cognito confirmation
-          console.log('Falling back to direct Cognito confirmation');
           const result = await cognitoService.cognitoConfirmSignUp(username, confirmationCode);
           if (result.success) {
             return {
@@ -699,7 +644,6 @@ export const confirmSignup = async (
       throw apiError;
     }
   } catch (error: any) {
-    console.error('Confirm signup error:', error);
     
     // Parse API Gateway error responses
     if (error.response?.data) {
@@ -727,7 +671,6 @@ export const confirmSignup = async (
  */
 export const confirmSignUp = async (username: string, code: string) => {
   try {
-    console.log(`Attempting to confirm signup for user: ${username}`);
     
     // Try to confirm using API Gateway
     const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
@@ -736,7 +679,6 @@ export const confirmSignUp = async (username: string, code: string) => {
       confirmationCode: code
     });
     
-    console.log('Confirmation API response:', response);
     
     if (response.status === 200) {
       return {
@@ -750,7 +692,6 @@ export const confirmSignUp = async (username: string, code: string) => {
       };
     }
   } catch (error) {
-    console.error('Error confirming signup:', error);
     
     // Handle specific error cases
     if (axios.isAxiosError(error)) {
@@ -780,7 +721,6 @@ export const confirmSignUp = async (username: string, code: string) => {
  */
 export const resendConfirmationCode = async (username: string): Promise<AuthResponse> => {
   try {
-    console.log(`Resending confirmation code for: ${username} via API Gateway`);
     
     // NOTE: This endpoint might need adjustment based on actual API Gateway config
     // Since there's no specific endpoint in the OpenAPI, we'll use the confirm-user with a flag
@@ -794,7 +734,6 @@ export const resendConfirmationCode = async (username: string): Promise<AuthResp
       success: true
     };
   } catch (error: any) {
-    console.error('Resend code error:', error);
     
     // Parse API Gateway error responses
     if (error.response?.data) {
@@ -831,7 +770,6 @@ export const checkAuthentication = async () => {
     const tokenInfo = getTokenInfo(token);
     
     if (tokenInfo.isExpired) {
-      console.log('Token is expired, attempting to refresh...');
       const refreshResult = await refreshToken();
       return {
         success: refreshResult.success,
@@ -851,7 +789,6 @@ export const checkAuthentication = async () => {
       if (response.ok) {
         return { success: true, isAuthenticated: true };
       } else {
-        console.log('Token validation failed, attempting to refresh...');
         const refreshResult = await refreshToken();
         return {
           success: refreshResult.success,
@@ -860,11 +797,9 @@ export const checkAuthentication = async () => {
         };
       }
     } catch (error) {
-      console.error('Error validating token with API:', error);
       return { success: false, isAuthenticated: false, error };
     }
   } catch (error) {
-    console.error('Error checking authentication:', error);
     return { success: false, isAuthenticated: false, error };
   }
 };
@@ -893,7 +828,6 @@ export const getCurrentUser = async (): Promise<AuthResponse> => {
     if (response.data.body && typeof response.data.body === 'string') {
       try {
         parsedData = JSON.parse(response.data.body);
-        console.log('Parsed user data from API:', parsedData);
         
         // Ensure phone number field is normalized
         if (parsedData.user) {
@@ -905,14 +839,12 @@ export const getCurrentUser = async (): Promise<AuthResponse> => {
           }
         }
       } catch (parseError) {
-        console.error('Error parsing response body:', parseError);
       }
     }
     
     // Update user data in localStorage if present
     if (parsedData.user) {
       localStorage.setItem('user', JSON.stringify(parsedData.user));
-      console.log('Updated user data in localStorage from API response');
     }
     
     return {
@@ -931,16 +863,13 @@ export const getCurrentUser = async (): Promise<AuthResponse> => {
           return getCurrentUser();
         }
       } catch (refreshError) {
-        console.error('Refresh token error:', refreshError);
         // Force new login if refresh fails
       }
     }
-    console.error('Get user error:', error);
     
     // Try to get user from cache
     const cachedUser = localStorage.getItem('user');
     if (cachedUser) {
-      console.log('Using cached user data from localStorage');
       return {
         success: true,
         user: JSON.parse(cachedUser),
@@ -979,7 +908,6 @@ export const logout = async (): Promise<AuthResponse> => {
       message: 'Logout successful'
     };
   } catch (error: any) {
-    console.error('Logout error:', error);
     
     // Clear local storage even if there was an error
     localStorage.removeItem('idToken');

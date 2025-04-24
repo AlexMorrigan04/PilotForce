@@ -22,7 +22,6 @@ export const getAllBookings = async () => {
 
     return response.data;
   } catch (error: any) {
-    console.error('Error fetching bookings:', error);
     throw new Error(error.response?.data?.message || 'Failed to fetch bookings');
   }
 };
@@ -43,7 +42,6 @@ export const getBooking = async (bookingId: string) => {
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error fetching booking ${bookingId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to fetch booking');
   }
 };
@@ -69,7 +67,6 @@ export const updateBookingStatus = async (bookingId: string, status: string) => 
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error updating booking ${bookingId} status:`, error);
     throw new Error(error.response?.data?.message || 'Failed to update booking status');
   }
 };
@@ -90,7 +87,6 @@ export const deleteBooking = async (bookingId: string) => {
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error deleting booking ${bookingId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to delete booking');
   }
 };
@@ -118,7 +114,6 @@ export const getBookingResources = async (bookingId: string) => {
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error fetching resources for booking ${bookingId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to fetch booking resources');
   }
 };
@@ -139,7 +134,6 @@ export const getAllResources = async () => {
 
     return response.data;
   } catch (error: any) {
-    console.error('Error fetching resources:', error);
     throw new Error(error.response?.data?.message || 'Failed to fetch resources');
   }
 };
@@ -174,7 +168,6 @@ export const uploadBookingResource = async (bookingId: string, file: File, onPro
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error uploading resource for booking ${bookingId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to upload resource');
   }
 };
@@ -198,7 +191,6 @@ export const deleteBookingResource = async (bookingId: string, resourceId: strin
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error deleting resource ${resourceId} from booking ${bookingId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to delete resource');
   }
 };
@@ -224,7 +216,6 @@ export const createResourceFolder = async (bookingId: string, folderName: string
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error creating folder for booking ${bookingId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to create folder');
   }
 };
@@ -248,7 +239,6 @@ export const getResourceDownloadUrl = async (resourceId: string) => {
 
     return response.data.downloadUrl;
   } catch (error: any) {
-    console.error(`Error getting download URL for resource ${resourceId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to get download URL');
   }
 };
@@ -274,7 +264,6 @@ export const getAllUsers = async (filters?: any) => {
 
     return response.data;
   } catch (error: any) {
-    console.error('Error fetching users:', error);
     throw new Error(error.response?.data?.message || 'Failed to fetch users');
   }
 };
@@ -295,7 +284,6 @@ export const deleteUser = async (userId: string) => {
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error deleting user ${userId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to delete user');
   }
 };
@@ -321,7 +309,6 @@ export const toggleUserAccess = async (userId: string, isEnabled: boolean) => {
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error toggling access for user ${userId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to update user access');
   }
 };
@@ -346,7 +333,6 @@ export const getAllCompanies = async () => {
 
     return response.data;
   } catch (error: any) {
-    console.error('Error fetching companies:', error);
     throw new Error(error.response?.data?.message || 'Failed to fetch companies');
   }
 };
@@ -367,7 +353,6 @@ export const deleteCompany = async (companyId: string) => {
 
     return response.data;
   } catch (error: any) {
-    console.error(`Error deleting company ${companyId}:`, error);
     throw new Error(error.response?.data?.message || 'Failed to delete company');
   }
 };
@@ -393,7 +378,6 @@ export const getAllAssets = async (filters?: any) => {
 
     return response.data;
   } catch (error: any) {
-    console.error('Error fetching assets:', error);
     throw new Error(error.response?.data?.message || 'Failed to fetch assets');
   }
 };

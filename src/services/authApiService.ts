@@ -21,7 +21,6 @@ authApi.interceptors.request.use(
       
       // Log (partial) token being sent - first 10 chars only
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`Using token for request to ${config.url}: ${token.substring(0, 10)}...`);
       }
     } else {
       console.warn(`No auth token available for request: ${config.url}`);
@@ -38,13 +37,6 @@ authApi.interceptors.request.use(
           password: '********'
         };
       }
-      console.log(`${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, 
-        {
-          headers: sanitizedConfig.headers,
-          data: sanitizedConfig.data || '(no data)',
-          params: sanitizedConfig.params || '(no params)'
-        }
-      );
     }
     return config;
   },
@@ -59,13 +51,6 @@ authApi.interceptors.response.use(
   error => {
     // Create more helpful error message
     if (error.response) {
-      // The request was made and the server responded with a status code
-      // that falls out of the range of 2xx
-      console.error('Auth API error response:', {
-        status: error.response.status,
-        data: error.response.data,
-        url: error.config.url
-      });
       
       // Handle specific error codes
       switch (error.response.status) {
@@ -86,11 +71,9 @@ authApi.interceptors.response.use(
       }
     } else if (error.request) {
       // The request was made but no response was received
-      console.error('Auth API error (no response):', error.request);
       error.message = 'No response received from authentication server';
     } else {
       // Something happened in setting up the request that triggered an Error
-      console.error('Auth API error (request setup):', error.message);
     }
     
     return Promise.reject(error);
