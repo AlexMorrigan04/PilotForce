@@ -300,10 +300,8 @@ const getUserDataFromStorage = () => {
     // Try to get user data from localStorage
     const userData = localStorage.getItem('user');
     const parsedUser = userData ? JSON.parse(userData) : null;
-    console.log('User data from localStorage:', parsedUser);
     return parsedUser;
   } catch (error) {
-    console.error('Error parsing user data from localStorage:', error);
     return null;
   }
 };
@@ -365,7 +363,6 @@ const MakeBookings: React.FC = () => {
 
   useEffect(() => {
     if (location.state && location.state.selectedAsset && !asset) {
-      console.log('Setting asset from location state');
       const receivedAsset = location.state.selectedAsset;
       
       // Create a properly structured asset object with fallbacks for missing properties
@@ -381,7 +378,6 @@ const MakeBookings: React.FC = () => {
         CenterPoint: receivedAsset.CenterPoint || null
       };
       
-      console.log('Processed asset details:', safeAsset);
       setAsset(safeAsset);
       
       // Safely calculate center point if coordinates are available
@@ -413,7 +409,6 @@ const MakeBookings: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      console.log('MakeBookings component unmounting, cleaning up map');
       try {
         if (mapLoaded && mapRef.current) {
           setMapLoaded(false);
@@ -472,13 +467,11 @@ const MakeBookings: React.FC = () => {
     const userData = getUserDataFromStorage();
     if (userData) {
       setStoredUserData(userData);
-      console.log('Using stored user data:', userData);
     }
   }, []);
 
   const fetchCompanyDetails = async (companyId: string) => {
     try {
-      console.log("Attempting to fetch company details for CompanyId:", companyId);
       
       // First, try to get company details from localStorage
       const storedData = getUserDataFromStorage();
@@ -489,7 +482,6 @@ const MakeBookings: React.FC = () => {
           EmailDomain: storedData.emailDomain || 'unknown',
           // ...other fields
         };
-        console.log("Using company details from localStorage:", localCompany);
         setCompanyDetails(localCompany);
         return;
       }
@@ -504,9 +496,7 @@ const MakeBookings: React.FC = () => {
         Country: 'United Kingdom'
       };
       setCompanyDetails(mockCompany);
-      console.log("Using mock company details:", mockCompany);
     } catch (error) {
-      console.error("Error fetching company details:", error);
       setCompanyDetails({ 
         CompanyId: companyId, 
         CompanyName: 'Unknown Company' 
@@ -517,12 +507,10 @@ const MakeBookings: React.FC = () => {
   const fetchUserDetails = async (username: string) => {
     try {
       // This function should be updated to use the stored user data instead of mock data
-      console.log("Attempting to fetch user details for username:", username);
       
       // Check if we already have user data from localStorage
       if (storedUserData) {
         // Use the real user data from localStorage
-        console.log("Using stored user data instead of mock data");
         setUserDetails({
           Username: storedUserData.username || username,
           Email: storedUserData.email || '',
@@ -544,9 +532,7 @@ const MakeBookings: React.FC = () => {
         CompanyId: user?.companyId || ''
       };
       setUserDetails(mockUser);
-      console.log("Using mock user details:", mockUser);
     } catch (error) {
-      console.error("Error fetching user details:", error);
       setUserDetails({ 
         Username: username, 
         Email: `${username}@example.com`,
@@ -663,7 +649,6 @@ const MakeBookings: React.FC = () => {
       return;
     }
 
-    console.log("Submit booking initiated for user:", user.username);
 
     if (selectedJobTypes.length === 0 || !asset) {
       setError('Please select at least one service type and an asset');
@@ -702,13 +687,6 @@ const MakeBookings: React.FC = () => {
       // Extract user ID correctly
       const userId = userData.id || userData.sub || ''; 
       
-      console.log('User data for booking:', {
-        userId: userId,
-        username: userData.username || userData.name,
-        email: userData.email,
-        companyId: userData.companyId
-      });
-      
       if (!userId) {
         console.warn('Warning: No user ID found in user data, this may cause issues');
       }
@@ -737,30 +715,20 @@ const MakeBookings: React.FC = () => {
       // First check if postcode is directly available in the asset data
       let finalPostcode = asset.postcode || asset.PostCode || '';
       
-      // Log asset details for debugging
-      console.log('Asset details:', {
-        id: asset.AssetId,
-        name: asset.name,
-        address: asset.address,
-        postcode: asset.postcode,
-        PostCode: asset.PostCode
-      });
+
       
       // If postcode is missing, try to extract it from the address using regex
       if (!finalPostcode && asset.address) {
         const extractedPostcode = extractPostcodeFromAddress(asset.address);
         if (extractedPostcode) {
           finalPostcode = extractedPostcode;
-          console.log('Successfully extracted postcode from address:', finalPostcode);
         } else {
-          console.log('Failed to extract postcode from address:', asset.address);
         }
       }
       
       // If still no postcode, use a default for testing purposes only
       if (!finalPostcode) {
         finalPostcode = 'BS16 1QY'; // Default postcode for testing
-        console.log('Using default test postcode:', finalPostcode);
       }
       
       // Assign contact ID
@@ -819,8 +787,6 @@ const MakeBookings: React.FC = () => {
       };
 
       // Log the complete booking data for debugging
-      console.log('Full booking data being sent to API:', JSON.stringify(bookingData, null, 2));
-      console.log('Sending booking data to API with postcode:', finalPostcode);
 
       // Get ID token for authorization
       const token = localStorage.getItem('idToken');
@@ -850,11 +816,9 @@ const MakeBookings: React.FC = () => {
       }
 
       const responseData = await response.json();
-      console.log('Booking created successfully:', responseData);
       
       // Try to send notification email
       try {
-        console.log("Using Formspree booking endpoint:", FORMSPREE_ENDPOINTS.booking);
         if (FORMSPREE_ENDPOINTS.booking && !FORMSPREE_ENDPOINTS.booking.includes('undefined')) {
           const emailData = {
             bookingId: bookingId,
@@ -876,7 +840,6 @@ const MakeBookings: React.FC = () => {
             },
             body: JSON.stringify(emailData)
           });
-          console.log('Email notification sent successfully');
         }
       } catch (emailError) {
         console.warn('Failed to send email notification, but booking was saved:', emailError);
@@ -889,7 +852,6 @@ const MakeBookings: React.FC = () => {
         navigate('/my-bookings');
       }, 2000);
     } catch (err) {
-      console.error('Error submitting booking:', err);
       if (err instanceof Error) {
         setError('Failed to submit booking: ' + err.message);
       } else {

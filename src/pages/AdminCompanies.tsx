@@ -47,17 +47,14 @@ const AdminCompanies: React.FC = () => {
   const fetchCompanies = async () => {
     setLoading(true);
     try {
-      console.log('Fetching companies');
       const response = await adminService.getAllCompanies();
       
       // Check if response has companies array
       if (!response || !response.companies) {
-        console.error('Invalid API response format:', response);
         throw new Error('Invalid API response format');
       }
       
       // Log the raw data for debugging
-      console.log('Raw companies from API:', response.companies);
       
       // Map the API response to our Company interface
       const mappedCompanies = response.companies.map((company: any) => ({
@@ -72,7 +69,6 @@ const AdminCompanies: React.FC = () => {
       setCompanies(mappedCompanies);
       setError(null);
     } catch (err: any) {
-      console.error('Error fetching companies:', err);
       setError(err.message || 'Failed to load companies');
     } finally {
       setLoading(false);
@@ -134,7 +130,6 @@ const AdminCompanies: React.FC = () => {
         setSelectedCompanies(selectedCompanies.filter(id => id !== companyId));
         alert('Company deleted successfully');
       } catch (err: any) {
-        console.error('Error deleting company:', err);
         setError(err.message || 'Failed to delete company');
       } finally {
         setLoading(false);
@@ -160,7 +155,6 @@ const AdminCompanies: React.FC = () => {
         setSelectedCompanies([]);
         alert('Companies deleted successfully');
       } catch (err: any) {
-        console.error('Error deleting companies:', err);
         setError(err.message || 'Failed to delete companies');
       } finally {
         setLoading(false);

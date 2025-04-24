@@ -47,7 +47,6 @@ const AdminBookingUpload: React.FC = () => {
 
         setLoading(false);
       } catch (err: any) {
-        console.error('Error loading booking data:', err);
         setError(err.message || 'Failed to load booking data');
         setLoading(false);
       }
@@ -171,7 +170,6 @@ const AdminBookingUpload: React.FC = () => {
           setSuccess('Resource deleted successfully');
         })
         .catch(err => {
-          console.error('Error deleting resource:', err);
           setError('Failed to delete resource');
         });
     }

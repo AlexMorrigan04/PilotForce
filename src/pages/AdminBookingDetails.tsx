@@ -97,7 +97,6 @@ const AdminBookingDetails: React.FC = () => {
       const response = await adminService.getBooking(bookingId);
       setBooking(response.booking || null);
     } catch (err: any) {
-      console.error(`Error fetching booking ${bookingId}:`, err);
       setError(err.message || 'An error occurred while loading booking details');
     } finally {
       setLoading(false);
@@ -108,11 +107,9 @@ const AdminBookingDetails: React.FC = () => {
   const fetchResources = async () => {
     try {
       setResourcesLoading(true);
-      console.log(`Fetching resources for booking ${bookingId}`);
       
       const response = await adminService.getBookingResources(bookingId || '');
       
-      console.log('Resources API response:', response);
       
       // Handle case where response might be an object with a resources property
       // or might directly be an array of resources
@@ -125,7 +122,6 @@ const AdminBookingDetails: React.FC = () => {
         setResources([]);
       }
     } catch (error) {
-      console.error('Error fetching resources:', error);
       setError('Failed to load resources');
       setResources([]);
     } finally {
@@ -148,7 +144,6 @@ const AdminBookingDetails: React.FC = () => {
       
       alert(`Booking status updated to ${status}`);
     } catch (err: any) {
-      console.error(`Error updating booking status:`, err);
       setError(err.message || 'Failed to update booking status');
     } finally {
       setLoading(false);
@@ -166,7 +161,6 @@ const AdminBookingDetails: React.FC = () => {
         alert('Booking deleted successfully');
         navigate('/admin/bookings');
       } catch (err: any) {
-        console.error(`Error deleting booking:`, err);
         setError(err.message || 'Failed to delete booking');
         setLoading(false);
       }
@@ -186,7 +180,6 @@ const AdminBookingDetails: React.FC = () => {
         
         alert('Resource deleted successfully');
       } catch (err: any) {
-        console.error(`Error deleting resource:`, err);
         setError(err.message || 'Failed to delete resource');
       }
     }

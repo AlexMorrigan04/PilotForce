@@ -92,17 +92,14 @@ const Login: React.FC = () => {
       }
 
       // Log that we're using the email for authentication
-      console.log('Logging in with email address:', email);
 
       // Use the updated signIn function with email parameter
       const result = await signIn(email, password);
-      console.log('Login result:', result);
       
       // IMPORTANT: Always check if the result has success=true AND has required tokens
       if (!result.success) {
         // Check specifically for approval required case
         if (result.requiresApproval) {
-          console.log('User requires approval - showing modal:', result);
           // If the backend provides a username, use it; otherwise extract from email
           const derivedUsername = result.username || email.split('@')[0];
           
@@ -128,16 +125,13 @@ const Login: React.FC = () => {
           navigate('/dashboard');
         } else {
           // Response says success but no tokens - error
-          console.error('Login succeeded but no tokens were returned');
           setError('Authentication succeeded but no access token was received. Please try again.');
         }
       } else {
         // Unexpected response structure
-        console.error('Unexpected login response:', result);
         setError('An unexpected error occurred. Please try again.');
       }
     } catch (err: any) {
-      console.error('Login error:', err);
       setError(err.message || 'An unexpected error occurred');
     } finally {
       setIsLoggingIn(false);

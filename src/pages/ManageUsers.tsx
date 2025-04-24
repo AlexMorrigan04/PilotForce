@@ -120,7 +120,6 @@ const ManageUsers: React.FC = () => {
       
       setUsers(sortedUsers);
     } catch (err: any) {
-      console.error('Error fetching company users:', err);
       setError(err.message || 'Failed to load company users');
       
       // Set mock data for development
@@ -182,7 +181,6 @@ const ManageUsers: React.FC = () => {
       
       // This is where you would make an API call to update the user's role
       // For now, we'll just update the local state
-      console.log(`Updating user ${selectedUser.UserId} role to ${formRole}`);
       
       const updatedUsers = users.map(user => 
         user.UserId === selectedUser.UserId 
@@ -195,7 +193,6 @@ const ManageUsers: React.FC = () => {
       setSelectedUser(null);
       
     } catch (err: any) {
-      console.error('Error updating user role:', err);
       setError(err.message || 'Failed to update user role');
     } finally {
       setIsLoading(false);

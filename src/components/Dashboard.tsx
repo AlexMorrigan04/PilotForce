@@ -130,7 +130,6 @@ const Dashboard: React.FC = () => {
     const checkAndRedirectAdmin = async () => {
       try {
         if (user?.role === 'Administrator') {
-          console.log('True administrator detected via user role, redirecting to admin dashboard');
           navigate('/admin-dashboard');
           return;
         }
@@ -142,12 +141,10 @@ const Dashboard: React.FC = () => {
               const { isAdminFromToken } = await import('../utils/adminUtils');
               const adminGroups = await checkAdministratorsGroupMembership(token);
               if (adminGroups) {
-                console.log('Admin confirmed via Cognito groups, redirecting to admin dashboard');
                 navigate('/admin-dashboard');
                 return;
               }
             } catch (error) {
-              console.error('Error validating admin group membership:', error);
             }
           }
         }
@@ -158,18 +155,15 @@ const Dashboard: React.FC = () => {
             try {
               const adminGroups = await checkAdministratorsGroupMembership(token);
               if (!adminGroups) {
-                console.log('Removing incorrect admin flag - user is not in Administrators group');
                 localStorage.removeItem('isAdmin');
               }
             } catch (error) {
-              console.error('Error validating admin token:', error);
             }
           } else {
             localStorage.removeItem('isAdmin');
           }
         }
       } catch (error) {
-        console.error('Error during admin check in Dashboard:', error);
       }
     };
     
@@ -180,7 +174,6 @@ const Dashboard: React.FC = () => {
         const groups = decoded['cognito:groups'] || [];
         return groups.includes('Administrators');
       } catch (error) {
-        console.error('Error decoding token:', error);
         return false;
       }
     };
@@ -210,13 +203,11 @@ const Dashboard: React.FC = () => {
           const count = await getBookingCount(user.companyId);
           setBookingCount(count);
         } catch (countError) {
-          console.error("Error fetching booking count:", countError);
           setBookingCount(bookings.length);
         } finally {
           setBookingCountLoading(false);
         }
       } catch (error) {
-        console.error("Error fetching recent bookings:", error);
         setError("Failed to load recent bookings");
       } finally {
         setLoading(false);
@@ -249,7 +240,6 @@ const Dashboard: React.FC = () => {
               companyId = parsedUser.companyId || parsedUser["custom:companyId"];
               companyName = parsedUser.companyName || "";
             } catch (e) {
-              console.error("Error parsing saved user data", e);
             }
           }
         }
@@ -273,7 +263,6 @@ const Dashboard: React.FC = () => {
         if (companyId) {
           setAssetCountLoading(true);
           try {
-            console.log("Fetching asset count for company:", companyId);
             
             // Make sure the token is available before calling getAssetCount
             const token = localStorage.getItem('idToken');
@@ -285,17 +274,14 @@ const Dashboard: React.FC = () => {
             setTimeout(async () => {
               try {
                 const count = await getAssetCount(companyId);
-                console.log("Asset count result:", count);
                 setAssetCount(count);
               } catch (delayedError) {
-                console.error("Error in delayed asset count fetch:", delayedError);
                 setAssetCount(0);
               } finally {
                 setAssetCountLoading(false);
               }
             }, 500); // Short delay to ensure auth is fully initialized
           } catch (error) {
-            console.error("Error initiating asset count fetch:", error);
             setAssetCount(0);
             setAssetCountLoading(false);
           }
@@ -305,7 +291,6 @@ const Dashboard: React.FC = () => {
           setAssetCountLoading(false);
         }
       } catch (error) {
-        console.error("Error loading user or company information:", error);
         setAssetCountLoading(false);
       }
     };
@@ -328,22 +313,17 @@ const Dashboard: React.FC = () => {
             try {
               const parsedUser = JSON.parse(savedUser);
               companyId = parsedUser.companyId || parsedUser["custom:companyId"];
-              console.log("Retrieved companyId from localStorage:", companyId);
             } catch (e) {
-              console.error("Error parsing saved user data", e);
             }
           }
         }
         
         if (!companyId) {
-          console.error("Could not determine company ID for user");
           throw new Error("Missing company ID");
         }
         
-        console.log("Fetching users for company ID:", companyId);
         const users = await getUsersByCompany(companyId);
         
-        console.log(`Successfully fetched ${users.length} company users`);
         
         const mappedUsers: CompanyUser[] = users.map(user => ({
           UserId: user.UserId || user.userId || '',
@@ -359,7 +339,6 @@ const Dashboard: React.FC = () => {
         setCompanyUsers(mappedUsers);
         setUsersError(null);
       } catch (error) {
-        console.error("Error fetching company users:", error);
         setUsersError("Failed to load team members");
       } finally {
         setUsersLoading(false);

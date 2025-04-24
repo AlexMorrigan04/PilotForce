@@ -101,7 +101,6 @@ const NewAsset: React.FC = () => {
       try {
         // First check if user context already has what we need
         if (user && user.username) {
-          console.log('Using user from AuthContext:', user);
           setUserInfo({
             name: user.username,
             userId: user.sub || user.userId || user.id,
@@ -119,7 +118,6 @@ const NewAsset: React.FC = () => {
         if (savedUserStr) {
           try {
             const savedUser = JSON.parse(savedUserStr);
-            console.log('Using user data from localStorage:', savedUser);
             setUserInfo({
               name: savedUser.username || savedUser.name || 'Demo User',
               userId: savedUser.sub || savedUser.userId || savedUser.id,
@@ -128,14 +126,12 @@ const NewAsset: React.FC = () => {
             });
             return;
           } catch (error) {
-            console.error('Error parsing saved user data:', error);
           }
         }
         
         // If we still don't have user info, try getting from API
         if (idToken || tokensStr) {
           // Ideally here we would call an API endpoint to get user info
-          console.log('Would fetch user data from API using token');
         }
         
         // Fallback to demo data if nothing else works
@@ -146,7 +142,6 @@ const NewAsset: React.FC = () => {
           email: 'demo@example.com'
         });
       } catch (error) {
-        console.error('Error fetching user details:', error);
         setUserInfo({
           name: 'Demo User',
           userId: 'demo-user-id',
@@ -161,13 +156,11 @@ const NewAsset: React.FC = () => {
   // Log userInfo whenever it changes
   useEffect(() => {
     if (userInfo) {
-      console.log('Current user info:', userInfo);
     }
   }, [userInfo]);
 
   // Initialize MapboxDraw when the map loads
   const onMapLoad = (event: any) => {
-    console.log("Map loaded");
     const map = event.target;
     mapRef.current = map;
     setMapLoaded(true);
@@ -200,14 +193,12 @@ const NewAsset: React.FC = () => {
         setAreaSize(0);
       });
     } catch (error) {
-      console.error("Error initializing drawing tools:", error);
     }
   };
 
   // Cleanup on component unmount
   useEffect(() => {
     return () => {
-      console.log("Cleanup map");
       try {
         // Remove draw control first
         if (mapRef.current && drawControlRef.current) {
@@ -219,7 +210,6 @@ const NewAsset: React.FC = () => {
         drawRef.current = null;
         mapRef.current = null;
       } catch (error) {
-        console.error("Error cleaning up map:", error);
       }
     };
   }, []);
@@ -237,7 +227,6 @@ const NewAsset: React.FC = () => {
         const area = turf.area(data);
         setAreaSize(Math.round(area * 100) / 100); // Round to 2 decimal places
       } catch (err) {
-        console.error('Error calculating area:', err);
         setAreaSize(0);
       }
     }
@@ -276,7 +265,6 @@ const NewAsset: React.FC = () => {
         const tokens = JSON.parse(tokensStr);
         if (tokens.idToken) return tokens.idToken;
       } catch (e) {
-        console.error('Error parsing tokens:', e);
       }
     }
     
@@ -324,7 +312,6 @@ const NewAsset: React.FC = () => {
       const center = turf.centroid(polygon);
       centerPoint = center.geometry.coordinates;
     } catch (err) {
-      console.error('Error calculating center point:', err);
       centerPoint = [viewState.longitude, viewState.latitude];
     }
 
@@ -358,19 +345,10 @@ const NewAsset: React.FC = () => {
       }
     };
 
-    console.log('Saving asset with data:', assetData);
 
     try {
       // Get auth token for API request
       const token = getAuthToken();
-      
-      console.log('Saving asset with API endpoint:', apiEndpoint);
-      console.log('Authorization available:', !!token);
-      console.log('User info included:', {
-        userId: userInfo.userId,
-        companyId: userInfo.companyId,
-        name: userInfo.name
-      });
       
       // Make API request to create asset
       const response = await fetch(apiEndpoint, {
@@ -383,13 +361,11 @@ const NewAsset: React.FC = () => {
       });
       
       const responseText = await response.text();
-      console.log('API Response:', responseText);
       
       let responseData;
       try {
         responseData = JSON.parse(responseText);
       } catch (err) {
-        console.error('Error parsing response:', err);
         throw new Error(`API returned invalid JSON: ${responseText}`);
       }
       
@@ -397,17 +373,14 @@ const NewAsset: React.FC = () => {
         throw new Error(responseData.message || `API error: ${response.status}`);
       }
       
-      console.log('Asset created successfully:', responseData);
       
       // Navigate back to the assets page
       navigate('/assets');
     } catch (err: any) {
-      console.error('Error creating asset via API:', err);
       setError(err.message || 'Failed to create asset');
       
       // Fallback to direct Lambda invocation through AWS SDK
       try {
-        console.log('Attempting fallback with direct Lambda invocation...');
         
         // Configure AWS SDK for Lambda access
         const lambda = new AWS.Lambda({
@@ -424,21 +397,17 @@ const NewAsset: React.FC = () => {
         };
         
         const lambdaResponse = await lambda.invoke(params).promise();
-        console.log('Lambda response:', lambdaResponse);
         
         if (lambdaResponse.StatusCode === 200) {
-          console.log('Asset saved successfully via Lambda');
           navigate('/assets');
         } else {
           throw new Error(`Lambda error: ${lambdaResponse.FunctionError || 'Unknown error'}`);
         }
       } catch (lambdaErr: any) {
-        console.error('Lambda fallback failed:', lambdaErr);
         
         // Last resort: fall back to DynamoDB direct access
         if (process.env.NODE_ENV === 'development') {
           try {
-            console.log('Attempting last fallback with direct DynamoDB access...');
             
             // Generate a unique AssetId
             const assetId = `asset_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -482,16 +451,13 @@ const NewAsset: React.FC = () => {
 
             dynamoDb.put(params, (dbErr) => {
               if (dbErr) {
-                console.error('Error saving asset with fallback method:', dbErr);
                 setError(`Failed to save asset: ${dbErr.message}`);
               } else {
-                console.log('Asset saved successfully with fallback method');
                 // Navigate back to the assets page
                 navigate('/assets');
               }
             });
           } catch (fallbackErr: any) {
-            console.error('All fallback methods failed:', fallbackErr);
             setError(`All attempts to save asset failed: ${fallbackErr.message}`);
           }
         } else {
@@ -534,7 +500,6 @@ const NewAsset: React.FC = () => {
       if (data.features && data.features.length > 0) {
         const [longitude, latitude] = data.features[0].center;
         
-        console.log(`Geocoded coordinates: ${latitude}, ${longitude}`);
         
         // Update the map view
         setViewState({
@@ -550,7 +515,6 @@ const NewAsset: React.FC = () => {
         setPostcodeError('Postcode not found');
       }
     } catch (error) {
-      console.error('Error geocoding postcode:', error);
       setPostcodeError('Failed to geocode postcode. Please try again.');
     } finally {
       setGeocodingLoading(false);

@@ -94,7 +94,6 @@ const AssetDetails: React.FC = () => {
     try {
       mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q';
     } catch (error) {
-      console.error('Error setting Mapbox token:', error);
       setMapError('Failed to initialize map: invalid access token');
     }
   }, []);
@@ -115,7 +114,6 @@ const AssetDetails: React.FC = () => {
             companyId: savedUser.companyId
           });
         } catch (e) {
-          console.error('Error parsing saved user data', e);
           setUserInfo({ name: 'Demo User' });
         }
       } else {
@@ -127,7 +125,6 @@ const AssetDetails: React.FC = () => {
   useEffect(() => {
     const fetchAssetDetails = async () => {
       if (location.state && location.state.asset) {
-        console.log('Using asset from location state:', location.state.asset);
         setAsset(location.state.asset);
         setLoading(false);
         
@@ -153,7 +150,6 @@ const AssetDetails: React.FC = () => {
       try {
         const assetData = await getAssetById(assetId);
         
-        console.log('Asset details response:', assetData);
         
         if (assetData) {
           setAsset(assetData);
@@ -176,14 +172,12 @@ const AssetDetails: React.FC = () => {
                 zoom: 18
               });
             } catch (error) {
-              console.error('Error calculating center point:', error);
             }
           }
         } else {
           setError('Asset not found or invalid response format');
         }
       } catch (err: any) {
-        console.error('Error fetching asset details:', err);
         setError(err.message || 'Failed to load asset details');
         
         if (err.message && err.message.includes('Authentication error')) {
@@ -199,7 +193,6 @@ const AssetDetails: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      console.log('AssetDetails component unmounting, cleaning up map');
       
       try {
         // Safely clean up the map to prevent indoor_manager errors
@@ -267,7 +260,6 @@ const AssetDetails: React.FC = () => {
 
   const handleBackToList = useCallback(() => {
     if (sessionStorage.getItem('navigating_to_assets')) {
-      console.log('Navigation already in progress, ignoring duplicate click');
       return;
     }
     
@@ -275,7 +267,6 @@ const AssetDetails: React.FC = () => {
     
     try {
       if (mapRef.current) {
-        console.log('Cleaning up map instance before navigation to Assets');
         mapRef.current.remove();
         mapRef.current = null;
       }
@@ -301,7 +292,6 @@ const AssetDetails: React.FC = () => {
 
   const handleBookService = useCallback(() => {
     if (sessionStorage.getItem('navigating_to_booking')) {
-      console.log('Navigation already in progress, ignoring duplicate click');
       return;
     }
     
@@ -310,7 +300,6 @@ const AssetDetails: React.FC = () => {
     try {
       // Safely clean up the map to prevent indoor_manager errors
       if (mapRef.current) {
-        console.log('Cleaning up map instance before navigation');
         try {
           // First set map loaded state to false to prevent further rendering
           setMapLoaded(false);
@@ -527,7 +516,6 @@ const AssetDetails: React.FC = () => {
                       mapboxAccessToken="pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
                       scrollZoom={true}
                       onLoad={(event: any) => {
-                        console.log("Map loaded");
                         mapRef.current = event.target;
                         setMapLoaded(true);
                         

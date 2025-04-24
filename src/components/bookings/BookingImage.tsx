@@ -33,7 +33,6 @@ const BookingImage: React.FC<BookingImageProps> = ({
       
       // Use our utility function to get the proper URL
       const url = getImageUrl(image.key || '', image.url || '');
-      console.log(`Using image URL: ${url.substring(0, 100)}...`);
       setImageUrl(url);
       
       // If we detect localStorage, check for CORS issues
@@ -50,7 +49,6 @@ const BookingImage: React.FC<BookingImageProps> = ({
         }
       }
     } catch (err) {
-      console.error('Error setting up image URL:', err);
       setError('Unable to load image');
       setIsLoading(false);
     }
@@ -59,7 +57,6 @@ const BookingImage: React.FC<BookingImageProps> = ({
   // Handle retry logic
   const handleRetry = () => {
     if (retryCount < MAX_RETRIES) {
-      console.log(`Retrying image load (${retryCount + 1}/${MAX_RETRIES})`);
       setRetryCount(retryCount + 1);
       setError(null);
       setIsLoading(true);
@@ -95,7 +92,6 @@ const BookingImage: React.FC<BookingImageProps> = ({
   
   // Handle image load error
   const handleImageError = () => {
-    console.error(`Failed to load image: ${imageUrl}`);
     setIsLoading(false);
     
     // Auto-retry once

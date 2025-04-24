@@ -104,7 +104,6 @@ const AdminResources: React.FC = () => {
       
       // Set up a polling interval (every 10 seconds) to check if resources appear
       const intervalId = setInterval(() => {
-        console.log('[AdminResources] Polling for resources updates');
         fetchResourcesForBooking(selectedBookingId);
       }, 10000); // 10 seconds
       
@@ -123,7 +122,6 @@ const AdminResources: React.FC = () => {
         throw new Error('Invalid booking data received');
       }
       
-      console.log('Raw bookings from API:', response.bookings);
       
       // Map the API response to Booking interface, accounting for different field names in DynamoDB
       // Add fallback ID generation to ensure we always have an ID
@@ -147,10 +145,8 @@ const AdminResources: React.FC = () => {
         };
       });
       
-      console.log('Mapped bookings for component:', mappedBookings);
       setBookings(mappedBookings);
     } catch (err: any) {
-      console.error('Error fetching bookings:', err);
       setError('Failed to load bookings: ' + err.message);
     }
   };
@@ -164,7 +160,6 @@ const AdminResources: React.FC = () => {
         throw new Error('Invalid resource data received');
       }
       
-      console.log('Raw resources:', response.resources);
       
       // Map the API response to Resource interface
       const mappedResources = response.resources.map((resource: any) => ({
@@ -182,7 +177,6 @@ const AdminResources: React.FC = () => {
       setResources(mappedResources);
       setError(null);
     } catch (err: any) {
-      console.error('Error fetching resources:', err);
       setError('Failed to load resources: ' + err.message);
     } finally {
       setLoading(false);
@@ -192,7 +186,6 @@ const AdminResources: React.FC = () => {
   // Fetch resources for a specific booking
   const fetchResourcesForBooking = async (bookingId: string) => {
     setLoading(true);
-    console.log('%c[AdminResources] Fetching resources for booking', 'background:#3498db;color:white;padding:4px;border-radius:4px;', bookingId);
     
     try {
       const response = await adminService.getBookingResources(bookingId);
@@ -205,16 +198,13 @@ const AdminResources: React.FC = () => {
         return;
       }
       
-      console.log('[AdminResources] Resources response:', response);
       
       // Handle different response formats
       let resourcesArray = [];
       if (Array.isArray(response)) {
         resourcesArray = response;
-        console.log('[AdminResources] Response is an array:', resourcesArray);
       } else if (response.resources && Array.isArray(response.resources)) {
         resourcesArray = response.resources;
-        console.log('[AdminResources] Found resources array in response:', resourcesArray);
       } else {
         console.warn('[AdminResources] Invalid resource data structure:', response);
         setResources([]);
@@ -222,7 +212,6 @@ const AdminResources: React.FC = () => {
         return;
       }
       
-      console.log('[AdminResources] Raw resources:', resourcesArray);
       
       // Map the API response to Resource interface, handling different field name formats
       const mappedResources = resourcesArray.map((resource: any) => {
@@ -238,15 +227,12 @@ const AdminResources: React.FC = () => {
           type: resource.Type || resource.type || 'folder'
         };
         
-        console.log('[AdminResources] Mapped resource:', mappedResource);
         return mappedResource;
       });
       
-      console.log('[AdminResources] All mapped resources:', mappedResources);
       setResources(mappedResources);
       setError(null);
     } catch (err: any) {
-      console.error(`[AdminResources] Error fetching resources for booking ${bookingId}:`, err);
       // Set resources to empty array even on error to prevent UI from breaking
       setResources([]);
       // Show a more user-friendly error
@@ -293,13 +279,8 @@ const AdminResources: React.FC = () => {
     setError(null);
     
     try {
-      console.log('%c[AdminResources] Creating folder', 'background:#2ecc71;color:white;padding:4px;border-radius:4px;', {
-        folderName: newFolderName,
-        bookingId: selectedBookingId
-      });
       
       const result = await adminService.createResourceFolder(selectedBookingId, newFolderName);
-      console.log('[AdminResources] Folder creation response:', result);
       
       if (result && (result.success || result.folderId)) {
         setSuccess('Folder created successfully!');
@@ -317,12 +298,10 @@ const AdminResources: React.FC = () => {
           type: 'folder'
         };
         
-        console.log('[AdminResources] Adding new folder to state:', newFolder);
         
         // Add the new folder to the resources array
         setResources(current => {
           const updatedResources = [...current, newFolder];
-          console.log('[AdminResources] Updated resources array:', updatedResources);
           return updatedResources;
         });
         
@@ -331,16 +310,13 @@ const AdminResources: React.FC = () => {
         setCreateFolderModal(false);
         
         // Refresh resources after a short delay to ensure backend sync
-        console.log('[AdminResources] Scheduling refresh of resources');
         setTimeout(() => {
-          console.log('[AdminResources] Refreshing resources after folder creation');
           fetchResourcesForBooking(selectedBookingId);
         }, 1500);
       } else {
         throw new Error('Failed to create folder: No success response from server');
       }
     } catch (err: any) {
-      console.error('[AdminResources] Error creating folder:', err);
       
       // More descriptive error message for debugging
       let errorMsg = 'Failed to create folder. ';
@@ -387,7 +363,6 @@ const AdminResources: React.FC = () => {
       setSuccess('Resource deleted successfully!');
       setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
-      console.error('Error deleting resource:', err);
       setError('Failed to delete resource: ' + err.message);
     } finally {
       setLoading(false);
@@ -418,7 +393,6 @@ const AdminResources: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error('Error downloading resource:', error);
       setError('Failed to download resource');
     } finally {
       setLoading(false);

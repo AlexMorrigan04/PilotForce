@@ -38,7 +38,6 @@ const AdminLogin: React.FC = () => {
         setLoginError(errorData.error || "Login failed. Please check your credentials.");
       }
     } catch (error) {
-      console.error("Login failed:", error);
       setLoginError("Login failed. Please check your credentials.");
     }
   };

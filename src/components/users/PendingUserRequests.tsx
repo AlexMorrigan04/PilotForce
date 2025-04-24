@@ -87,7 +87,6 @@ const PendingUserRequests: React.FC<PendingUserRequestsProps> = ({ onRequestsCou
         onRequestsCountChange(pendingUsersData.length);
       }
     } catch (err: any) {
-      console.error('Error fetching pending users:', err);
       setError(err.message || 'Failed to load pending user requests');
       
       // For development, set some mock data
@@ -138,7 +137,6 @@ const PendingUserRequests: React.FC<PendingUserRequestsProps> = ({ onRequestsCou
       }
       
       // This would be the actual API call to approve a user
-      console.log(`Approving user: ${userId}`);
       
       // For now, just update the local state
       setPendingUsers(prevUsers => {
@@ -153,7 +151,6 @@ const PendingUserRequests: React.FC<PendingUserRequestsProps> = ({ onRequestsCou
       });
       
     } catch (err: any) {
-      console.error('Error approving user:', err);
       setError(err.message || 'Failed to approve user');
     } finally {
       setProcessingUser(null);
@@ -173,7 +170,6 @@ const PendingUserRequests: React.FC<PendingUserRequestsProps> = ({ onRequestsCou
       }
       
       // This would be the actual API call to reject a user
-      console.log(`Rejecting user: ${userId}`);
       
       // For now, just update the local state
       setPendingUsers(prevUsers => {
@@ -188,7 +184,6 @@ const PendingUserRequests: React.FC<PendingUserRequestsProps> = ({ onRequestsCou
       });
       
     } catch (err: any) {
-      console.error('Error rejecting user:', err);
       setError(err.message || 'Failed to reject user');
     } finally {
       setProcessingUser(null);

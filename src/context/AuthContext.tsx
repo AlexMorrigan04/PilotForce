@@ -59,40 +59,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initAuth = async () => {
       try {
         setLoading(true);
-        console.log('🔄 Initializing auth state...');
         
         // Use our new initializeSession function to check stored credentials
         const { isAuthenticated: hasValidToken, userData, token } = initializeSession();
         
         // If we have a valid token and user data, set auth state
         if (hasValidToken && userData) {
-          console.log('✅ Found valid authentication session');
           setUser(userData);
           setIsAuthenticated(true);
           
           // Also check for admin status if we have a valid session
           const adminStatus = await checkAdminStatus();
-          console.log('Admin status:', adminStatus ? 'Administrator' : 'Regular user');
           
           return;
         }
         
         // If we have a token but no user data, or token is expired
         if (token) {
-          console.log('🔄 Found token but needs validation/refresh');
           
           // Try to refresh the token first
           try {
             const refreshResult = await authService.refreshToken();
             
             if (refreshResult.success) {
-              console.log('✅ Successfully refreshed token');
               
               // Now try to get user info with the refreshed token
               try {
                 const userResponse = await authService.getCurrentUser();
                 if (userResponse.success && userResponse.user) {
-                  console.log('✅ Retrieved user data after token refresh');
                   setUser(userResponse.user);
                   setIsAuthenticated(true);
                   storeAuthTokens(null, null, null, userResponse.user);
@@ -109,7 +103,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               console.warn('⚠️ Token refresh failed:', refreshResult.message);
             }
           } catch (refreshError) {
-            console.error('❌ Error during token refresh at init:', refreshError);
           }
         }
         
@@ -129,9 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setIsAuthenticated(true);
             }
 
-            console.log('Auth initialized from localStorage');
           } catch (e) {
-            console.error('Error parsing saved user data:', e);
           }
         } else if (idToken) {
           // We have a token but no user, try to fetch user info
@@ -148,15 +139,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUser(userData);
               setIsAuthenticated(true);
               localStorage.setItem('user', JSON.stringify(userData));
-              console.log('Auth initialized from token verification');
             }
           } catch (e) {
-            console.error('Error verifying token:', e);
             // Keep the token but couldn't get user info
           }
         }
       } catch (e) {
-        console.error('Error initializing auth:', e);
         setError({ message: 'Failed to initialize authentication' });
       } finally {
         setLoading(false);
@@ -177,9 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const user = JSON.parse(userData);
           setUser(user);
           setIsAuthenticated(true);
-          console.log("Restored authenticated user from localStorage:", user);
         } catch (e) {
-          console.error("Failed to parse userData from localStorage:", e);
           // Clear potentially corrupted data
           localStorage.removeItem('userData');
         }
@@ -195,7 +181,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Set up a timer to check token validity every 5 minutes
       const tokenCheckInterval = setInterval(async () => {
         try {
-          console.log('Performing scheduled token check');
           const result = await authService.checkAuthentication();
           
           if (!result.success || !result.isAuthenticated) {
@@ -213,7 +198,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }, 500);
           }
         } catch (err) {
-          console.error('Error during scheduled token check:', err);
         }
       }, 5 * 60 * 1000); // 5 minutes
       
@@ -242,11 +226,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
       
-      console.log('Token found, checking validity...');
       
       // If token needs refresh, do it proactively
       if (needsSessionRefresh()) {
-        console.log('Token needs refreshing, doing so proactively...');
         try {
           // Use sessionManager for token refresh for better consistency
           const refreshSuccess = await sessionManager.forceTokenRefresh();
@@ -254,10 +236,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.warn('Proactive token refresh failed');
             // Continue with the old token for now, we'll try to use it
           } else {
-            console.log('Proactive token refresh succeeded');
           }
         } catch (refreshError) {
-          console.error('Error during proactive token refresh:', refreshError);
           // Continue with existing token
         }
       }
@@ -287,17 +267,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUser(userData);
         setIsAuthenticated(true);
-        console.log('Authentication successful');
       } else {
         console.warn('Authentication check failed:', result);
         
         // Try one last refresh before giving up
         try {
-          console.log('Attempting emergency token refresh...');
           const refreshSuccess = await sessionManager.forceTokenRefresh();
           
           if (refreshSuccess) {
-            console.log('Emergency refresh successful, rechecking auth...');
             const recheckResult = await authService.checkAuthentication();
             
             if (recheckResult.success && recheckResult.isAuthenticated) {
@@ -324,7 +301,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
         } catch (emergencyRefreshError) {
-          console.error('Emergency token refresh failed:', emergencyRefreshError);
         }
         
         setUser(null);
@@ -335,7 +311,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setError(null);
     } catch (err: any) {
-      console.error('Authentication check error:', err);
       setUser(null);
       setIsAuthenticated(false);
 
@@ -375,14 +350,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const userData = JSON.parse(userDataStr);
           if (userData && userData.role && userData.role.toLowerCase().includes('admin')) {
-            console.log('Found admin role in user data:', userData.role);
             setIsAdmin(true);
             setUserRole('Admin');
             localStorage.setItem('isAdmin', 'true');
             return true;
           }
         } catch (e) {
-          console.error('Error parsing user data during admin check:', e);
         }
       }
       
@@ -404,7 +377,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = await response.json();
         const hasAdminRole = data.isAdmin === true;
         
-        console.log('Admin API check result:', hasAdminRole);
         setIsAdmin(hasAdminRole);
         setUserRole(hasAdminRole ? 'Admin' : 'User');
         
@@ -414,11 +386,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         return hasAdminRole;
       } catch (apiError) {
-        console.error('API admin check failed:', apiError);
         return false;
       }
     } catch (error) {
-      console.error('Error checking admin status:', error);
       return false;
     }
   };
@@ -429,7 +399,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isAuthenticated) {
       checkAdminStatus().then(isAdmin => {
         if (isAdmin) {
-          console.log('User confirmed as administrator');
           // We could add auto-redirect logic here, but it's better to handle in components
         }
       });
@@ -441,7 +410,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     setError(null);
     try {
-      console.log('Logging in user:', username);
 
       // Ensure username and password are strings
       const sanitizedUsername = String(username).trim();
@@ -457,7 +425,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         username: sanitizedUsername, 
         password: sanitizedPassword 
       });
-      console.log('Login response received:', response);
 
       // CRITICAL: Check if login was actually successful
       if (!response.success) {
@@ -479,19 +446,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Save AWS config to localStorage
         localStorage.setItem('awsConfig', JSON.stringify(awsConfig));
-        console.log('AWS config saved to localStorage:', awsConfig);
         
         // Store username and password in localStorage for Basic Authentication
         // This is crucial for operations that require Basic Auth like PUT requests
         localStorage.setItem('auth_username', sanitizedUsername);
         localStorage.setItem('auth_password', sanitizedPassword);
-        console.log('Stored authentication credentials for Basic Auth');
 
         // Save user data to localStorage (should already be saved in authService.login)
         if (response.user) {
           // Use sessionManager to store user data for better cross-tab synchronization
           sessionManager.storeUserData(response.user);
-          console.log('User data saved via sessionManager:', response.user);
           setUser(response.user);
         } else {
           console.warn('No user data received from login response');
@@ -503,7 +467,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUser(userResponse.user);
               // Use sessionManager to store user data
               sessionManager.storeUserData(userResponse.user);
-              console.log('User data retrieved and saved via sessionManager');
             }
           } catch (userError) {
             console.warn('Failed to fetch user data after login:', userError);
@@ -521,18 +484,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (tokens.idToken || tokens.accessToken) {
           // Save tokens using sessionManager
           sessionManager.storeTokens(tokens);
-          console.log('Tokens saved via sessionManager:', {
-            idToken: tokens.idToken ? `${tokens.idToken.substring(0, 15)}...` : null,
-            accessToken: tokens.accessToken ? 'Present' : null,
-            refreshToken: tokens.refreshToken ? 'Present' : null
-          });
           setIsAuthenticated(true);
         } else {
           console.warn('No tokens received from login response');
           // Check if we have tokens in localStorage that might have been set by the service
           const idToken = localStorage.getItem('idToken');
           if (idToken) {
-            console.log('Found token in localStorage, setting authenticated state');
             setIsAuthenticated(true);
           } else {
             setIsAuthenticated(false);
@@ -568,7 +525,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // If we somehow get here, it's an error
       throw new Error(response.message || 'Login failed');
     } catch (err: any) {
-      console.error('Login error:', err);
 
       // More robust error handling
       if (err.needsConfirmation) {
@@ -615,7 +571,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Store username and password in localStorage for Basic Authentication
         localStorage.setItem('auth_username', email);
         localStorage.setItem('auth_password', password);
-        console.log('Stored authentication credentials for Basic Auth in signIn');
         
         // If we have user data, store it and set authenticated
         if (result.user) {
@@ -637,7 +592,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Pass the result through unchanged
       return result;
     } catch (err: any) {
-      console.error('Login error:', err);
       setError(err.message || 'An error occurred during sign in');
       return {
         success: false,
@@ -683,7 +637,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     setError(null);
     try {
-      console.log('Signing up user:', username);
 
       // Ensure API URLs are properly defined
       if (!process.env.REACT_APP_API_URL) {
@@ -692,10 +645,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Try using our authService directly first, with better error handling
       try {
-        console.log('Attempting signup via authService');
         const result = await authService.signup(username, password, attributes);
         
-        console.log('Complete signup result from service:', result);
         
         // FOCUSED UPDATE: Check for email exists condition regardless of success flag
         if (result.type === 'EmailExistsException' || 
@@ -729,7 +680,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           username
         };
       } catch (serviceError: any) {
-        console.error('authService signup failed:', serviceError);
         
         // FOCUSED UPDATE: Enhanced check for email exists error
         if (serviceError.type === 'EmailExistsException' ||
@@ -747,7 +697,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         
         if (serviceError.response?.status === 404) {
-          console.log('API returned 404, attempting direct Cognito signup');
           // Try direct Cognito signup via service (the service handles this internally)
           const fallbackResult = await authService.signup(username, password, attributes);
           
@@ -768,7 +717,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw serviceError;
       }
     } catch (err: any) {
-      console.error('Error during signup:', err);
       setError({ message: err.message || 'Signup failed' });
       
       // FOCUSED UPDATE: Enhanced check for email exists error

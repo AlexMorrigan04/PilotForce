@@ -59,7 +59,6 @@ const Map = React.forwardRef<mapboxgl.Map, MapProps>(({
   // Handle markers
   useEffect(() => {
     if (!map) {
-      console.error("Map is not initialized. Ensure the browser supports required features.");
       return;
     }
 

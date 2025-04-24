@@ -39,7 +39,6 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     try {
       for (let i = 0; i < totalFiles; i++) {
         const file = files[i];
-        console.log(`Processing file ${i+1}/${totalFiles}: ${file.name}`);
         
         // Upload image with metadata extraction
         const result = await uploadImageWithMetadata(file, bookingId, awsConfig);
@@ -63,16 +62,9 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
             const heading = getNumberValue(geo, 'heading');
             const altitude = getNumberValue(geo, 'altitude');
             
-            console.log(`Image Metadata for ${file.name}:`);
-            console.log(`- Coordinates: ${latitude !== undefined ? latitude.toFixed(6) : 'N/A'}, ${longitude !== undefined ? longitude.toFixed(6) : 'N/A'}`);
-            console.log(`- Heading: ${heading !== undefined ? heading.toFixed(1) + '°' : 'Not available'}`);
-            console.log(`- Altitude: ${altitude !== undefined ? altitude.toFixed(1) + 'm' : 'Not available'}`);
-            console.log(`- Raw geolocation: ${JSON.stringify(geo, null, 2)}`);
           } else {
-            console.log(`No geolocation data found for ${file.name}`);
           }
         } else {
-          console.error(`Failed to upload ${file.name}:`, result.error);
           if (onUploadError) {
             onUploadError(`Failed to upload ${file.name}: ${result.error}`);
           }
@@ -99,10 +91,6 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         img.geolocation && img.geolocation.altitude
       ).length;
       
-      console.log(`Upload Summary for ${newlyUploadedImages.length} images:`);
-      console.log(`- ${withCoordinates} images with GPS coordinates`);
-      console.log(`- ${withHeading} images with heading/direction data`);
-      console.log(`- ${withAltitude} images with altitude data`);
       
       // Call the onUploadComplete callback with the newly uploaded images
       if (onUploadComplete && newlyUploadedImages.length > 0) {
@@ -114,7 +102,6 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
         fileInputRef.current.value = '';
       }
     } catch (error) {
-      console.error('Error in upload process:', error);
       if (onUploadError) {
         onUploadError(`Upload process failed: ${error instanceof Error ? error.message : String(error)}`);
       }

@@ -21,7 +21,6 @@ const AccessDenied: React.FC = () => {
         );
         setUserInfo(JSON.parse(jsonPayload));
       } catch (error) {
-        console.error("Failed to decode token:", error);
       }
     }
   }, []);

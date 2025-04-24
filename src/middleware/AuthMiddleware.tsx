@@ -40,7 +40,6 @@ const AuthMiddleware: React.FC<AuthMiddlewareProps> = ({ children }) => {
         }
       } else if (needsSessionRefresh()) {
         // Token exists but is going to expire soon, refresh it proactively
-        console.log('Token will expire soon, refreshing proactively...');
         await checkAuth();
       }
       
@@ -58,10 +57,8 @@ const AuthMiddleware: React.FC<AuthMiddlewareProps> = ({ children }) => {
       
       // If user has been active in the last 10 minutes
       if (timeSinceActivity < 10 * 60 * 1000) {
-        console.log('User active, checking token status...');
         
         if (needsSessionRefresh()) {
-          console.log('Refreshing token during periodic check');
           await checkAuth();
         }
       }

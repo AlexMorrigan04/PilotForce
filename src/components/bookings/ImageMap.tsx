@@ -89,18 +89,14 @@ export const ImageMap: React.FC<ImageMapProps> = ({
 
   useEffect(() => {
     if (geoTiffResources && geoTiffResources.length > 0) {
-      console.log('📊 ImageMap: Received GeoTIFF resources:', geoTiffResources);
       MapboxLogger.log(`Received ${geoTiffResources.length} GeoTIFF resources from FlightDetails component`);
       geoTiffResources.forEach((resource, index) => {
-        console.log(`📊 GeoTIFF ${index + 1} URL:`, resource.url || resource.presignedUrl);
-        console.log(`📊 GeoTIFF ${index + 1} Name:`, resource.name || resource.FileName);
       });
     }
   }, [geoTiffResources]);
 
   useEffect(() => {
     if (mapInstance && geoTiffUrl && geoTiffFilename) {
-      console.log('📊 ImageMap: GeoTIFF URL available on map load:', geoTiffUrl);
       MapboxLogger.log('GeoTIFF URL is available on map load');
       addGeoTiff(geoTiffUrl);
     }
@@ -108,21 +104,17 @@ export const ImageMap: React.FC<ImageMapProps> = ({
 
   useEffect(() => {
     if (mapInstance && geoTiffResources?.length > 0) {
-      console.log('📊 ImageMap: Received GeoTIFF resources:', geoTiffResources);
       MapboxLogger.log(`Received ${geoTiffResources.length} GeoTIFF resources from FlightDetails component`);
       
       geoTiffResources.forEach((resource, index) => {
         const url = resource.url || resource.presignedUrl;
         const name = resource.name || resource.FileName;
-        console.log(`📊 GeoTIFF ${index + 1} URL: ${url}`);
-        console.log(`📊 GeoTIFF ${index + 1} Name: ${name}`);
       });
       
       if (mapInstance.loaded() && !geoTiffLoaded) {
         const firstGeoTiff = geoTiffResources[0];
         const url = firstGeoTiff.url || firstGeoTiff.presignedUrl;
         if (url) {
-          console.log('📊 Loading first GeoTiff from resources');
           addGeoTiff(url);
         }
       }
@@ -130,12 +122,10 @@ export const ImageMap: React.FC<ImageMapProps> = ({
   }, [mapInstance, geoTiffResources]);
 
   const addGeoTiff = async (url: string) => {
-    console.log('📊 addGeoTiff called with:', url ? `${url.substring(0, 50)}...` : 'undefined URL');
     if (!url) return;
 
     try {
       const normalizedUrl = normalizeGeoTiffUrl(url);
-      console.log('📊 Normalized GeoTiff URL:', normalizedUrl ? `${normalizedUrl.substring(0, 50)}...` : 'undefined URL');
       
       const isValid = await testGeoTiffUrl(normalizedUrl);
       
@@ -143,14 +133,11 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         console.warn('📊 GeoTiff URL failed validation, trying alternative URLs');
         
         const alternativeUrls = generateAlternativeGeoTiffUrls(normalizedUrl);
-        console.log(`📊 Generated ${alternativeUrls.length} alternative URLs to try`);
         
         let validUrl = null;
         for (const altUrl of alternativeUrls) {
-          console.log(`📊 Trying alternative URL: ${altUrl.substring(0, 100)}...`);
           const altIsValid = await testGeoTiffUrl(altUrl);
           if (altIsValid) {
-            console.log('📊 Alternative URL is valid, using it');
             validUrl = altUrl;
             break;
           }
@@ -161,35 +148,29 @@ export const ImageMap: React.FC<ImageMapProps> = ({
           return;
         }
         
-        console.error('📊 None of the GeoTiff URLs are valid');
         
         try {
           const report = await createGeoTiffDiagnosticReport(normalizedUrl);
           
           const validUrlFromReport = report.alternativeUrlsResults.find(result => result.isValid);
           if (validUrlFromReport) {
-            console.log('📊 Found valid URL in diagnostic report:', validUrlFromReport.url);
             addRasterLayer(validUrlFromReport.url);
             return;
           }
           
           setGeoTiffError('Failed to load GeoTiff: URL not accessible. Presigned URL may have expired.');
         } catch (diagnosticError) {
-          console.error('📊 Error during diagnostic:', diagnosticError);
           setGeoTiffError('Failed to load GeoTiff: URL not accessible');
         }
       } else {
-        console.log('📊 GeoTiff URL is valid');
         addRasterLayer(normalizedUrl);
       }
     } catch (error) {
-      console.error('📊 Error in addGeoTiff:', error);
       setGeoTiffError(`Failed to load GeoTiff: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
   const addRasterLayer = async (url: string) => {
-    console.log('📊 Adding raster layer with URL:', url ? `${url.substring(0, 50)}...` : 'undefined URL');
     
     if (!mapInstance || !url) return;
     
@@ -220,7 +201,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
       let geoTiffAdded = false;
       
       try {
-        console.log('📊 Attempting to load and parse GeoTIFF directly...');
         
         const tiff = await fromUrl(url);
         const image = await tiff.getImage();
@@ -229,8 +209,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         const height = image.getHeight();
         const bbox = image.getBoundingBox();
         
-        console.log('📊 GeoTIFF dimensions:', width, 'x', height);
-        console.log('📊 GeoTIFF bounding box:', bbox);
         
         const metadata = {
           width,
@@ -306,13 +284,11 @@ export const ImageMap: React.FC<ImageMapProps> = ({
             { padding: 50 }
           );
           
-          console.log('📊 Successfully added GeoTIFF as image layer');
           setGeoTiffLoaded(true);
           setGeoTiffError(null);
           geoTiffAdded = true;
         } catch (layerError) {
           if (layerError instanceof Error && layerError.message && layerError.message.includes('already a source with ID')) {
-            console.log('📊 GeoTIFF is already loaded on the map');
             setGeoTiffLoaded(true);
             setGeoTiffError(null);
             geoTiffAdded = true;
@@ -322,10 +298,8 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         }
       } catch (directLoadError) {
         if (!geoTiffAdded) {
-          console.error('📊 Error with direct GeoTIFF loading:', directLoadError);
           
           try {
-            console.log('📊 Creating fallback visualization for GeoTIFF area');
             
             let bounds: [number, number, number, number];
             
@@ -395,17 +369,14 @@ export const ImageMap: React.FC<ImageMapProps> = ({
               { padding: 50 }
             );
             
-            console.log('📊 Added GeoTIFF area visualization with bounds:', bounds);
             setGeoTiffLoaded(true);
             setGeoTiffError('The GeoTIFF format cannot be directly displayed in browsers. Showing coverage area visualization. Download the file to view in a GIS application.');
           } catch (fallbackError) {
-            console.error('📊 Error creating fallback visualization:', fallbackError);
             setGeoTiffError('Could not display GeoTIFF or create visualization. The file may be inaccessible or in an unsupported format.');
           }
         }
       }
     } catch (error) {
-      console.error('📊 Error in addRasterLayer:', error);
       setGeoTiffError(`Failed to add GeoTIFF: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
@@ -418,16 +389,12 @@ export const ImageMap: React.FC<ImageMapProps> = ({
       return;
     }
     
-    console.log('🔍 DEBUG: Starting GeoTiff diagnostic');
-    console.log('🔍 Original URL:', geoTiffUrl);
     
     analyzeS3Url(geoTiffUrl);
     
     try {
       setGeoTiffError('Running diagnostic...');
       const report = await createGeoTiffDiagnosticReport(geoTiffUrl);
-      console.log('🔍 Diagnostic Report:');
-      console.log(report);
       setGeoTiffError(`Diagnostic complete. See console for results.`);
       
       const reportString = JSON.stringify(report, null, 2);
@@ -445,7 +412,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         setGeoTiffError(null);
       }, 5000);
     } catch (error) {
-      console.error('🔍 Error running diagnostic:', error);
       setGeoTiffError(`Diagnostic error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
@@ -456,10 +422,8 @@ export const ImageMap: React.FC<ImageMapProps> = ({
     const map = event.target;
     setMapInstance(map);
     if (geoTiffUrl) {
-      console.log('📊 ImageMap: GeoTIFF URL available on map load:', geoTiffUrl);
       MapboxLogger.log("GeoTIFF URL is available on map load");
     } else if (geoTiffResources?.length > 0) {
-      console.log('📊 ImageMap: GeoTIFF resources available on map load:', geoTiffResources.length);
       MapboxLogger.log(`${geoTiffResources.length} GeoTIFF resources available on map load`);
     }
     if (onMapLoad) {

@@ -55,12 +55,10 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
     if (user && user.username) {
       // Store the username in local storage for Basic Auth
       localStorage.setItem('auth_username', user.username);
-      console.log('Stored username for auth in localStorage');
       
       // Check if we have a stored access password
       if (!localStorage.getItem('auth_password') && user.accessPassword) {
         localStorage.setItem('auth_password', user.accessPassword);
-        console.log('Stored access password for auth in localStorage');
       }
     }
   }, [user]);
@@ -79,7 +77,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         return;
       }
       
-      console.log('All users before filtering:', users);
       
       // Filter all users that belong to this company
       const filteredUsers = users.filter(u => {
@@ -87,7 +84,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         return userCompanyId === currentCompanyId;
       });
       
-      console.log('Filtered users for company:', filteredUsers);
       
       // Define the confirmed regular users and pending users
       const regularUsers: CompanyUser[] = [];
@@ -117,8 +113,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         regularUsers.push(u);
       });
       
-      console.log('Regular users found:', regularUsers);
-      console.log('Pending users found:', pendingUsersData);
       
       setCompanyUsers(regularUsers);
       setPendingUsers(pendingUsersData);
@@ -178,7 +172,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
     if (processingUserId) return;
     
     if (!targetCompanyId) {
-      console.error("Cannot remove user: CompanyId is undefined");
       setDeleteError("Missing company ID for this user");
       return;
     }
@@ -192,11 +185,9 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         const token = localStorage.getItem('idToken');
         
         if (!token) {
-          console.error("No authentication token available");
           throw new Error('No authentication token available. Please log in again.');
         }
         
-        console.log('Using token for authorization - simplified approach');
         
         // Simplified request using Bearer token directly (matching MakeBookings pattern)
         const response = await axios.delete(
@@ -214,11 +205,9 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           if (onRefreshUsers) onRefreshUsers();
         }
       } catch (error: any) {
-        console.error('Error removing user:', error);
         
         if (error.response?.status === 401) {
           // Handle 401 errors with basic UI update and error message
-          console.log('Authentication error - updating UI only');
           
           // Even with auth error, update UI for better user experience
           setCompanyUsers(prevUsers => prevUsers.filter(u => u.UserId !== targetUserId));
@@ -244,7 +233,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
     if (processingUserId) return;
     
     if (!targetCompanyId) {
-      console.error("Cannot approve user: CompanyId is undefined");
       setDeleteError("Missing company ID for this user");
       return;
     }
@@ -253,10 +241,8 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       setProcessingUserId(targetUserId);
       setDeleteError(null);
       
-      console.log(`Attempting to approve user ${targetUserId} for company ${targetCompanyId}`);
       
       // Update the UI optimistically (even if the API call fails)
-      console.log('Updating UI optimistically');
       setPendingUsers(prevUsers => prevUsers.filter(u => u.UserId !== targetUserId));
       
       // Add user to approved users list in the UI
@@ -277,7 +263,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         
         // Try admin API without problematic Cache-Control header
         try {
-          console.log('Attempting to update user through admin API');
           
           // Create a complete user update with all necessary fields explicitly set
           const userUpdate = {
@@ -291,7 +276,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
             UserId: targetUserId
           };
           
-          console.log('Sending user update with payload:', userUpdate);
           
           const response = await axios.put(
             `${process.env.REACT_APP_API_URL}/admin/users/${targetUserId}`, 
@@ -304,8 +288,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
             }
           );
           
-          console.log('Admin API update successful:', response.data);
-          console.log('HTTP Status:', response.status);
           
           apiSuccess = response.status === 200;
           successMessage = response.data?.message || 'User updated successfully';
@@ -313,11 +295,9 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           // Since the API was successful, schedule a refresh of the page after a delay
           // This will ensure we reload the data from the server
           if (apiSuccess) {
-            console.log('API was successful, scheduling refresh after delay');
             
             // First try with the callback if provided
             if (onRefreshUsers) {
-              console.log('Using refresh callback');
               setTimeout(() => {
                 onRefreshUsers();
               }, 2000);
@@ -327,7 +307,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
             alert(`User approved successfully: ${successMessage}`);
           }
         } catch (adminApiError) {
-          console.error('Admin API approach failed with error:', adminApiError);
           
           // Try another approach with the original companies endpoint
           try {
@@ -349,16 +328,13 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
               }
             );
             
-            console.log('Direct update successful:', directUpdateResponse.data);
             apiSuccess = directUpdateResponse.status === 200;
             successMessage = directUpdateResponse.data?.message || 'User updated successfully';
             
             // If direct update was successful, schedule a refresh
             if (apiSuccess) {
-              console.log('Direct API was successful, scheduling refresh after delay');
               
               if (onRefreshUsers) {
-                console.log('Using refresh callback');
                 setTimeout(() => {
                   onRefreshUsers();
                 }, 2000);
@@ -368,7 +344,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
               alert(`User approved successfully: ${successMessage}`);
             }
           } catch (directUpdateError) {
-            console.error('Direct update failed:', directUpdateError);
           }
         }
       } catch (apiError) {
@@ -397,7 +372,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       if (onRefreshUsers) onRefreshUsers();
       
     } catch (error: any) {
-      console.error('Error in overall approval process:', error);
       setDeleteError('Note: User appears approved in the interface, but changes may not persist after page refresh.');
       if (onRefreshUsers) onRefreshUsers();
     } finally {
@@ -409,7 +383,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
     if (processingUserId) return;
     
     if (!targetCompanyId) {
-      console.error("Cannot deny user: CompanyId is undefined");
       setDeleteError("Missing company ID for this user");
       return;
     }
@@ -418,10 +391,8 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       setProcessingUserId(targetUserId);
       setDeleteError(null);
       
-      console.log(`Attempting to deny user ${targetUserId} for company ${targetCompanyId}`);
       
       // Update the UI optimistically (even if the API call fails)
-      console.log('Updating UI optimistically');
       setPendingUsers(prevUsers => prevUsers.filter(u => u.UserId !== targetUserId));
       
       // Now make the API call in the background - we'll try multiple approaches without problematic headers
@@ -431,7 +402,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         
         // Try admin API without problematic Cache-Control header
         try {
-          console.log('Attempting to deny user through admin API');
           const response = await axios.put(
             `${process.env.REACT_APP_API_URL}/admin/users/${targetUserId}`, 
             {
@@ -448,15 +418,12 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
             }
           );
           
-          console.log('Admin API update successful:', response.data);
           return;
         } catch (adminApiError) {
-          console.log('Admin API approach failed, trying alternative endpoint');
         }
         
         // Try with query param approach but fixed for TypeScript
         try {
-          console.log('Attempting to update via query parameter token');
           
           if (!idToken) {
             throw new Error('No token available for query parameter auth');
@@ -476,15 +443,12 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
             }
           );
           
-          console.log('Query parameter auth successful:', response.data);
           return;
         } catch (queryParamError) {
-          console.log('Query parameter approach failed, trying direct lambda invoke');
         }
         
         // Try without axios - using fetch directly with minimal headers
         try {
-          console.log('Attempting with fetch and minimal headers');
           
           if (!idToken) {
             throw new Error('No token available for fetch auth');
@@ -507,22 +471,17 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           );
           
           if (response.ok) {
-            console.log('Fetch with minimal headers successful');
             const data = await response.json();
-            console.log('Response data:', data);
             return;
           } else {
-            console.log('Fetch failed with status:', response.status);
             throw new Error(`Fetch failed with status: ${response.status}`);
           }
         } catch (fetchError) {
-          console.log('Fetch approach failed');
         }
         
         // As a last resort, try using a proxy endpoint
         try {
           // Try our own proxy if available
-          console.log('Attempting through built-in proxy');
           
           // Browsers enforce CORS, but server-side code doesn't
           // If we have a proxy endpoint in our app, use that
@@ -540,10 +499,8 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
             }
           );
           
-          console.log('Proxy update successful:', response.data);
           return;
         } catch (proxyError) {
-          console.log('Proxy approach failed or not available');
         }
         
         console.warn('All API approaches failed, but UI is updated for better UX');
@@ -559,7 +516,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       if (onRefreshUsers) onRefreshUsers();
       
     } catch (error: any) {
-      console.error('Error in overall denial process:', error);
       // UI should still be updated optimistically
       
       setDeleteError('Note: User appears denied in the interface, but changes may not persist after page refresh.');
@@ -579,7 +535,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       const result = await refreshToken();
       
       if (result && result.success) {
-        console.log('Token refreshed successfully');
         return true;
       }
       
@@ -593,11 +548,9 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           const loginResult = await login({ username, password }); // Fix: Use object parameter
           
           if (loginResult.success && loginResult.idToken) {
-            console.log('Successfully refreshed tokens via direct login');
             return true;
           }
         } catch (loginError) {
-          console.error('Login attempt failed:', loginError);
         }
       }
       
@@ -605,7 +558,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       const refreshTokenStr = localStorage.getItem('refreshToken');
       
       if (refreshTokenStr) {
-        console.log('Attempting direct token refresh with stored refresh token');
         
         try {
           const response = await axios.post(
@@ -626,7 +578,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
                 const parsedBody = JSON.parse(response.data.body);
                 tokens = parsedBody.tokens || parsedBody;
               } catch (e) {
-                console.error('Error parsing response body:', e);
               }
             } else {
               tokens = response.data.tokens || response.data;
@@ -642,18 +593,15 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
               localStorage.setItem('refreshToken', refreshToken);
               sessionStorage.setItem('idToken', idToken);
               
-              console.log('Token refreshed via direct API call');
               return true;
             }
           }
         } catch (apiError) {
-          console.error('Direct token refresh failed:', apiError);
         }
       }
       
       return false;
     } catch (error) {
-      console.error('Token refresh failed:', error);
       return false;
     }
   };
@@ -683,7 +631,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           const bufferTime = 5 * 60 * 1000; // 5 minutes in milliseconds
           
           if (expirationTime - currentTime < bufferTime) {
-            console.log('Token is expired or about to expire, refreshing...');
             return await refreshTokenBeforeRequest();
           }
           
@@ -697,7 +644,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       // If we can't determine expiration, try to refresh anyway
       return await refreshTokenBeforeRequest();
     } catch (error) {
-      console.error('Error in refreshTokenIfNeeded:', error);
       return false;
     }
   };
@@ -709,11 +655,9 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       const password = localStorage.getItem('auth_password');
       
       if (!username || !password) {
-        console.error('No stored credentials found for reauthentication');
         return null;
       }
       
-      console.log('Attempting direct login to obtain fresh token');
       
       try {
         // Try to import and use the authServices login function
@@ -721,11 +665,9 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         const loginResponse = await authServices.login({ username, password }); // Fix: Use object parameter
         
         if (loginResponse.success && loginResponse.idToken) {
-          console.log('Successfully obtained fresh token via authServices.login');
           return loginResponse.idToken;
         }
       } catch (importError) {
-        console.error('Error using authServices.login:', importError);
       }
       
       // Fall back to direct axios call if import fails
@@ -742,7 +684,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           const parsedBody = JSON.parse(response.data.body);
           tokens = parsedBody.tokens || parsedBody;
         } catch (parseError) {
-          console.error('Failed to parse response body:', parseError);
         }
       } else {
         tokens = response.data.tokens || response.data;
@@ -768,13 +709,11 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         if (accessToken) localStorage.setItem('accessToken', accessToken);
         if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
         
-        console.log('Obtained fresh token via login');
         return idToken;
       }
       
       return null;
     } catch (error) {
-      console.error('Error getting fresh token via login:', error);
       return null;
     }
   };
@@ -787,7 +726,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       const refreshTokenStr = localStorage.getItem('refreshToken');
       
       if (refreshTokenStr) {
-        console.log('Attempting emergency token refresh with stored refresh token');
         
         try {
           const response = await axios.post(
@@ -805,7 +743,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
                 const parsedBody = JSON.parse(response.data.body);
                 tokens = parsedBody.tokens || parsedBody;
               } catch (e) {
-                console.error('Error parsing response body:', e);
               }
             } else {
               tokens = response.data.tokens || response.data;
@@ -829,12 +766,10 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
               if (accessToken) localStorage.setItem('accessToken', accessToken);
               if (newRefreshToken) localStorage.setItem('refreshToken', newRefreshToken);
               
-              console.log('Token refreshed successfully');
               return true;
             }
           }
         } catch (refreshError) {
-          console.error('Error refreshing token:', refreshError);
         }
       }
       
@@ -843,7 +778,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       const password = localStorage.getItem('auth_password');
       
       if (username && password) {
-        console.log('Attempting login with stored credentials');
         
         try {
           const loginResponse = await axios.post(
@@ -880,19 +814,16 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
               if (accessToken) localStorage.setItem('accessToken', accessToken);
               if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
               
-              console.log('Successfully obtained fresh token via login');
               return true;
             }
           }
         } catch (loginError) {
-          console.error('Error logging in with stored credentials:', loginError);
         }
       }
       
       console.warn('All token refresh methods failed');
       return false;
     } catch (error) {
-      console.error('Error in emergency token refresh:', error);
       return false;
     }
   };
@@ -955,7 +886,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
       
       return null;
     } catch (error) {
-      console.error('Error getting auth header:', error);
       return null;
     }
   };

@@ -76,7 +76,6 @@ const Assets: React.FC = () => {
     event.stopPropagation(); // Prevent triggering the parent onClick
     
     if (sessionStorage.getItem('navigating_to_booking')) {
-      console.log('Navigation already in progress, ignoring duplicate click');
       return;
     }
     
@@ -85,7 +84,6 @@ const Assets: React.FC = () => {
     try {
       // Safely clean up the map to prevent errors
       if (mapRef.current) {
-        console.log('Cleaning up map instance before navigation');
         try {
           setMapLoaded(false);
           
@@ -162,19 +160,15 @@ const Assets: React.FC = () => {
     let companyId = user?.companyId;
 
     // Log the user object for debugging
-    console.log('🔍 User object:', user);
 
     // Fallback to localStorage if companyId is not available in the user object
     if (!companyId) {
-      console.log('⚠️ CompanyId not found in user object. Checking localStorage...');
       const savedUserStr = localStorage.getItem('user');
       if (savedUserStr) {
         try {
           const savedUser = JSON.parse(savedUserStr);
-          console.log('🔄 Retrieved user data from localStorage:', savedUser);
           companyId = savedUser.companyId;
         } catch (e) {
-          console.error('❌ Error parsing user data from localStorage:', e);
         }
       } else {
         console.warn('⚠️ No user data found in localStorage.');
@@ -192,7 +186,6 @@ const Assets: React.FC = () => {
     setError(null);
 
     try {
-      console.log(`🔄 Fetching assets for company ID: ${companyId}`);
       // Explicitly pass the companyId string to getAssets
       const assetsData = await getAssets(companyId.toString());
       
@@ -200,7 +193,6 @@ const Assets: React.FC = () => {
         console.warn('⚠️ No assets found in the API response');
       }
       
-      console.log('Fetched assets:', assetsData);
       setAssets(assetsData);
 
       // If assets found, center the map on the first asset's center point
@@ -214,7 +206,6 @@ const Assets: React.FC = () => {
         }));
       }
     } catch (err: any) {
-      console.error('Error fetching assets:', err);
 
       // Disable automatic redirects on auth errors - let user manually retry
       if (err.message && (
@@ -252,7 +243,6 @@ const Assets: React.FC = () => {
             companyId: savedUser.companyId
           });
         } catch (e) {
-          console.error('Error parsing saved user data', e);
           setUserInfo({ name: 'Demo User' });
         }
       } else {
@@ -343,8 +333,6 @@ const Assets: React.FC = () => {
     // The actual zoom will be determined by fitBounds in the UI
     const defaultZoom = 12; // Will be overridden by fitBounds
     
-    console.log('📍 Calculated bounds:', paddedBounds);
-    console.log('📍 Calculated center:', [centerLongitude, centerLatitude]);
     
     return {
       longitude: centerLongitude,
@@ -405,7 +393,6 @@ const Assets: React.FC = () => {
     
     if (optimizedViewState.bounds && mapRef.current) {
       try {
-        console.log('Fitting to bounds:', optimizedViewState.bounds);
         
         // Use fitBounds instead of just setting center and zoom
         mapRef.current.fitBounds(optimizedViewState.bounds, {
@@ -884,7 +871,6 @@ const Assets: React.FC = () => {
                 style={{ position: 'absolute', width: '100%', height: '100%', top: 0, left: 0 }}
                 mapStyle={viewState.mapStyle}
                 onLoad={(evt) => {
-                  console.log('Map loaded successfully!');
                   mapRef.current = evt.target;
                   setMapLoaded(true);
                   

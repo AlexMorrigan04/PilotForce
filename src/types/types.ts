@@ -42,6 +42,7 @@ export interface QuickAction {
   onClick?: () => void;
 }
 
+// Enhanced User interface with security considerations
 export interface User {
   id: string;
   username: string;
@@ -49,7 +50,13 @@ export interface User {
   companyId: string;
   role?: string;
   emailDomain?: string;
-  phoneNumber?: string; // Add phone number to the User interface
+  phoneNumber?: string;
+  lastLoginAt?: string;
+  passwordLastChangedAt?: string;
+  mfaEnabled?: boolean;
+  accountLocked?: boolean;
+  loginAttempts?: number;
+  requirePasswordChange?: boolean;
 }
 
 export interface Asset {
@@ -66,4 +73,25 @@ export interface Asset {
   createdAt: string;
   updatedAt?: string;
   tags?: string[];
+}
+
+// Add security validation types
+export interface ValidationRule {
+  required?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: RegExp;
+  customValidator?: (value: any) => boolean;
+  errorMessage?: string;
+}
+
+export interface SecurityConfig {
+  passwordMinLength: number;
+  passwordRequiresLowercase: boolean;
+  passwordRequiresUppercase: boolean;
+  passwordRequiresNumber: boolean;
+  passwordRequiresSymbol: boolean;
+  sessionTimeoutMinutes: number;
+  mfaRequired: boolean;
+  maxLoginAttempts: number;
 }

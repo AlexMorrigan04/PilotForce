@@ -186,7 +186,6 @@ const ResponsiveImage: React.FC<{
     const nextUrl = [src, ...(urls || [])].find(url => !failedUrls.has(url) && url !== currentSrc);
     
     if (nextUrl) {
-      console.log(`Image load failed, trying alternative: ${nextUrl.substring(0, 50)}...`);
       setCurrentSrc(nextUrl);
     } else {
       console.warn(`All image URLs failed for ${alt}`);
@@ -209,7 +208,6 @@ const FlightDetails: React.FC = () => {
   const bookingId = params.id || params.bookingId || localStorage.getItem('selectedBookingId');
   const navigate = useNavigate();
 
-  console.log(`FlightDetails: Retrieved booking ID from params: ${bookingId}`);
 
   // Add state for page loading
   const [pageLoading, setPageLoading] = useState<boolean>(localStorage.getItem('isFlightDetailsLoading') === 'true');
@@ -350,7 +348,6 @@ const FlightDetails: React.FC = () => {
       
       return url;
     } catch (e) {
-      console.error('Error normalizing S3 URL:', e);
       return url;
     }
   };
@@ -363,7 +360,6 @@ const FlightDetails: React.FC = () => {
     
     // Process all resources from the Resources table without filtering out GeoTIFFs
     if (bookingData.images && Array.isArray(bookingData.images)) {
-      console.log(`✅ Found ${bookingData.images.length} resources in the booking response`);
       
       // Filter out GeoTIFF files to handle separately
       const regularResources = bookingData.images.filter((img: any) => {
@@ -388,11 +384,9 @@ const FlightDetails: React.FC = () => {
       
       // Set all regular images
       setImages(regularResources);
-      console.log(`✅ Processed ${regularResources.length} regular image resources`);
       
       // Process GeoTIFF files if found in resources
       if (geoTiffFiles.length > 0) {
-        console.log(`✅ Found ${geoTiffFiles.length} GeoTIFF resources in the booking response`);
         // Ensure we normalize the URLs for GeoTIFF files
         // Define interface for processed GeoTIFF files
         interface ProcessedGeoTiff extends BookingImage {
@@ -412,22 +406,18 @@ const FlightDetails: React.FC = () => {
           const firstGeoTiff = processedGeoTiffs[0];
           setGeoTiffFilename(firstGeoTiff.FileName || firstGeoTiff.name || 'geotiff.tif');
           setGeoTiffUrl(firstGeoTiff.url);
-          console.log('✅ Set primary GeoTIFF from Resources table:', firstGeoTiff.FileName || firstGeoTiff.name);
-          console.log('✅ GeoTIFF URL:', firstGeoTiff.url.substring(0, 100) + '...');
         }
       }
       
       // Extract locations from images for map display
       const locations = extractImageLocations(regularResources);
       if (locations.length > 0) {
-        console.log(`✅ Extracted ${locations.length} image locations for map`);
         setImageLocations(locations);
       }
     }
     
     // Process GeoTIFF data from the GeoTiffChunks table
     if (bookingData.geoTiff) {
-      console.log('✅ Found GeoTIFF data in booking response:', bookingData.geoTiff);
       
       // Set the GeoTIFF filename and normalize the URL
       setGeoTiffFilename(bookingData.geoTiff.filename);
@@ -435,7 +425,6 @@ const FlightDetails: React.FC = () => {
       // Normalize the URL to handle any encoding issues
       const normalizedUrl = normalizeS3Url(bookingData.geoTiff.url);
       setGeoTiffUrl(normalizedUrl);
-      console.log('✅ Normalized GeoTIFF URL:', normalizedUrl.substring(0, 100) + '...');
       
       // Create a consistent resource object and add to geoTiffResources
       const geoTiffResource = {
@@ -464,7 +453,6 @@ const FlightDetails: React.FC = () => {
         );
         
         if (!exists) {
-          console.log('✅ Added GeoTIFF from GeoTiffChunks table to resources list');
           return [geoTiffResource, ...prevResources];
         }
         return prevResources;
@@ -472,11 +460,9 @@ const FlightDetails: React.FC = () => {
       
       // Log additional information
       if (bookingData.geoTiff.isReassembled) {
-        console.log('✅ Using reassembled GeoTIFF file from GeoTiffChunks table');
       }
       
       if (bookingData.geoTiff.resourceId) {
-        console.log(`✅ GeoTIFF associated with resource ID: ${bookingData.geoTiff.resourceId}`);
       }
     }
   };
@@ -489,16 +475,12 @@ const FlightDetails: React.FC = () => {
         return;
       }
 
-      console.log('====== FLIGHT DETAILS PAGE - FETCH BOOKING ======');
-      console.log(`Attempting to fetch booking ID: ${bookingId}`);
 
       try {
         try {
           const { getBookingById } = await import('../utils/bookingUtils');
-          console.log('Using bookingUtils.getBookingById method...');
           
           const bookingData = await getBookingById(bookingId);
-          console.log('✅ Successfully fetched booking via API:', bookingData);
           
           // Use the improved processing function to handle the booking data
           processBookingData(bookingData);
@@ -507,13 +489,11 @@ const FlightDetails: React.FC = () => {
           
         } catch (apiError: unknown) {
           console.warn('❌ API method failed:', apiError instanceof Error ? apiError.message : String(apiError));
-          console.log('Falling back to direct fetch method...');
         }
         
         const apiUrl = process.env.REACT_APP_API_URL;
         
         const endpoint = `${apiUrl}/bookings/${bookingId}`;
-        console.log(`Trying endpoint: ${endpoint}`);
         
         const token = localStorage.getItem('idToken') || localStorage.getItem('token');
         
@@ -538,18 +518,15 @@ const FlightDetails: React.FC = () => {
         if (!contentType || !contentType.includes('application/json')) {
           console.warn(`Unexpected content type: ${contentType}`);
           const textResponse = await response.text();
-          console.log('Raw response text:', textResponse.substring(0, 500));
           throw new Error(`Expected JSON response but got ${contentType}`);
         }
         
         const bookingData = await response.json();
-        console.log(`✅ Booking details parsed from ${endpoint}:`, bookingData);
         
         // Use the improved processing function here too
         processBookingData(bookingData);
         
       } catch (error: unknown) {
-        console.error('❌ Error fetching booking details:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         setError(`Failed to load booking details: ${errorMessage}`);
         
@@ -557,12 +534,10 @@ const FlightDetails: React.FC = () => {
           try {
             await fallbackToDynamoDB();
           } catch (fallbackError) {
-            console.error('Fallback to DynamoDB also failed:', fallbackError);
           }
         }
       } finally {
         setIsLoading(false);
-        console.log('====== FLIGHT DETAILS PAGE - FETCH COMPLETE ======');
       }
     };
 
@@ -571,14 +546,7 @@ const FlightDetails: React.FC = () => {
 
   useEffect(() => {
     if (geoTiffResources.length > 0) {
-      console.log('🗺️ GeoTIFF resources available:', geoTiffResources.length);
       geoTiffResources.forEach((resource, index) => {
-        console.log(`🗺️ GeoTIFF ${index + 1}:`, {
-          name: resource.name || resource.FileName,
-          url: resource.url || resource.presignedUrl,
-          isReassembled: resource.isReassembled || false,
-          uploadDate: resource.uploadDate || resource.CreatedAt,
-        });
       });
     }
   }, [geoTiffResources]);
@@ -586,24 +554,18 @@ const FlightDetails: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'imageMap' && booking && bookingId && !geoTiffUrl) {
       // Only fetch GeoTIFF URL if we don't already have it
-      console.log("No GeoTIFF URL available, will attempt to load from map");
     }
   }, [activeTab, booking, bookingId, geoTiffUrl]);
 
   const extractImageLocations = (images: BookingImage[]): ImageLocation[] => {
-    console.log('Extracting locations from images:', images.length);
     
     // Debug: Inspect the actual image data structure
     if (images.length > 0) {
-      console.log('First image data structure:', JSON.stringify(images[0], null, 2));
-      console.log('Has geolocation?', Boolean(images[0].geolocation));
       if (images[0].geolocation) {
-        console.log('Geolocation structure:', JSON.stringify(images[0].geolocation, null, 2));
       }
       
       // Check if metadata field contains geolocation
       if (images[0].metadata) {
-        console.log('Metadata field:', JSON.stringify(images[0].metadata, null, 2));
       }
     }
 
@@ -654,13 +616,11 @@ const FlightDetails: React.FC = () => {
       
       // Handle your specific example format: { "geolocation" : { "M" : { "latitude" : { "M" : { "N" : { "S" : "51.45560969444445" } } } } } }
       if (obj.M && obj.M[prop] && obj.M[prop].M && obj.M[prop].M.N && obj.M[prop].M.N.S) {
-        console.log(`Found deeply nested DynamoDB value for ${prop}:`, obj.M[prop].M.N.S);
         return parseFloat(obj.M[prop].M.N.S);
       }
       
       // Add explicit logging to debug the structure
       if (obj.M && obj.M[prop]) {
-        console.log(`Examining DynamoDB structure for ${prop}:`, JSON.stringify(obj.M[prop]));
       }
       
       return null;
@@ -690,22 +650,16 @@ const FlightDetails: React.FC = () => {
           hasDynamoDBGeo = lat !== null && lng !== null;
           
           if (hasDynamoDBGeo) {
-            console.log(`Found geolocation in DynamoDB nested format for ${item.name || item.FileName}:`, 
-                        { lat, lng });
           }
         }
         
         // Debug: Log the results of our checks
         if (!hasDirectGeo && !hasMetadataGeo && !hasDynamoDBGeo) {
-          console.log('Image failed geolocation check:', item.name || item.FileName);
-          if (item.geolocation) console.log('Direct geolocation data:', JSON.stringify(item.geolocation));
-          if (item.metadata && item.metadata.geolocation) console.log('Metadata geolocation data:', JSON.stringify(item.metadata.geolocation));
         }
         
         return hasDirectGeo || hasMetadataGeo || hasDynamoDBGeo;
       })
       .map(item => {
-        console.log('Processing geolocation data for image:', item.name || item.FileName);
         
         // Get a URL for the image
         const url = item.url || item.ResourceUrl || item.resourceUrl || item.presignedUrl || '';
@@ -823,7 +777,6 @@ const FlightDetails: React.FC = () => {
           (item.metadata?.geolocation?.droneModel) || 
           (item.metadata?.geolocation?.drone);
         
-        console.log(`Extracted location: ${latitude}, ${longitude} for ${name}`);
         
         // Create the location object with all metadata
         return {
@@ -839,12 +792,10 @@ const FlightDetails: React.FC = () => {
         };
       });
     
-    console.log(`Extracted ${locations.length} image locations with metadata:`, locations);
     return locations;
   };
 
   const fallbackToDynamoDB = async () => {
-    console.log('Attempting DynamoDB fallback for booking and images');
     
     if (!bookingId) {
       setError("Cannot fetch booking details: Booking ID is missing");
@@ -864,7 +815,6 @@ const FlightDetails: React.FC = () => {
     if (scanData.Items && scanData.Items.length > 0) {
       const item = scanData.Items[0];
       setBooking(item);
-      console.log("✅ Booking details retrieved via DynamoDB fallback:", item);
       
       await fetchImagesFromDynamoDB(bookingId);
     } else {
@@ -877,7 +827,6 @@ const FlightDetails: React.FC = () => {
     let resourcesData: AWS.DynamoDB.DocumentClient.ScanOutput | null = null;
     
     try {
-      console.log('===== FETCHING IMAGES FROM DYNAMODB =====');
       
       const resourcesParams = {
         TableName: 'Resources',
@@ -887,14 +836,11 @@ const FlightDetails: React.FC = () => {
         }
       };
       
-      console.log('Querying Resources table with params:', JSON.stringify(resourcesParams));
       
       try {
         resourcesData = await dynamoDb.scan(resourcesParams).promise();
         
         if (resourcesData.Items && resourcesData.Items.length > 0) {
-          console.log(`✅ Found ${resourcesData.Items.length} resources in Resources table`);
-          console.log('First resource item:', JSON.stringify(resourcesData.Items[0], null, 2));
           
           const resourceFiles = resourcesData.Items.map(item => ({
             url: item.ResourceUrl,
@@ -911,7 +857,6 @@ const FlightDetails: React.FC = () => {
           }));
           
           setImages(resourceFiles);
-          console.log(`✅ Processed ${resourceFiles.length} resources from Resources table`);
           
           const urlSamples = resourceFiles.slice(0, 3).map(img => ({
             url: img.url,
@@ -919,7 +864,6 @@ const FlightDetails: React.FC = () => {
             s3Path: img.S3Path || 'missing'
           }));
           
-          console.log('Sample resource URLs:', urlSamples);
           
           // Get locations for images
           const locations = extractImageLocations(resourceFiles);
@@ -930,11 +874,8 @@ const FlightDetails: React.FC = () => {
           setIsLoadingImages(false);
           return;
         } else {
-          console.log('No resources found in Resources table, falling back to ImageUploads');
         }
       } catch (resourceError) {
-        console.error('Error querying Resources table:', resourceError);
-        console.log('Falling back to ImageUploads table');
       }
       
       const imageParams = {
@@ -948,7 +889,6 @@ const FlightDetails: React.FC = () => {
       const imageData = await dynamoDb.scan(imageParams).promise();
       
       if (imageData.Items && imageData.Items.length > 0) {
-        console.log(`✅ Found ${imageData.Items.length} images via DynamoDB fallback`);
         
         const dbImages = imageData.Items.map(item => ({
           url: item.s3Url,
@@ -960,7 +900,6 @@ const FlightDetails: React.FC = () => {
         }));
         
         setImages(dbImages);
-        console.log(`✅ Processed ${dbImages.length} images from ImageUploads table`);
         
         const locations = extractImageLocations(dbImages);
         if (locations.length > 0) {
@@ -979,7 +918,6 @@ const FlightDetails: React.FC = () => {
       const geoTiffData = await dynamoDb.scan(geoTiffParams).promise();
       
       if (geoTiffData.Items && geoTiffData.Items.length > 0) {
-        console.log("✅ Found GeoTIFF data via DynamoDB fallback");
         const geoTiff = geoTiffData.Items[0];
         setGeoTiffFilename(geoTiff.filename);
         
@@ -994,27 +932,22 @@ const FlightDetails: React.FC = () => {
             const signedUrl = s3.getSignedUrl('getObject', s3Params);
             setGeoTiffUrl(normalizeS3Url(signedUrl));
           } catch (signedUrlError) {
-            console.error("Error generating signed URL:", signedUrlError);
             setGeoTiffUrl(normalizeS3Url(geoTiff.s3Url));
           }
         }
       }
       
     } catch (error: unknown) {
-      console.error('Failed to load images from DynamoDB:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setImageError(`Failed to load images: ${errorMessage}`);
     } finally {
       setIsLoadingImages(false);
-      console.log('===== FINISHED FETCHING IMAGES =====');
     }
   };
 
   const mapToImageProps = (images: BookingImage[]): any[] => {
-    console.log(`Mapping ${images.length} images to ImageProps format`);
     
     if (images.length > 0) {
-      console.log('Input image structure sample:', JSON.stringify(images[0], null, 2));
     }
     
     const mappedImages = images
@@ -1062,11 +995,8 @@ const FlightDetails: React.FC = () => {
         };
       });
     
-    console.log(`Mapped ${mappedImages.length} valid resources for display`);
     
     if (mappedImages.length > 0) {
-      console.log('First mapped resource URL:', 
-        mappedImages[0].url.substring(0, Math.min(50, mappedImages[0].url.length)) + '...');
     }
     
     return mappedImages;
@@ -1078,7 +1008,6 @@ const FlightDetails: React.FC = () => {
     }
     
     validatingUrls.current = true;
-    console.log(`Validating ${images.length} image URLs...`);
 
     const MAX_CONCURRENT_VALIDATIONS = 3;
     const imagesToValidate = images.slice(0, MAX_CONCURRENT_VALIDATIONS);
@@ -1092,19 +1021,15 @@ const FlightDetails: React.FC = () => {
         
         try {
           import('../utils/s3ImageLoader').then(async ({ testImageUrl }) => {
-            console.log(`Finding working URL for: ${url.substring(0, 50)}...`);
             const works = await testImageUrl(url);
             
             if (works) {
-              console.log(`✅ Found working URL for image ${i}: ${url.substring(0, 50)}...`);
             }
           });
         } catch (err) {
-          console.error(`Error validating image ${i}:`, err);
         }
       }
     } finally {
-      console.log("Image URL validation complete");
       validatingUrls.current = false;
     }
   };
@@ -1114,7 +1039,6 @@ const FlightDetails: React.FC = () => {
       return;
     }
     
-    console.log("Handling refreshed URLs:", Object.keys(refreshedUrls).length);
     
     setImages(prevImages => {
       const updatedImages = [...prevImages];
@@ -1122,7 +1046,6 @@ const FlightDetails: React.FC = () => {
       Object.entries(refreshedUrls).forEach(([indexStr, url]) => {
         const index = parseInt(indexStr, 10);
         if (!isNaN(index) && index >= 0 && index < updatedImages.length && url) {
-          console.log(`Updating image ${index} with refreshed URL`);
           updatedImages[index] = {
             ...updatedImages[index],
             url: url,
@@ -1143,7 +1066,6 @@ const FlightDetails: React.FC = () => {
       const fileUrl = file.url || file.presignedUrl || '';
       const fileName = file.name || file.FileName || 'geotiff.tif';
       
-      console.log(`🔄 Starting download of GeoTIFF: ${fileName}`);
       
       if (!fileUrl) {
         throw new Error('No URL available for this GeoTIFF file');
@@ -1156,10 +1078,8 @@ const FlightDetails: React.FC = () => {
         (progress) => setGeoTiffDownloadProgress(progress)
       );
       
-      console.log(`✅ Downloaded GeoTIFF: ${fileName}`);
       
     } catch (error) {
-      console.error(`❌ Error downloading GeoTIFF file:`, error);
       alert(`Failed to download GeoTIFF: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsGeoTiffDownloading(false);
@@ -1326,7 +1246,6 @@ const FlightDetails: React.FC = () => {
 
   // Asset map load handler
   const handleAssetMapLoad = (event: any) => {
-    console.log("Asset map loaded");
     setAssetMapLoaded(true);
     
     if (asset && asset.coordinates && asset.coordinates.length > 0) {
@@ -1384,7 +1303,6 @@ const FlightDetails: React.FC = () => {
         throw new Error("No valid URLs found for download");
       }
       
-      console.log(`Starting batch download of ${validImages.length} files`);
       
       // For sequential downloads to handle large files better
       for (let i = 0; i < validImages.length; i++) {
@@ -1421,15 +1339,12 @@ const FlightDetails: React.FC = () => {
           await new Promise(resolve => setTimeout(resolve, 500));
           
         } catch (itemError) {
-          console.error("Error downloading individual file:", itemError);
           // Continue with next file even if one fails
         }
       }
       
-      console.log(`Downloaded ${completed} files out of ${validImages.length}`);
       
     } catch (error) {
-      console.error("Error downloading files:", error);
       alert("There was an error downloading the files. Please try again.");
     } finally {
       setIsDownloading(false);
@@ -2199,7 +2114,6 @@ function fitMapToAsset(target: any, asset: any) {
     });
 
   } catch (error) {
-    console.error('Error fitting map to asset:', error);
   }
 }
 

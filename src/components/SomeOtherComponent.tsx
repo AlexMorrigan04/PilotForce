@@ -14,7 +14,6 @@ const SomeOtherComponent: React.FC = (): React.ReactElement | null => {
       }).join(''));
       userInfo = JSON.parse(jsonPayload);
     } catch (error) {
-      console.error('Failed to decode token:', error);
     }
   }
 

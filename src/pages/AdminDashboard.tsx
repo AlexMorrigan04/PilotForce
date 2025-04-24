@@ -34,13 +34,11 @@ const AdminDashboard: React.FC = () => {
     const validateAdmin = async () => {
       // Ignore loading state to prevent flicker
       if (isAdmin) {
-        console.log('Admin status already confirmed by context');
         return;
       }
       
       // Check if admin via local storage
       if (localStorage.getItem('isAdmin') === 'true') {
-        console.log('Admin status confirmed via localStorage');
         return;
       }
       
@@ -50,7 +48,6 @@ const AdminDashboard: React.FC = () => {
         try {
           const { isAdminLocally } = await import('../utils/authProxy');
           if (isAdminLocally && isAdminLocally()) {
-            console.log('Admin status confirmed via local check');
             return;
           }
         } catch (importErr) {
@@ -84,12 +81,10 @@ const AdminDashboard: React.FC = () => {
                 }, 2000);
               }
             } catch (e) {
-              console.error('Error checking admin status from token:', e);
             }
           }
         }
       } catch (err) {
-        console.error('Error verifying admin status:', err);
         setError('Error verifying admin permissions');
       }
     };
@@ -103,11 +98,9 @@ const AdminDashboard: React.FC = () => {
     setError(null);
     
     try {
-      console.log('Fetching dashboard data...');
       
       // Check if the admin service methods are available
       if (!adminService.getAllUsers || !adminService.getAllBookings) {
-        console.error('Admin service methods not available. Using mock data instead.');
         // Use mock data as fallback
         setStats({
           users: 15,
@@ -138,13 +131,11 @@ const AdminDashboard: React.FC = () => {
           adminService.getAllBookings()
         ]);
         
-        console.log('Received API responses:', { usersResponse, bookingsResponse });
         
         // Get actual data from responses
         const users = (usersResponse && usersResponse.users) ? usersResponse.users : [];
         const bookings = (bookingsResponse && bookingsResponse.bookings) ? bookingsResponse.bookings : [];
         
-        console.log(`Received ${users.length} users and ${bookings.length} bookings`);
         
         // Calculate active bookings
         const activeBookingCount = bookings.filter((booking: any) => 
@@ -171,11 +162,9 @@ const AdminDashboard: React.FC = () => {
         setRecentUsers(sortedUsers);
         setRecentBookings(sortedBookings);
       } catch (apiErr) {
-        console.error('API error fetching dashboard data:', apiErr);
         throw apiErr;
       }
     } catch (err: any) {
-      console.error('Error fetching dashboard data:', err);
       setError(err.message || 'Failed to load dashboard data');
       
       // Provide fallback data so UI is not empty

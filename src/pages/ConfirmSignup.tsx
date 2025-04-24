@@ -16,7 +16,6 @@ const ConfirmSignup: React.FC = () => {
       await confirmSignUp(username, confirmationCode);
       navigate('/login');
     } catch (error) {
-      console.error('Confirmation failed');
     }
   };
 

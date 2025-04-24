@@ -112,7 +112,6 @@ const Signup: React.FC = () => {
       setDetectedCompanyName(formattedCompany);
 
     } catch (error) {
-      console.error('Error checking email domain:', error);
       setIsNewDomain(true); // Default to treating as new domain if check fails
     }
   };
@@ -149,7 +148,6 @@ const Signup: React.FC = () => {
         return;
       }
 
-      console.log('Starting signup process...');
 
       // Extract domain from email and get company name
       const domain = email.includes('@') ? email.split('@')[1] : '';
@@ -181,14 +179,12 @@ const Signup: React.FC = () => {
         attributes.phone_number = formattedPhoneNumber;
       }
 
-      console.log('Signup attributes:', attributes);
 
       // Check if this is a new company domain or existing company domain
       await checkEmailDomain(email);
 
       // Call signUp and store the result
       const result = await signUp(username, password, attributes);
-      console.log('Signup result:', result);
 
       // FOCUSED UPDATE: First check specifically for email exists condition regardless of success flag
       if (result.type === 'EmailExistsException' || 
@@ -198,7 +194,6 @@ const Signup: React.FC = () => {
           ))
       ) {
         // Always show email exists modal if that's the error, regardless of success flag
-        console.log('Email already exists detected, showing email exists modal');
         setShowEmailExistsModal(true);
         setIsSubmitting(false);
         return;
@@ -229,14 +224,12 @@ const Signup: React.FC = () => {
         setGeneralError(result.message || 'Signup failed. Please try again.');
       }
     } catch (err: any) {
-      console.error('Signup error:', err);
       
       // FOCUSED UPDATE: Also check for email exists pattern in caught exceptions
       if (err.message?.toLowerCase().includes('email already exists') || 
           err.message?.toLowerCase().includes('account with email') || 
           err.code === 'EmailExistsException' ||
           err.type === 'EmailExistsException') {
-        console.log('Email already exists exception caught, showing modal');
         setShowEmailExistsModal(true);
       } else {
         setGeneralError(err.message || 'An unexpected error occurred during signup');

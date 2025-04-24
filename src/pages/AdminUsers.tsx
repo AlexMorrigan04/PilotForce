@@ -78,17 +78,14 @@ const AdminUsers: React.FC = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      console.log('Fetching users with filters:', filters);
       const response = await adminService.getAllUsers(filters);
       
       // Check if response has users array
       if (!response || !response.users) {
-        console.error('Invalid API response format:', response);
         throw new Error('Invalid API response format');
       }
       
       // Log all users from the API response
-      console.log('Raw users from API:', response.users);
       
       // Map the API response fields to the expected format for the UserTable component
       const mappedUsers = response.users.map((user: any) => ({
@@ -103,13 +100,10 @@ const AdminUsers: React.FC = () => {
         isEnabled: user.Enabled === undefined ? (user.Status !== 'DISABLED') : user.Enabled
       }));
       
-      console.log('Mapped users for display:', mappedUsers);
       setUsers(mappedUsers);
-      console.log(`Fetched ${response.users.length} users`);
       
       setError(null);
     } catch (err: any) {
-      console.error('Error fetching users:', err);
       setError(err.message || 'Failed to load users');
     } finally {
       setLoading(false);
@@ -124,7 +118,6 @@ const AdminUsers: React.FC = () => {
       const response = await adminService.getAllCompanies();
       setCompanies(response.companies || []);
     } catch (err) {
-      console.error('Error fetching companies:', err);
     }
   };
 
@@ -214,7 +207,6 @@ const AdminUsers: React.FC = () => {
         setSelectedUsers(selectedUsers.filter(id => id !== userId));
         alert('User deleted successfully');
       } catch (err: any) {
-        console.error('Error deleting user:', err);
         setError(err.message || 'Failed to delete user');
       } finally {
         setLoading(false);
@@ -232,7 +224,6 @@ const AdminUsers: React.FC = () => {
       ));
       alert(`User ${isEnabled ? 'enabled' : 'disabled'} successfully`);
     } catch (err: any) {
-      console.error('Error toggling user access:', err);
       setError(err.message || `Failed to ${isEnabled ? 'enable' : 'disable'} user`);
     } finally {
       setLoading(false);
@@ -257,7 +248,6 @@ const AdminUsers: React.FC = () => {
         setSelectedUsers([]);
         alert('Users deleted successfully');
       } catch (err: any) {
-        console.error('Error deleting users:', err);
         setError(err.message || 'Failed to delete users');
       } finally {
         setLoading(false);
@@ -283,7 +273,6 @@ const AdminUsers: React.FC = () => {
         ));
         alert('Users disabled successfully');
       } catch (err: any) {
-        console.error('Error disabling users:', err);
         setError(err.message || 'Failed to disable users');
       } finally {
         setLoading(false);

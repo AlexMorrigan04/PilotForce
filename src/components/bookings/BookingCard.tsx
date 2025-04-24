@@ -35,7 +35,6 @@ const BookingCard: React.FC<BookingCardProps> = ({ booking, onViewBooking }) => 
         day: 'numeric'
       });
     } catch (error) {
-      console.error('Error formatting date:', error);
       return dateString || 'Date not specified';
     }
   };

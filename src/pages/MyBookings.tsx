@@ -78,7 +78,6 @@ const MyBookings: React.FC = () => {
       try {
         // Try to get user info from context first
         if (user && Object.keys(user).length > 0) {
-          console.log('Got user from context:', user);
           setUserInfo(user);
           return;
         }
@@ -100,7 +99,6 @@ const MyBookings: React.FC = () => {
                   .join('')
               );
               const tokenData = JSON.parse(jsonPayload);
-              console.log('Extracted user info from token:', tokenData);
               setUserInfo({
                 name: tokenData.name || tokenData['cognito:username'] || tokenData.email || 'User',
                 email: tokenData.email,
@@ -109,7 +107,6 @@ const MyBookings: React.FC = () => {
               });
               return;
             } catch (error) {
-              console.error('Failed to decode token payload:', error);
             }
           }
         }
@@ -119,7 +116,6 @@ const MyBookings: React.FC = () => {
         if (userData) {
           try {
             const parsedUser = JSON.parse(userData);
-            console.log('Using user data from localStorage:', parsedUser);
             setUserInfo({
               name: parsedUser.name || parsedUser.username || parsedUser.email || 'User',
               email: parsedUser.email,
@@ -127,7 +123,6 @@ const MyBookings: React.FC = () => {
               ...parsedUser
             });
           } catch (e) {
-            console.error('Error parsing user data from localStorage:', e);
             setUserInfo({ name: 'Guest User' });
           }
         } else {
@@ -136,7 +131,6 @@ const MyBookings: React.FC = () => {
           setUserInfo({ name: 'Guest User' });
         }
       } catch (error) {
-        console.error('Error loading user info:', error);
         setUserInfo({ name: 'Guest User' });
       }
     };
@@ -156,7 +150,6 @@ const MyBookings: React.FC = () => {
         // If idToken isn't available, try the regular token
         if (!token) {
           token = localStorage.getItem('token');
-          console.log('Using regular token instead of idToken');
         }
         
         // Check for user session token as last resort
@@ -166,9 +159,7 @@ const MyBookings: React.FC = () => {
             try {
               const userData = JSON.parse(userDataStr);
               token = userData.token || userData.idToken;
-              console.log('Extracted token from user data:', !!token);
             } catch (e) {
-              console.error('Error parsing user data:', e);
             }
           }
         }
@@ -177,7 +168,6 @@ const MyBookings: React.FC = () => {
           throw new Error('Authentication token not found in any storage location');
         }
 
-        console.log('Fetching bookings with user info:', userInfo);
 
         // Get the API URL from environment or use a default
         let apiUrl = process.env.REACT_APP_API_URL;
@@ -196,29 +186,21 @@ const MyBookings: React.FC = () => {
               const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
               const payload = JSON.parse(atob(base64));
               companyId = payload['custom:companyId'];
-              console.log('Extracted companyId from token:', companyId);
             }
           } catch (e) {
-            console.error('Error extracting companyId from token:', e);
           }
         }
         
         // If we have a companyId, add it to the query
         if (companyId) {
           bookingsUrl += `?companyId=${encodeURIComponent(companyId)}`;
-          console.log('Using companyId in request URL:', companyId);
         } else {
           console.warn('No companyId available for filtering bookings');
         }
 
         // Debug the token before sending
-        console.log('Token type:', typeof token);
-        console.log('Token first 20 chars:', token.substring(0, 20) + '...');
-        console.log('Token length:', token.length);
-        console.log('Token starts with Bearer?', token.startsWith('Bearer '));
 
         // IMPORTANT FIX: Use token directly (not Bearer prefix) as API Gateway adds this in the integration
-        console.log('Making request to:', bookingsUrl);
         
         const response = await fetch(bookingsUrl, {
           method: 'GET',
@@ -231,25 +213,20 @@ const MyBookings: React.FC = () => {
         });
 
         // Debug the response status
-        console.log(`API response status: ${response.status} ${response.statusText}`);
-        console.log('Response headers:', Object.fromEntries([...response.headers.entries()]));
 
         // Get the full response body for debugging
         const responseText = await response.text();
-        console.log('Raw response body:', responseText.substring(0, 500));
         
         // Try to parse the response as JSON
         let responseData;
         try {
           responseData = JSON.parse(responseText);
         } catch (e) {
-          console.error('Error parsing response as JSON:', e);
           throw new Error(`Invalid JSON response: ${responseText.substring(0, 100)}...`);
         }
 
         // Handle nested API Gateway response format
         if (responseData.statusCode && responseData.body) {
-          console.log('Received API Gateway proxy response, unwrapping...');
           
           // Check if the nested response indicates an error
           if (responseData.statusCode >= 400) {
@@ -265,7 +242,6 @@ const MyBookings: React.FC = () => {
             try {
               responseData = JSON.parse(responseData.body);
             } catch (e) {
-              console.error('Error parsing nested response body:', e);
               responseData = { message: responseData.body };
             }
           } else {
@@ -274,7 +250,6 @@ const MyBookings: React.FC = () => {
           }
         }
         
-        console.log('Parsed API response:', responseData);
         
         // Extract bookings array with better handling of various response formats
         let bookingsData: any[] = [];
@@ -297,10 +272,8 @@ const MyBookings: React.FC = () => {
           }
         }
         
-        console.log('Extracted bookings data:', bookingsData.length, 'items');
         
         if (bookingsData.length === 0) {
-          console.log('No bookings found in response');
           setBookings([]);
           setFilteredBookings([]);
           return;
@@ -346,11 +319,9 @@ const MyBookings: React.FC = () => {
           })
           .filter((booking): booking is Booking => booking !== null);
         
-        console.log('Formatted bookings:', formattedBookings);
         setBookings(formattedBookings);
         setFilteredBookings(formattedBookings);
       } catch (err) {
-        console.error('Error fetching bookings:', err);
         if (err instanceof Error) {
           setError(err.message);
         } else {
@@ -400,7 +371,6 @@ const MyBookings: React.FC = () => {
           geoTiffObjects && geoTiffObjects[0] && geoTiffObjects[0].Key
             ? geoTiffObjects[0].Key.split('/').pop() || ''
             : '';
-        console.log(`GeoTIFF Filename: ${filename}`);
         setGeoTiffFiles((prev) => ({ ...prev, [bookingId]: geoTiffUrl }));
       }
 
@@ -424,7 +394,6 @@ const MyBookings: React.FC = () => {
       }[];
       setImageLocations(locations);
     } catch (error) {
-      console.error('Error fetching images from S3:', error);
     }
   };
 
@@ -440,7 +409,6 @@ const MyBookings: React.FC = () => {
         };
       }
     } catch (error) {
-      console.error('Error extracting geolocation data:', error);
     }
     return null;
   };
@@ -517,7 +485,6 @@ const MyBookings: React.FC = () => {
       // If idToken isn't available, try the regular token
       if (!token) {
         token = localStorage.getItem('token');
-        console.log('Using regular token instead of idToken for cancellation');
       }
       
       // Check for user session token as last resort
@@ -527,9 +494,7 @@ const MyBookings: React.FC = () => {
           try {
             const userData = JSON.parse(userDataStr);
             token = userData.token || userData.idToken;
-            console.log('Extracted token from user data for cancellation:', !!token);
           } catch (e) {
-            console.error('Error parsing user data:', e);
           }
         }
       }
@@ -543,7 +508,6 @@ const MyBookings: React.FC = () => {
 
       // Fix: Ensure proper format for the Authorization header
       const authHeader = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
-      console.log('Using auth header for cancel:', authHeader.substring(0, 30) + '...');
       
       const response = await fetch(`${apiUrl}/bookings/${bookingId}`, {
         method: 'PATCH',
@@ -562,9 +526,7 @@ const MyBookings: React.FC = () => {
         try {
           const errorData = await response.json();
           errorMessage = errorData.message || errorMessage;
-          console.error('API error response for cancellation:', errorData);
         } catch (e) {
-          console.error('Could not parse cancellation error response:', e);
         }
         throw new Error(errorMessage);
       }
@@ -583,7 +545,6 @@ const MyBookings: React.FC = () => {
         )
       );
     } catch (err) {
-      console.error('Error cancelling booking:', err);
       if (err instanceof Error) {
         setError(err.message);
       } else {

@@ -101,7 +101,6 @@ const ConfirmAccount: React.FC = () => {
     setError(null);
     
     try {
-      console.log(`Attempting to confirm account for ${username} with verification code`);
       let confirmed = false;
       
       // First attempt: Try with the auth context method
@@ -109,7 +108,6 @@ const ConfirmAccount: React.FC = () => {
         const result = await confirmUser(username.trim(), fullCode);
         
         if (result?.success) {
-          console.log('Confirmation successful via auth context');
           confirmed = true;
           setSuccess(true);
           localStorage.removeItem('pendingConfirmation');
@@ -139,15 +137,12 @@ const ConfirmAccount: React.FC = () => {
           throw new Error(result?.message || 'Confirmation failed');
         }
       } catch (contextError: any) {
-        console.error('Error with context confirmUser:', contextError);
         
         if (!confirmed) {
           // Fall back to direct Cognito service on failure
-          console.log('Falling back to direct Cognito service');
           const result = await cognitoService.cognitoConfirmSignUp(username.trim(), fullCode);
           
           if (result.success) {
-            console.log('Confirmation successful via direct Cognito service');
             confirmed = true;
             setSuccess(true);
             localStorage.removeItem('pendingConfirmation');
@@ -173,7 +168,6 @@ const ConfirmAccount: React.FC = () => {
         throw new Error('Verification failed. Please check your code and try again.');
       }
     } catch (err: any) {
-      console.error('Confirmation error:', err);
       
       let errorMessage = err.message || 'Failed to confirm account';
       
@@ -223,7 +217,6 @@ const ConfirmAccount: React.FC = () => {
       codeInputRefs.current[0]?.focus();
       alert('A new verification code has been sent to your email.');
     } catch (err: any) {
-      console.error('Error resending code:', err);
       setError(err.message || 'Failed to resend verification code');
     } finally {
       setLoading(false);

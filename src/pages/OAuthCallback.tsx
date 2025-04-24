@@ -17,19 +17,16 @@ const OAuthCallback: React.FC = () => {
         const code = params.get('code');
         
         if (!code) {
-          console.error('No authorization code found in URL parameters');
           setError('No authorization code found. Please try logging in again.');
           setProcessing(false);
           return;
         }
         
-        console.log('Authorization code received, exchanging for token...');
         
         // Exchange the code for a token using our backend API
         const response = await axios.post('/api/exchange-code', { code });
         
         if (response.data.token) {
-          console.log('Successfully received token from server');
           
           // Store the token in localStorage
           localStorage.setItem('token', response.data.token);
@@ -38,15 +35,12 @@ const OAuthCallback: React.FC = () => {
           await signIn(response.data.token, '');
           
           // Redirect to dashboard
-          console.log('Authentication successful, redirecting to dashboard...');
           navigate('/dashboard', { replace: true });
         } else {
-          console.error('No token received from server');
           setError('Authentication failed. No token received from server.');
           setProcessing(false);
         }
       } catch (err: any) {
-        console.error('Error during OAuth callback:', err);
         setError(
           err.response?.data?.error || 
           err.message || 

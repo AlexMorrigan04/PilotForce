@@ -46,7 +46,6 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
     const map = event.target;
     mapRef.current = map;
     setMapIsLoaded(true);
-    console.log('Map style has loaded');
   };
   
   // Handle file selection
@@ -64,24 +63,19 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
     try {
       // Try to get EXIF GPS data from the GeoTIFF
       const fileDirectory = image.getFileDirectory();
-      console.log('Checking file directory for GPS info:', fileDirectory);
       
       // Check for standard EXIF GPS tags
       if (fileDirectory.GeoAsciiParams) {
-        console.log('Found GeoAsciiParams:', fileDirectory.GeoAsciiParams);
       }
       
       // Try to get GeoKeys which might contain projection info
       try {
         const geoKeys = image.getGeoKeys();
-        console.log('GeoKeys:', geoKeys);
       } catch (err) {
-        console.log('No GeoKeys available');
       }
 
       // Check for embedded XMP metadata which might contain camera locations
       if (fileDirectory.ImageDescription) {
-        console.log('Image description:', fileDirectory.ImageDescription);
         
         // Some software stores GPS in image description as XML
         try {
@@ -97,14 +91,12 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
             }
           }
         } catch (err) {
-          console.error('Error parsing XMP data:', err);
         }
       }
       
       // If we found no locations but have a valid bounding box, use the corners as example points
       if (locations.length === 0) {
         const bbox = image.getBoundingBox();
-        console.log('Using bounding box for sample points:', bbox);
         
         // Center point
         const centerLng = (bbox[0] + bbox[2]) / 2;
@@ -127,7 +119,6 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
         }
       }
     } catch (err) {
-      console.error('Error extracting image locations:', err);
     }
     
     return locations;
@@ -179,10 +170,8 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
       // Complete the upload
       await upload.promise();
       setUploadSuccess(true);
-      console.log('GeoTIFF uploaded successfully to S3');
       
     } catch (err) {
-      console.error('Error uploading to S3:', err);
       setError(`Error uploading to S3: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
@@ -204,51 +193,35 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
     try {
       setIsLoading(true);
       setImageLocations([]);
-      console.log('File size:', geoTiffFile.size, 'bytes');
-      console.log('File type:', geoTiffFile.type);
       
       // Read file as ArrayBuffer
       const arrayBuffer = await geoTiffFile.arrayBuffer();
-      console.log('ArrayBuffer size:', arrayBuffer.byteLength);
       
       const tiff = await fromArrayBuffer(arrayBuffer);
-      console.log('GeoTIFF loaded:', tiff);
       
       const imageCount = await tiff.getImageCount();
-      console.log('Number of images in GeoTIFF:', imageCount);
       
       const image = await tiff.getImage(0);
-      console.log('GeoTIFF first image:', image);
       
       // Extract image locations from GeoTIFF metadata
       const locations = await extractImageLocations(image);
       setImageLocations(locations);
-      console.log('Extracted image locations:', locations);
       
       const bbox = image.getBoundingBox();
-      console.log('Bounding box:', bbox);
       
       // Get GeoTIFF metadata
       const width = image.getWidth();
       const height = image.getHeight();
-      console.log('Dimensions:', width, 'x', height);
       
       try {
         const samplesPerPixel = image.getSamplesPerPixel();
-        console.log('Samples per pixel:', samplesPerPixel);
       } catch (spErr) {
-        console.error('Error getting samples per pixel:', spErr);
       }
       
       // Check if the raster data is as expected
       const rasters = await image.readRasters() as GeoTIFF.TypedArray[];
-      console.log('Number of raster bands:', rasters.length);
       
       if (rasters.length > 0) {
-        console.log('First band data type:', rasters[0].constructor.name);
-        console.log('First band length:', rasters[0].length);
-        console.log('First band sample values:', 
-          Array.from(rasters[0].slice(0, 10)).map(v => v.toString()).join(', '));
       }
       
       // Create canvas to hold the image
@@ -266,7 +239,6 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
       
       // Assuming RGB or RGBA data
       const numBands = rasters.length;
-      console.log('Processing image with', numBands, 'bands');
       
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
@@ -292,7 +264,6 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
       
       // Convert canvas to a data URL
       const imageUrl = canvas.toDataURL();
-      console.log('Canvas data URL length:', imageUrl.length);
       
       // Upload to S3 if bookingId is provided
       if (bookingId) {
@@ -308,13 +279,6 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
       // Create a new unique ID
       const newLayerId = `geotiff-layer-${Date.now()}`;
       setLayerId(newLayerId);
-      
-      console.log('Adding image to map with coordinates:', [
-        [bbox[0], bbox[3]], // top left [lng, lat]
-        [bbox[2], bbox[3]], // top right [lng, lat]
-        [bbox[2], bbox[1]], // bottom right [lng, lat]
-        [bbox[0], bbox[1]]  // bottom left [lng, lat]
-      ]);
       
       // Add image to map
       mapRef.current.addSource(newLayerId, {
@@ -337,7 +301,6 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
         }
       });
       
-      console.log('Layer added successfully, fitting map to bounds');
       
       // Fit map to GeoTIFF bounds
       if (locations.length > 0) {
@@ -362,7 +325,6 @@ export const GeoTiffUploader: React.FC<GeoTiffUploaderProps> = ({ mapboxAccessTo
       
       setIsLoading(false);
     } catch (err) {
-      console.error('Error processing GeoTIFF:', err);
       setIsLoading(false);
       setError(`Error processing GeoTIFF: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }

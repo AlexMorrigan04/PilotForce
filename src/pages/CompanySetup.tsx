@@ -112,7 +112,6 @@ const CompanySetup: React.FC = () => {
       });
       
     } catch (err: any) {
-      console.error('Error saving company information:', err);
       setError(err.message || 'Failed to save company information');
     } finally {
       setLoading(false);

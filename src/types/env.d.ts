@@ -26,6 +26,18 @@ declare namespace NodeJS {
     // Security Options
     REACT_APP_COGNITO_ADVANCED_SECURITY?: string;
     REACT_APP_SESSION_TIMEOUT_MINUTES?: string;
+    REACT_APP_PASSWORD_MIN_LENGTH?: string;
+    REACT_APP_PASSWORD_REQUIRE_SYMBOLS?: string;
+    REACT_APP_PASSWORD_REQUIRE_NUMBERS?: string;
+    REACT_APP_PASSWORD_REQUIRE_UPPERCASE?: string;
+    REACT_APP_PASSWORD_REQUIRE_LOWERCASE?: string;
+    REACT_APP_MAX_LOGIN_ATTEMPTS?: string;
+    REACT_APP_ACCOUNT_LOCKOUT_TIME_MINUTES?: string;
+    REACT_APP_MFA_REQUIRED?: string;
+    REACT_APP_CONTENT_SECURITY_POLICY?: string;
+    REACT_APP_API_RATE_LIMIT?: string;
+    REACT_APP_ENABLE_AUDIT_LOGGING?: string;
+    REACT_APP_DATA_ENCRYPTION_KEY?: string;
     
     // Environment & Feature Flags
     REACT_APP_ENV: 'development' | 'staging' | 'production';

@@ -45,7 +45,6 @@ export const BookingImageGallery: React.FC<BookingImageGalleryProps> = ({
     
     // Try to refresh the URL if possible
     if (onRefreshUrls && images[index]) {
-      console.log(`Image ${index} failed to load, attempting to refresh URL...`);
       
       // You could implement URL refresh logic here
       // For now just mark it as an error

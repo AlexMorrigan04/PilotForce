@@ -80,7 +80,6 @@ const MakeBooking: React.FC = () => {
         userName: user.username || 'Unknown User'
       };
       
-      console.log('Submitting booking:', newBooking);
       
       // Save to DynamoDB
       const params = {
@@ -104,7 +103,6 @@ const MakeBooking: React.FC = () => {
         navigate('/my-bookings');
       }, 2000);
     } catch (error: any) {
-      console.error('Error submitting booking:', error);
       setFormError(`Failed to create booking: ${error.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
@@ -128,7 +126,6 @@ const MakeBooking: React.FC = () => {
       const result = await dynamoDb.query(params).promise();
       setAssets(result.Items || []);
     } catch (error) {
-      console.error('Error fetching assets:', error);
       setFormError('Failed to load assets');
     } finally {
       setAssetsLoading(false);

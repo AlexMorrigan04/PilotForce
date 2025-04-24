@@ -63,7 +63,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   
   // Handle admin redirection if enabled
   if (redirectAdmins && isAdmin && !location.pathname.startsWith('/admin')) {
-    console.log('Redirecting admin user to admin dashboard');
     return <Navigate to="/admin-dashboard" replace />;
   }
   

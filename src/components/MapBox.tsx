@@ -63,7 +63,6 @@ const MapBox: React.FC<MapBoxProps> = ({ assets, selectedAsset, setSelectedAsset
         }
       };
     } catch (error) {
-      console.error('Error initializing map:', error);
       return () => {};
     }
   }, []);
