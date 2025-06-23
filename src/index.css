@@ -3,6 +3,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import Bootstrap CSS */
+@import '~bootstrap/dist/css/bootstrap.min.css';
+
 /* Custom styles for the image popup */
 .map-image-popup .mapboxgl-popup-content {
   padding: 10px;

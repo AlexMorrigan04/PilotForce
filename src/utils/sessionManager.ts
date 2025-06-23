@@ -1,74 +1,174 @@
 /**
- * Session Manager - Handles auth session persistence across browser refreshes
+ * Enhanced Session Manager - Handles auth session persistence and timeout management
  * 
- * This utility manages authentication tokens in localStorage and sessionStorage,
- * implements a heartbeat to keep session alive, and provides methods for
- * storing, retrieving, and refreshing tokens.
+ * This utility provides robust session management with:
+ * - User activity tracking
+ * - Configurable timeout periods
+ * - Automatic token refresh
+ * - Graceful session expiration handling
+ * - Cross-tab synchronization
  */
 
-import { shouldRefreshToken } from './tokenDebugger';
+import { shouldRefreshToken, isTokenExpired } from './tokenDebugger';
 import { refreshToken as refreshAuthToken } from '../services/authServices';
 import { 
   storeAuthTokens, 
   getAuthToken, 
   getRefreshToken as getStoredRefreshToken, 
-  initializeSession 
+  initializeSession,
+  clearAuthData
 } from './sessionPersistence';
-
-// Configurable constants
-const AUTH_HEARTBEAT_INTERVAL_MS = 4 * 60 * 1000; // 4 minute heartbeat
-const TOKEN_REFRESH_THRESHOLD_MINUTES = 10; // Refresh tokens 10 minutes before expiry
-const SESSION_PERSISTENCE_KEY = 'pilotforce_session_active';
-const SESSION_TIMESTAMP_KEY = 'pilotforce_session_timestamp';
+import {
+  SESSION_CONFIG,
+  SESSION_TIMEOUT_MS,
+  TOKEN_REFRESH_THRESHOLD_MS,
+  ACTIVITY_CHECK_INTERVAL_MS,
+  TOKEN_HEALTH_CHECK_INTERVAL_MS,
+  MAX_SESSION_DURATION_MS,
+  INACTIVITY_TIMEOUT_MS,
+  STORAGE_KEYS,
+  ACTIVITY_EVENTS,
+  SESSION_TIMEOUT_REASONS,
+  SessionTimeoutReason
+} from '../config/sessionConfig';
 
 /**
- * SessionManager class - Handles auth session management
+ * Enhanced SessionManager class with improved timeout handling
  */
 export class SessionManager {
   private heartbeatInterval: number | null = null;
+  private activityCheckInterval: number | null = null;
+  private tokenHealthInterval: number | null = null;
   private refreshTokenCallback: (() => Promise<boolean>) | null = null;
   private hasAutoRefreshEnabled: boolean = true;
+  private isUserActive: boolean = true;
+  private sessionTimeoutCallback: (() => void) | null = null;
+  private lastActivityTime: number = Date.now();
 
   /**
-   * Initialize the session manager with refresh token capability
-   * @param refreshCallback Optional callback that will refresh the token
+   * Initialize the session manager
+   * @param refreshCallback Optional callback for token refresh
+   * @param timeoutCallback Optional callback for session timeout
    */
-  constructor(refreshCallback?: () => Promise<boolean>) {
-    if (refreshCallback) {
-      this.refreshTokenCallback = refreshCallback;
-    } else {
-      // Default refresh implementation
-      this.refreshTokenCallback = this.defaultRefreshToken.bind(this);
-    }
+  constructor(
+    refreshCallback?: () => Promise<boolean>,
+    timeoutCallback?: (() => void) | null
+  ) {
+    this.refreshTokenCallback = refreshCallback || this.defaultRefreshToken.bind(this);
+    this.sessionTimeoutCallback = timeoutCallback || null;
     this.initSessionTracking();
+    this.setupActivityTracking();
   }
 
   /**
-   * Start the heartbeat to keep the session alive
-   * and check token expiration regularly
+   * Initialize session tracking and start monitoring
    */
-  public startHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      window.clearInterval(this.heartbeatInterval);
+  private initSessionTracking(): void {
+    // Initialize session from stored data
+    const { isAuthenticated, token } = initializeSession();
+    
+    if (isAuthenticated && token) {
+      this.startSessionMonitoring();
+      this.updateLastActivity();
+    } else if (token) {
+      // We have a token but it might be expired, try to refresh it
+      this.checkTokenHealth();
     }
 
-    // Set a timestamp to track when the session was last active
-    this.updateSessionTimestamp();
-
-    this.heartbeatInterval = window.setInterval(() => {
-      this.checkTokenHealth();
-      this.updateSessionTimestamp();
-    }, AUTH_HEARTBEAT_INTERVAL_MS);
-
-    // Also check token health immediately
-    this.checkTokenHealth();
-
+    // Listen for storage events to synchronize between tabs
+    window.addEventListener('storage', this.handleStorageChange.bind(this));
+    
+    // Listen for page visibility changes
+    document.addEventListener('visibilitychange', this.handleVisibilityChange.bind(this));
   }
 
   /**
-   * Stop the session heartbeat
+   * Set up user activity tracking
    */
-  public stopHeartbeat(): void {
+  private setupActivityTracking(): void {
+    // Track user activity events
+    ACTIVITY_EVENTS.forEach(event => {
+      document.addEventListener(event, this.handleUserActivity.bind(this), { passive: true });
+    });
+
+    // Track focus/blur events
+    window.addEventListener('focus', this.handleUserActivity.bind(this));
+    window.addEventListener('blur', this.handleUserActivity.bind(this));
+  }
+
+  /**
+   * Handle user activity to extend session
+   */
+  private handleUserActivity = (): void => {
+    if (this.isUserActive) {
+      this.updateLastActivity();
+    }
+  };
+
+  /**
+   * Handle page visibility changes
+   */
+  private handleVisibilityChange = (): void => {
+    if (document.visibilityState === 'visible') {
+      // Page became visible, check if session is still valid
+      this.checkSessionValidity();
+    }
+  };
+
+  /**
+   * Update last activity timestamp
+   */
+  private updateLastActivity(): void {
+    this.lastActivityTime = Date.now();
+    localStorage.setItem(STORAGE_KEYS.LAST_ACTIVITY, this.lastActivityTime.toString());
+    try {
+      sessionStorage.setItem(STORAGE_KEYS.LAST_ACTIVITY, this.lastActivityTime.toString());
+    } catch (e) {
+      // Silent fail
+    }
+  }
+
+  /**
+   * Start all session monitoring intervals
+   */
+  public startSessionMonitoring(): void {
+    this.stopSessionMonitoring(); // Clear any existing intervals
+
+    // Start activity checking
+    this.activityCheckInterval = window.setInterval(() => {
+      this.checkUserActivity();
+    }, ACTIVITY_CHECK_INTERVAL_MS);
+
+    // Start token health checking
+    this.tokenHealthInterval = window.setInterval(() => {
+      this.checkTokenHealth();
+    }, TOKEN_HEALTH_CHECK_INTERVAL_MS);
+
+    // Mark session as active
+    localStorage.setItem(STORAGE_KEYS.SESSION_ACTIVE, 'true');
+    localStorage.setItem(STORAGE_KEYS.USER_ACTIVE, 'true');
+    try {
+      sessionStorage.setItem(STORAGE_KEYS.SESSION_ACTIVE, 'true');
+      sessionStorage.setItem(STORAGE_KEYS.USER_ACTIVE, 'true');
+    } catch (e) {
+      // Silent fail
+    }
+
+    this.updateLastActivity();
+  }
+
+  /**
+   * Stop all session monitoring intervals
+   */
+  public stopSessionMonitoring(): void {
+    if (this.activityCheckInterval) {
+      window.clearInterval(this.activityCheckInterval);
+      this.activityCheckInterval = null;
+    }
+    if (this.tokenHealthInterval) {
+      window.clearInterval(this.tokenHealthInterval);
+      this.tokenHealthInterval = null;
+    }
     if (this.heartbeatInterval) {
       window.clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
@@ -76,22 +176,119 @@ export class SessionManager {
   }
 
   /**
-   * Default token refresh implementation that uses the authServices refresh logic
+   * Check if user has been active recently
+   */
+  private checkUserActivity(): void {
+    const timeSinceActivity = Date.now() - this.lastActivityTime;
+    const timeoutMs = INACTIVITY_TIMEOUT_MS;
+
+    if (timeSinceActivity > timeoutMs) {
+      // User has been inactive for too long
+      this.handleSessionTimeout(SESSION_TIMEOUT_REASONS.INACTIVITY);
+    } else {
+      // User is still active, extend session
+      this.updateLastActivity();
+    }
+  }
+
+  /**
+   * Check if the current session is still valid
+   */
+  private checkSessionValidity(): void {
+    const token = this.getIdToken();
+    
+    if (!token) {
+      this.handleSessionTimeout(SESSION_TIMEOUT_REASONS.NO_TOKEN);
+      return;
+    }
+
+    // Check if token is expired
+    if (isTokenExpired(token)) {
+      this.handleSessionTimeout(SESSION_TIMEOUT_REASONS.TOKEN_EXPIRED);
+      return;
+    }
+
+    // Check if session timeout has been reached
+    const timeoutStr = localStorage.getItem(STORAGE_KEYS.SESSION_TIMEOUT);
+    if (timeoutStr) {
+      const timeout = parseInt(timeoutStr);
+      if (Date.now() > timeout) {
+        this.handleSessionTimeout(SESSION_TIMEOUT_REASONS.SESSION_TIMEOUT);
+        return;
+      }
+    }
+
+    // Check if maximum session duration has been reached
+    const sessionStartStr = localStorage.getItem(STORAGE_KEYS.SESSION_START);
+    if (sessionStartStr) {
+      const sessionStart = parseInt(sessionStartStr);
+      if (Date.now() - sessionStart > MAX_SESSION_DURATION_MS) {
+        this.handleSessionTimeout(SESSION_TIMEOUT_REASONS.MAX_DURATION);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Handle session timeout
+   */
+  private handleSessionTimeout(reason: SessionTimeoutReason): void {
+    console.warn(`Session timeout: ${reason}`);
+    
+    // Clear session data
+    this.clearSession();
+    
+    // Call timeout callback if provided
+    if (this.sessionTimeoutCallback) {
+      this.sessionTimeoutCallback();
+    }
+    
+    // Redirect to login page
+    if (window.location.pathname !== '/login') {
+      window.location.href = `/login?reason=${reason}`;
+    }
+  }
+
+  /**
+   * Check token health and refresh if needed
+   */
+  private async checkTokenHealth(): Promise<void> {
+    const idToken = this.getIdToken();
+    
+    if (!this.hasAutoRefreshEnabled || !idToken) return;
+    
+    if (shouldRefreshToken(idToken, SESSION_CONFIG.TOKEN_REFRESH_THRESHOLD_MINUTES)) {
+      if (this.canRefreshToken()) {
+        try {
+          const success = await this.refreshTokenCallback!();
+          if (!success) {
+            this.handleSessionTimeout(SESSION_TIMEOUT_REASONS.REFRESH_FAILED);
+          }
+        } catch (error) {
+          console.error('Token refresh error:', error);
+          this.handleSessionTimeout(SESSION_TIMEOUT_REASONS.REFRESH_ERROR);
+        }
+      } else {
+        this.handleSessionTimeout(SESSION_TIMEOUT_REASONS.NO_REFRESH_TOKEN);
+      }
+    }
+  }
+
+  /**
+   * Default token refresh implementation
    */
   private async defaultRefreshToken(): Promise<boolean> {
     try {
       const result = await refreshAuthToken();
       return result.success;
     } catch (error) {
+      console.error('Default token refresh failed:', error);
       return false;
     }
   }
 
   /**
-   * Store authentication tokens in both localStorage and sessionStorage
-   * for better persistence across tabs and refreshes
-   * 
-   * @param tokens Object containing idToken, accessToken, and refreshToken
+   * Store authentication tokens and start monitoring
    */
   public storeTokens(tokens: {
     idToken?: string;
@@ -100,27 +297,80 @@ export class SessionManager {
     [key: string]: any;
   }): void {
     try {
-      // Use the enhanced storeAuthTokens utility
+      // Store tokens
       storeAuthTokens(
         tokens.idToken || null,
         tokens.refreshToken || null,
         tokens.accessToken || null
       );
 
-      // Store entire tokens object as JSON if it contains additional data
+      // Store entire tokens object as JSON
       if (Object.keys(tokens).length > 0) {
         const tokensStr = JSON.stringify(tokens);
         localStorage.setItem('tokens', tokensStr);
-        try { sessionStorage.setItem('tokens', tokensStr); } catch (e) {}
+        try { 
+          sessionStorage.setItem('tokens', tokensStr); 
+        } catch (e) {}
       }
 
-      // Mark session as active
-      localStorage.setItem(SESSION_PERSISTENCE_KEY, 'true');
-      try { sessionStorage.setItem(SESSION_PERSISTENCE_KEY, 'true'); } catch (e) {}
+      // Set session start time
+      const sessionStart = Date.now();
+      localStorage.setItem(STORAGE_KEYS.SESSION_START, sessionStart.toString());
+      try {
+        sessionStorage.setItem(STORAGE_KEYS.SESSION_START, sessionStart.toString());
+      } catch (e) {}
 
-      this.updateSessionTimestamp();
-      this.startHeartbeat();
+      // Set maximum session expiry
+      const maxSessionExpiry = sessionStart + MAX_SESSION_DURATION_MS;
+      localStorage.setItem(STORAGE_KEYS.MAX_SESSION_EXPIRY, maxSessionExpiry.toString());
+      try {
+        sessionStorage.setItem(STORAGE_KEYS.MAX_SESSION_EXPIRY, maxSessionExpiry.toString());
+      } catch (e) {}
+
+      // Set session timeout
+      const timeoutAt = Date.now() + SESSION_TIMEOUT_MS;
+      localStorage.setItem(STORAGE_KEYS.SESSION_TIMEOUT, timeoutAt.toString());
+      try {
+        sessionStorage.setItem(STORAGE_KEYS.SESSION_TIMEOUT, timeoutAt.toString());
+      } catch (e) {}
+
+      // Start session monitoring
+      this.startSessionMonitoring();
     } catch (error) {
+      console.error('Error storing tokens:', error);
+    }
+  }
+
+  /**
+   * Get ID token with fallback logic
+   */
+  public getIdToken(): string | null {
+    return getAuthToken();
+  }
+
+  /**
+   * Get refresh token with fallback logic
+   */
+  public getRefreshToken(): string | null {
+    return getStoredRefreshToken();
+  }
+
+  /**
+   * Check if we can refresh the token
+   */
+  public canRefreshToken(): boolean {
+    return !!this.getRefreshToken();
+  }
+
+  /**
+   * Get user data from storage
+   */
+  public getUserData(): any {
+    try {
+      const userStr = localStorage.getItem('user') || sessionStorage.getItem('user');
+      return userStr ? JSON.parse(userStr) : null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -132,222 +382,121 @@ export class SessionManager {
     if (!user) return;
 
     try {
-      // Use the enhanced storeAuthTokens utility to also store user data
+      // Store the user data in localStorage
+      const userStr = JSON.stringify(user);
+      localStorage.setItem('user', userStr);
+      try { 
+        sessionStorage.setItem('user', userStr); 
+      } catch (e) {}
+      
+      // Also use the session persistence utility if available
       storeAuthTokens(null, null, null, user);
     } catch (error) {
+      console.error('Error storing user data:', error);
     }
   }
 
   /**
-   * Retrieve the ID token from storage
-   * @returns ID token or null if not found
-   */
-  public getIdToken(): string | null {
-    return getAuthToken();
-  }
-
-  /**
-   * Retrieve the access token from storage
-   * @returns Access token or null if not found
-   */
-  public getAccessToken(): string | null {
-    return localStorage.getItem('accessToken') || 
-           (this.isSessionStorageAvailable() ? sessionStorage.getItem('accessToken') : null);
-  }
-
-  /**
-   * Retrieve the refresh token from storage
-   * @returns Refresh token or null if not found
-   */
-  public getRefreshToken(): string | null {
-    return getStoredRefreshToken();
-  }
-
-  /**
-   * Get all stored tokens
-   * @returns Object containing all available tokens
-   */
-  public getAllTokens(): {
-    idToken: string | null;
-    accessToken: string | null;
-    refreshToken: string | null;
-  } {
-    return {
-      idToken: this.getIdToken(),
-      accessToken: this.getAccessToken(),
-      refreshToken: this.getRefreshToken()
-    };
-  }
-
-  /**
-   * Retrieve stored user data
-   * @returns User data object or null if not found
-   */
-  public getUserData(): any {
-    try {
-      const userStr = localStorage.getItem('user') || 
-                     (this.isSessionStorageAvailable() ? sessionStorage.getItem('user') : null);
-      
-      if (userStr) {
-        return JSON.parse(userStr);
-      }
-    } catch (error) {
-    }
-    return null;
-  }
-
-  /**
-   * Clear all authentication data
+   * Clear all authentication data and stop monitoring
    */
   public clearSession(): void {
-    this.stopHeartbeat();
+    this.stopSessionMonitoring();
+    clearAuthData();
     
-    // Clear localStorage
-    localStorage.removeItem('idToken');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('tokens');
-    localStorage.removeItem('user');
-    localStorage.removeItem(SESSION_PERSISTENCE_KEY);
-    localStorage.removeItem(SESSION_TIMESTAMP_KEY);
+    // Clear session-specific items
+    localStorage.removeItem(STORAGE_KEYS.SESSION_ACTIVE);
+    localStorage.removeItem(STORAGE_KEYS.SESSION_TIMESTAMP);
+    localStorage.removeItem(STORAGE_KEYS.LAST_ACTIVITY);
+    localStorage.removeItem(STORAGE_KEYS.SESSION_TIMEOUT);
+    localStorage.removeItem(STORAGE_KEYS.USER_ACTIVE);
     
-    // Clear sessionStorage if available
-    if (this.isSessionStorageAvailable()) {
-      sessionStorage.removeItem('idToken');
-      sessionStorage.removeItem('accessToken');
-      sessionStorage.removeItem('refreshToken');
-      sessionStorage.removeItem('tokens');
-      sessionStorage.removeItem('user');
-      sessionStorage.removeItem(SESSION_PERSISTENCE_KEY);
-      sessionStorage.removeItem(SESSION_TIMESTAMP_KEY);
+    try {
+      sessionStorage.removeItem(STORAGE_KEYS.SESSION_ACTIVE);
+      sessionStorage.removeItem(STORAGE_KEYS.SESSION_TIMESTAMP);
+      sessionStorage.removeItem(STORAGE_KEYS.LAST_ACTIVITY);
+      sessionStorage.removeItem(STORAGE_KEYS.SESSION_TIMEOUT);
+      sessionStorage.removeItem(STORAGE_KEYS.USER_ACTIVE);
+    } catch (e) {
+      // Silent fail
     }
-  }
-
-  /**
-   * Check if a user is logged in based on stored tokens
-   * @returns True if logged in, false otherwise
-   */
-  public isLoggedIn(): boolean {
-    const idToken = this.getIdToken();
-    return !!idToken;
-  }
-
-  /**
-   * Update the session timestamp to mark activity
-   */
-  private updateSessionTimestamp(): void {
-    const now = new Date().getTime().toString();
-    localStorage.setItem(SESSION_TIMESTAMP_KEY, now);
-    try { sessionStorage.setItem(SESSION_TIMESTAMP_KEY, now); } catch (e) {}
-  }
-
-  /**
-   * Check if refresh token functionality is available
-   */
-  private canRefreshToken(): boolean {
-    return !!this.refreshTokenCallback && !!this.getRefreshToken();
-  }
-
-  /**
-   * Initialize session tracking when creating the session manager
-   */
-  private initSessionTracking(): void {
-    // Initialize session from stored data
-    const { isAuthenticated, token } = initializeSession();
-    
-    if (isAuthenticated && token) {
-      this.startHeartbeat();
-    } else if (token) {
-      // We have a token but it might be expired, try to refresh it
-      this.checkTokenHealth();
-    }
-
-    // Listen for storage events to synchronize between tabs
-    window.addEventListener('storage', this.handleStorageChange.bind(this));
   }
 
   /**
    * Handle changes to localStorage from other tabs
    */
   private handleStorageChange(event: StorageEvent): void {
-    // Synchronize session state between tabs
     if (event.key === 'idToken') {
       if (event.newValue) {
-        // Token added in another tab - start heartbeat if not already running
-        if (!this.heartbeatInterval) {
-          this.startHeartbeat();
+        // Token added in another tab - start monitoring if not already running
+        if (!this.activityCheckInterval) {
+          this.startSessionMonitoring();
         }
       } else {
-        // Token removed in another tab - stop heartbeat
-        this.stopHeartbeat();
+        // Token removed in another tab - stop monitoring
+        this.stopSessionMonitoring();
       }
     }
   }
 
   /**
-   * Check token health and refresh if needed
+   * Enable or disable auto refresh
    */
-  private async checkTokenHealth(): Promise<void> {
-    const idToken = this.getIdToken();
-    
-    if (!this.hasAutoRefreshEnabled) return;
-    
-    if (idToken && shouldRefreshToken(idToken, TOKEN_REFRESH_THRESHOLD_MINUTES)) {
-      
-      if (this.canRefreshToken()) {
-        try {
-          const success = await this.refreshTokenCallback!();
-          if (success) {
-          } else {
-            console.warn('Token refresh failed');
-          }
-        } catch (error) {
-        }
-      } else {
-        console.warn('Token needs refreshing but no refresh callback is available');
-      }
-    }
-  }
-
-  /**
-   * Check if sessionStorage is available
-   */
-  private isSessionStorageAvailable(): boolean {
-    try {
-      const test = 'test';
-      sessionStorage.setItem(test, test);
-      sessionStorage.removeItem(test);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-  
-  /**
-   * Manually refresh the auth token
-   * @returns Promise that resolves to true if refresh was successful
-   */
-  public async forceTokenRefresh(): Promise<boolean> {
-    if (this.canRefreshToken()) {
-      try {
-        const success = await this.refreshTokenCallback!();
-        return success;
-      } catch (error) {
-        return false;
-      }
-    }
-    return false;
-  }
-  
-  /**
-   * Enable or disable automatic token refreshing
-   */
-  public setAutoRefresh(enabled: boolean): void {
+  public setAutoRefreshEnabled(enabled: boolean): void {
     this.hasAutoRefreshEnabled = enabled;
+  }
+
+  /**
+   * Get session status information
+   */
+  public getSessionStatus(): {
+    isActive: boolean;
+    lastActivity: number;
+    timeUntilTimeout: number;
+    isUserActive: boolean;
+  } {
+    const lastActivity = this.lastActivityTime;
+    const timeoutStr = localStorage.getItem(STORAGE_KEYS.SESSION_TIMEOUT);
+    const timeout = timeoutStr ? parseInt(timeoutStr) : 0;
+    const timeUntilTimeout = timeout > 0 ? timeout - Date.now() : 0;
+
+    return {
+      isActive: !!this.activityCheckInterval,
+      lastActivity,
+      timeUntilTimeout,
+      isUserActive: this.isUserActive
+    };
+  }
+
+  /**
+   * Manually extend the session timeout
+   */
+  public extendSession(): void {
+    const timeoutAt = Date.now() + (SESSION_TIMEOUT_MS);
+    localStorage.setItem(STORAGE_KEYS.SESSION_TIMEOUT, timeoutAt.toString());
+    try {
+      sessionStorage.setItem(STORAGE_KEYS.SESSION_TIMEOUT, timeoutAt.toString());
+    } catch (e) {}
+    this.updateLastActivity();
+  }
+
+  /**
+   * Clean up event listeners and intervals
+   */
+  public destroy(): void {
+    this.stopSessionMonitoring();
+    
+    // Remove event listeners
+    ACTIVITY_EVENTS.forEach(event => {
+      document.removeEventListener(event, this.handleUserActivity);
+    });
+    
+    window.removeEventListener('focus', this.handleUserActivity);
+    window.removeEventListener('blur', this.handleUserActivity);
+    window.removeEventListener('storage', this.handleStorageChange.bind(this));
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange.bind(this));
   }
 }
 
-// Create singleton instance with default refresh implementation
-export const sessionManager = new SessionManager();
-
+// Create and export a singleton instance
+const sessionManager = new SessionManager();
 export default sessionManager;

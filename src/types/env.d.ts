@@ -13,6 +13,11 @@ declare namespace NodeJS {
     REACT_APP_AWS_ACCESS_KEY_ID?: string;
     REACT_APP_AWS_SECRET_ACCESS_KEY?: string;
     
+    // Microsoft OAuth Configuration
+    REACT_APP_MICROSOFT_CLIENT_ID: string;
+    REACT_APP_MICROSOFT_TENANT_ID: string;
+    REACT_APP_MICROSOFT_REDIRECT_URI: string;
+    
     // API Configuration
     REACT_APP_API_BASE_URL: string;
     REACT_APP_ENFORCE_HTTPS?: string;

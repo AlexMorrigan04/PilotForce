@@ -30,7 +30,6 @@ export const testUrl = async (url: string): Promise<boolean> => {
     clearTimeout(timeoutId);
     return response.ok;
   } catch (error) {
-    console.warn('URL test failed:', error);
     return false;
   }
 };

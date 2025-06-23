@@ -4,6 +4,7 @@ import { CompanyUser } from '../utils/userUtils';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import { getCompanyId } from '../utils/companyUtils';
+import logger from '../utils/logger';
 
 interface CompanyUsersProps {
   users: CompanyUser[];
@@ -17,8 +18,19 @@ type TabType = 'members' | 'pending';
 
 const cardVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 100, damping: 12 } },
-  hover: { scale: 1.02, transition: { duration: 0.2 } },
+  visible: { 
+    opacity: 1, 
+    y: 0, 
+    transition: { 
+      type: "spring" as const, 
+      stiffness: 100, 
+      damping: 12 
+    } 
+  },
+  hover: { 
+    scale: 1.02, 
+    transition: { duration: 0.2 } 
+  },
 };
 
 const modalVariants = {
@@ -125,8 +137,10 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
     if (!role) return 'bg-gray-100 text-gray-800';
     
     const normalizedRole = role.toLowerCase();
-    if (normalizedRole.includes('admin')) {
+    if (normalizedRole === 'admin' || normalizedRole === 'administrator') {
       return 'bg-purple-100 text-purple-800';
+    } else if (normalizedRole === 'companyadmin') {
+      return 'bg-indigo-100 text-indigo-800'; // Different color for CompanyAdmin
     } else if (normalizedRole.includes('pilot')) {
       return 'bg-blue-100 text-blue-800';
     } else if (normalizedRole.includes('manager')) {
@@ -161,7 +175,7 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
     if (!user) return false;
     
     const userRole = user.UserRole || user.role || '';
-    return userRole.toLowerCase().includes('admin');
+    return userRole.toLowerCase() === 'admin' || userRole.toLowerCase() === 'administrator';
   };
 
   const getEmail = (user: CompanyUser): string => {
@@ -347,7 +361,7 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           }
         }
       } catch (apiError) {
-        console.warn('All API approaches failed:', apiError);
+        logger.warn('All API approaches failed:', apiError);
         apiSuccess = false;
         
         // Even though API failed, the UI is already updated
@@ -502,14 +516,10 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           return;
         } catch (proxyError) {
         }
-        
-        console.warn('All API approaches failed, but UI is updated for better UX');
-        
         // The UI is already updated, so the user has the impression that the action worked
         // When they refresh, the server state will be reflected accurately
       } catch (apiError) {
         // Log but don't rethrow - UI is already updated
-        console.warn('API call warning (UI already updated):', apiError);
       }
       
       // Refresh data if callback provided
@@ -638,7 +648,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
           return true;
         }
       } catch (decodeError) {
-        console.warn('Error decoding token:', decodeError);
       }
       
       // If we can't determine expiration, try to refresh anyway
@@ -820,8 +829,6 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
         } catch (loginError) {
         }
       }
-      
-      console.warn('All token refresh methods failed');
       return false;
     } catch (error) {
       return false;
@@ -1003,7 +1010,7 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
                       onClick={() => openUserDetailsModal(user)}
                       className="mr-3 bg-blue-600 hover:bg-blue-700 text-white py-1 px-3 rounded-md transition-colors duration-150 flex items-center"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                       </svg>
@@ -1020,12 +1027,12 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
                         title="Remove from company"
                       >
                         {processingUserId === user.UserId ? (
-                          <svg className="w-5 h-5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 animate-spin" xmlns="" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
                         ) : (
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         )}
@@ -1075,7 +1082,7 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
                       onClick={() => openUserDetailsModal(user)}
                       className="mr-3 bg-blue-600 hover:bg-blue-700 text-white py-1 px-3 rounded-md transition-colors duration-150 flex items-center"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                       </svg>
@@ -1093,12 +1100,12 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
                           title="Approve user"
                         >
                           {processingUserId === user.UserId ? (
-                            <svg className="w-5 h-5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5 animate-spin" xmlns="" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                           ) : (
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 24 24" xmlns="">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                             </svg>
                           )}
@@ -1113,12 +1120,12 @@ const CompanyUsers: React.FC<CompanyUsersProps> = ({ users, isLoading, error, on
                           title="Deny user"
                         >
                           {processingUserId === user.UserId ? (
-                            <svg className="w-5 h-5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5 animate-spin" xmlns="" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                           ) : (
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                           )}

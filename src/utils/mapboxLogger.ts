@@ -19,7 +19,6 @@ export const MapboxLogger = {
    */
   warn: (message: string, ...data: any[]) => {
     if (DEBUG_ENABLED) {
-      console.warn(`[Mapbox] ⚠️ ${message}`, ...data);
     }
   },
   
@@ -138,7 +137,6 @@ export const MapboxLogger = {
       const layer = map.getLayer(layerId);
       if (layer) {
       } else {
-        console.warn(`[Mapbox Layer] Layer ${layerId} does not exist`);
       }
     }
   },
@@ -146,14 +144,12 @@ export const MapboxLogger = {
   // Add a debug method
   debug: (message: string, ...args: any[]) => {
     if (process.env.NODE_ENV === 'development') {
-      console.debug(`[Mapbox Debug] ${message}`, ...args);
     }
   },
 
   // Add a trace method for detailed debugging
   trace: (message: string, ...args: any[]) => {
     if (process.env.NODE_ENV === 'development' && localStorage.getItem('MAPBOX_TRACE') === 'true') {
-      console.trace(`[Mapbox Trace] ${message}`, ...args);
     }
   }
 };

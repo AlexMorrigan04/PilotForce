@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import logger from '../utils/logger';
 
 // Set your Mapbox access token
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN || '';
@@ -51,7 +52,7 @@ const Map = React.forwardRef<mapboxgl.Map, MapProps>(({
           mapInstance.remove();
         }
       } catch (error) {
-        console.warn("Error cleaning up Mapbox instance:", error);
+        logger.warn("Error cleaning up Mapbox instance:", error);
       }
     };
   }, []);

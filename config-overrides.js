@@ -1,61 +1,72 @@
 const webpack = require('webpack');
+const path = require('path');
 
 module.exports = function override(config, env) {
-  // Add fallbacks for node modules
+  // Add fallbacks for node.js core modules
   config.resolve.fallback = {
     ...config.resolve.fallback,
-    crypto: require.resolve('crypto-browserify'),
-    stream: require.resolve('stream-browserify'),
-    buffer: require.resolve('buffer/'),
-    util: require.resolve('util/'),
-    process: require.resolve('process/browser'),
-    path: require.resolve('path-browserify'),
-    fs: false,
-    os: require.resolve('os-browserify/browser'),
-    http: require.resolve('stream-http'),
-    https: require.resolve('https-browserify'),
-    zlib: require.resolve('browserify-zlib'),
-    assert: require.resolve('assert/'),
-    constants: require.resolve('constants-browserify'),
-    timers: require.resolve('timers-browserify'),
-    vm: require.resolve('vm-browserify')
+    "crypto": require.resolve("crypto-browserify"),
+    "stream": require.resolve("stream-browserify"),
+    "assert": require.resolve("assert/"),
+    "http": require.resolve("stream-http"),
+    "https": require.resolve("https-browserify"),
+    "os": require.resolve("os-browserify/browser"),
+    "url": require.resolve("url/"),
+    "buffer": require.resolve("buffer/"),
+    "zlib": require.resolve("browserify-zlib"),
+    "path": require.resolve("path-browserify"),
+    "process": require.resolve("process/browser"),
+    "fs": false, // Browser doesn't have file system access
+    "vm": false, // Use empty module fallback for vm
   };
 
-  // Add alias for process/browser
+  // Add aliases for ESM modules that need browser polyfills
   config.resolve.alias = {
     ...config.resolve.alias,
-    'process/browser': require.resolve('process/browser')
+    'process/browser': path.resolve(__dirname, 'node_modules/process/browser.js')
   };
 
-  // Add plugins for polyfills
-  config.plugins = [
-    ...config.plugins,
+  // Add buffer polyfill plugin
+  config.plugins.push(
     new webpack.ProvidePlugin({
       process: 'process/browser',
       Buffer: ['buffer', 'Buffer'],
     }),
-    // Fix for stream dependency issues
+  );
+
+  // Add explicit module fallbacks for ESM modules
+  config.plugins.push(
     new webpack.NormalModuleReplacementPlugin(
-      /readable-stream\/readable.js/,
-      'stream-browserify'
-    ),
-    new webpack.NormalModuleReplacementPlugin(
-      /readable-stream\/writable.js/,
-      'stream-browserify'
-    ),
-    new webpack.NormalModuleReplacementPlugin(
-      /readable-stream\/readable-browser.js/,
-      'stream-browserify'
-    ),
-    new webpack.NormalModuleReplacementPlugin(
-      /readable-stream\/duplex.js/,
-      'stream-browserify'
-    ),
-    new webpack.NormalModuleReplacementPlugin(
-      /readable-stream\/lib\/_stream_/,
-      'stream-browserify'
+      /^process\/browser$/,
+      require.resolve('process/browser')
     )
+  );
+
+  // Ignore warnings for specific modules with source map issues
+  config.ignoreWarnings = [
+    ...(config.ignoreWarnings || []),
+    { module: /node_modules\/(mapbox|browserify|readable-stream|buffer|bn\.js|crypto|elliptic|aws-amplify|axios|exifr|resend|asn1\.js)/ },
   ];
 
+  // Disable source maps for node_modules to avoid source map errors
+  if (config.module && config.module.rules) {
+    config.module.rules.forEach(rule => {
+      if (rule.use && rule.use.includes && rule.use.includes('source-map-loader')) {
+        rule.exclude = /node_modules/;
+      }
+    });
+  }
+  
+  // Add federation plugin if config exists
+  try {
+    const federationConfig = require('./federation-config');
+    const { ModuleFederationPlugin } = webpack.container;
+    config.plugins.push(
+      new ModuleFederationPlugin(federationConfig)
+    );
+  } catch (error) {
+    console.warn('Unable to add ModuleFederationPlugin:', error);
+  }
+  
   return config;
 };

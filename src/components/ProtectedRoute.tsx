@@ -1,82 +1,73 @@
 import React, { useEffect, useState } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { isAdminLocally } from '../utils/adminUtils';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: string; // Optional role requirement
-  redirectAdmins?: boolean; // New prop to control admin redirection
+  requiredRole?: string;
+  redirectPath?: string;
+  redirectAdmins?: boolean;
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
-  children, 
+/**
+ * ProtectedRoute component - Protects routes by checking authentication status
+ * and optional role requirements
+ */
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
   requiredRole,
-  redirectAdmins = false // Default to false for backward compatibility
+  redirectPath = '/login',
+  redirectAdmins = false
 }) => {
-  const { user, loading, isAuthenticated, checkAuth, isAdmin: contextIsAdmin } = useAuth();
-  const [isChecking, setIsChecking] = useState(true);
-  const [hasAccess, setHasAccess] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { user, loading } = useAuth();
   const location = useLocation();
-  
-  // Check authentication status when component mounts
+  const navigate = useNavigate();
+  const [hasAccess, setHasAccess] = useState<boolean>(false);
+
   useEffect(() => {
-    const verifyAuth = async () => {
-      setIsChecking(true);
-      
-      if (!isAuthenticated && !loading) {
-        await checkAuth();
+    const checkAuthorization = async () => {
+      if (loading) return;
+
+      if (!user) {
+        navigate(redirectPath);
+        return;
       }
-      
-      // Check for admin status
-      const adminStatus = contextIsAdmin || isAdminLocally();
-      setIsAdmin(adminStatus);
-      
-      // Check role requirements if specified
-      if (requiredRole && user) {
-        const userRole = user.role || user['custom:role'] || 'User';
-        // Simple role hierarchy: Admin > CompanyAdmin > User
-        const hasRequiredRole = 
-          userRole === requiredRole || 
-          (requiredRole === 'User') || 
-          (requiredRole === 'CompanyAdmin' && userRole === 'Admin');
-          
-        setHasAccess(isAuthenticated && hasRequiredRole);
-      } else {
-        setHasAccess(isAuthenticated);
+
+      const userRole = user.role || user['custom:role'] || 'User';
+
+      // Special handling for SubUser role
+      if (userRole === 'SubUser') {
+        // SubUsers can only access /my-bookings
+        if (location.pathname !== '/my-bookings') {
+          navigate('/my-bookings');
+          return;
+        }
+        setHasAccess(true);
+        return;
       }
-      
-      setIsChecking(false);
+
+      // For other roles, check normal role hierarchy
+      const hasRequiredRole = 
+        userRole === requiredRole || 
+        (requiredRole === 'User' && ['User', 'CompanyAdmin', 'Admin', 'Administrator'].includes(userRole)) ||
+        (requiredRole === 'CompanyAdmin' && ['CompanyAdmin', 'Admin', 'Administrator'].includes(userRole));
+
+      setHasAccess(hasRequiredRole);
+
+      // Redirect if no access
+      if (!hasRequiredRole) {
+        navigate(redirectPath);
+      }
     };
-    
-    verifyAuth();
-  }, [isAuthenticated, loading, checkAuth, user, requiredRole, contextIsAdmin]);
-  
-  if (loading || isChecking) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
+
+    checkAuthorization();
+  }, [user, loading, requiredRole, redirectPath, navigate, location.pathname]);
+
+  if (loading) {
+    return <div>Loading...</div>;
   }
-  
-  // Handle admin redirection if enabled
-  if (redirectAdmins && isAdmin && !location.pathname.startsWith('/admin')) {
-    return <Navigate to="/admin-dashboard" replace />;
-  }
-  
-  if (!isAuthenticated) {
-    // Redirect to login page with return path
-    return <Navigate to={`/login?returnTo=${encodeURIComponent(location.pathname)}`} replace />;
-  }
-  
-  if (requiredRole && !hasAccess) {
-    // Redirect to unauthorized page if role requirement not met
-    return <Navigate to="/unauthorized" replace />;
-  }
-  
-  return <>{children}</>;
+
+  return hasAccess ? <>{children}</> : null;
 };
 
 export default ProtectedRoute;

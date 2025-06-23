@@ -1,11 +1,7 @@
-/**
- * Session utilities for secure token storage and management
- * Provides a more secure alternative to localStorage for sensitive data
- */
 import { parseJwt } from './cognitoUtils';
 
-// Define token expiry time (15 minutes by default)
-const TOKEN_REFRESH_INTERVAL = parseInt(process.env.REACT_APP_SESSION_TIMEOUT_MINUTES || '15') * 60 * 1000;
+// Define token expiry time (24 hours by default)
+const TOKEN_REFRESH_INTERVAL = parseInt(process.env.REACT_APP_SESSION_TIMEOUT_MINUTES || '1440') * 60 * 1000;
 const SESSION_NAMESPACE = 'pf_secure_';
 
 // Cookie attributes for secure storage in cookies when available

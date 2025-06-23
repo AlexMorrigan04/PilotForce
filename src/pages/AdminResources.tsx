@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import AdminNavbar from '../components/AdminNavbar';
+import AdminNavbar from '../components/common/Navbar';
 import { 
   FiSearch, FiRefreshCw, FiDownload, FiUpload, 
   FiFolder, FiFile, FiImage, FiFilm, FiFileText 
@@ -68,6 +68,9 @@ const AdminResources: React.FC = () => {
   const [showViewModal, setShowViewModal] = useState<boolean>(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
 
+  // Loading state for resources
+  const [resourcesLoading, setResourcesLoading] = useState<boolean>(false);
+
   // Verify Amplify configuration
   useEffect(() => {
     validateAmplifyConfig();
@@ -114,14 +117,24 @@ const AdminResources: React.FC = () => {
     }
   }, [selectedBookingId]);
 
+  // Utility function to safely extract resources from the response
+  const getResourcesFromResponse = (response: any): any[] => {
+    if (Array.isArray(response)) {
+      return response;
+    } else if (response && response.resources) {
+      return response.resources;
+    }
+    return [];
+  };
+
   // Fetch all bookings
   const fetchBookings = async () => {
     try {
       const response = await adminService.getAllBookings();
+      
       if (!response || !response.bookings) {
         throw new Error('Invalid booking data received');
       }
-      
       
       // Map the API response to Booking interface, accounting for different field names in DynamoDB
       // Add fallback ID generation to ensure we always have an ID
@@ -160,7 +173,6 @@ const AdminResources: React.FC = () => {
         throw new Error('Invalid resource data received');
       }
       
-      
       // Map the API response to Resource interface
       const mappedResources = response.resources.map((resource: any) => ({
         id: resource.ResourceId || resource.id,
@@ -185,33 +197,13 @@ const AdminResources: React.FC = () => {
 
   // Fetch resources for a specific booking
   const fetchResourcesForBooking = async (bookingId: string) => {
-    setLoading(true);
-    
     try {
+      setResourcesLoading(true);
+      
       const response = await adminService.getBookingResources(bookingId);
+      let resourcesArray: any[] = [];
       
-      // Check if response exists (could be undefined if there was an error but we returned empty resources)
-      if (!response) {
-        console.warn(`[AdminResources] No response data for booking ${bookingId}, using empty array`);
-        setResources([]);
-        setError(null);
-        return;
-      }
-      
-      
-      // Handle different response formats
-      let resourcesArray = [];
-      if (Array.isArray(response)) {
-        resourcesArray = response;
-      } else if (response.resources && Array.isArray(response.resources)) {
-        resourcesArray = response.resources;
-      } else {
-        console.warn('[AdminResources] Invalid resource data structure:', response);
-        setResources([]);
-        setError(null);
-        return;
-      }
-      
+      resourcesArray = getResourcesFromResponse(response);
       
       // Map the API response to Resource interface, handling different field name formats
       const mappedResources = resourcesArray.map((resource: any) => {
@@ -238,7 +230,7 @@ const AdminResources: React.FC = () => {
       // Show a more user-friendly error
       setError('Could not load resources. This may happen if the booking has no resources yet.');
     } finally {
-      setLoading(false);
+      setResourcesLoading(false);
     }
   };
 

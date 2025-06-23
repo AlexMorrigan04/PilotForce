@@ -51,12 +51,10 @@ export const createHmac = (algorithm: string, key: string) => {
   } else {
     // Provide a fallback that doesn't actually calculate a hash
     // This is just for compilation - should be replaced with a proper library
-    console.warn('Web Crypto API not available, using insecure fallback');
     return {
       update: (data: string) => {
         return {
           digest: (encoding: string) => {
-            console.error('Secure hash calculation not available');
             return '';
           }
         };

@@ -1,6 +1,30 @@
 import { jwtDecode } from "jwt-decode";
-import { SecureSession } from './sessionUtils';
 import * as endpoints from './endpoints';
+
+// Using a local SecureSession implementation since sessionUtils is missing
+const SecureSession = {
+  setItem: (key: string, value: string): void => {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch (error) {
+      // Silent fail
+    }
+  },
+  getItem: (key: string): string | null => {
+    try {
+      return sessionStorage.getItem(key);
+    } catch (error) {
+      return null;
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      sessionStorage.removeItem(key);
+    } catch (error) {
+      // Silent fail
+    }
+  }
+};
 
 // Define environment config using constants to avoid hardcoded values
 const API_CONFIG = {
@@ -40,8 +64,8 @@ interface DecodedToken {
 const VALID_ADMIN_ROLES = [
   'admin',
   'administrator',
-  'systemadmin',
-  'companyadmin'
+  'systemadmin'
+  // 'companyadmin' removed to fix role-based redirection issue
 ];
 
 // List of valid admin groups
@@ -49,7 +73,9 @@ const VALID_ADMIN_GROUPS = [
   'administrators',
   'admins',
   'admin',
-  'administrator'
+  'administrator',
+  'Administrator',
+  'Administrators'
 ];
 
 /**

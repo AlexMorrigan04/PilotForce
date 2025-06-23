@@ -97,8 +97,6 @@ export async function findWorkingImageUrl(
     } catch (error) {
     }
   }
-  
-  console.warn('No working URLs found after trying', limitedUrls.length, 'alternatives');
   return null;
 }
 

@@ -40,6 +40,20 @@ export interface Booking {
     repeatFrequency?: string;
   };
   scheduleTime?: string; // Added for formatted time slot display
+  asset?: {
+    id: string;
+    name: string;
+    type: string;
+    coordinates: number[][][];
+    centerPoint: [number, number];
+    area?: number;
+  };
+  quote?: {
+    amount: number;
+    currency: string;
+    notes?: string;
+    createdAt: string;
+  };
 }
 
 export interface BookingImage {

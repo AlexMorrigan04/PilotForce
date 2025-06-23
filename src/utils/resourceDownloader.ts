@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { securityAuditLogger } from '../utils/securityAuditLogger';
 
 // Constants
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
 interface DownloadOptions {
   token?: string;
@@ -32,16 +33,35 @@ export const downloadResource = async (
   resourceId: string,
   options: DownloadOptions = {}
 ): Promise<{ blob: Blob; metadata: ResourceMetadata }> => {
-  // First get metadata to determine if it's a chunked resource
-  const metadata = await getResourceMetadata(bookingId, resourceId, options.token);
-  options.onProgress?.(10);
-
-  if (metadata.isChunked && metadata.totalChunks && metadata.totalChunks > 1) {
-    // Handle chunked resources
-    return await downloadAndReassembleChunks(bookingId, resourceId, metadata, options);
-  } else {
-    // Handle regular resources
-    return await downloadRegularResource(metadata, options);
+  try {
+    // First get metadata to determine if it's a chunked resource
+    const metadata = await getResourceMetadata(bookingId, resourceId, options.token);
+    options.onProgress?.(10);
+    let result;
+    if (metadata.isChunked && metadata.totalChunks && metadata.totalChunks > 1) {
+      result = await downloadAndReassembleChunks(bookingId, resourceId, metadata, options);
+    } else {
+      result = await downloadRegularResource(metadata, options);
+    }
+    securityAuditLogger.logDataAccess(
+      localStorage.getItem('userId') || 'unknown',
+      'file',
+      resourceId,
+      'Download File',
+      true,
+      { fileName: metadata.fileName, fileSize: metadata.size, bookingId }
+    );
+    return result;
+  } catch (error: any) {
+    securityAuditLogger.logDataAccess(
+      localStorage.getItem('userId') || 'unknown',
+      'file',
+      resourceId,
+      'Download File',
+      false,
+      { error: error.message, bookingId, resourceId }
+    );
+    throw error;
   }
 };
 

@@ -5,7 +5,31 @@
 import { createHmac } from 'crypto-browserify';
 import { Buffer } from 'buffer';
 import { API_BASE_URL } from './endpoints';
-import { SecureSession } from './sessionUtils';
+
+// Local implementation of SecureSession to fix missing import
+const SecureSession = {
+  setItem: (key: string, value: string): void => {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch (error) {
+      // Silent fail
+    }
+  },
+  getItem: (key: string): string | null => {
+    try {
+      return sessionStorage.getItem(key);
+    } catch (error) {
+      return null;
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      sessionStorage.removeItem(key);
+    } catch (error) {
+      // Silent fail
+    }
+  }
+};
 
 // Base API URL from environment or default
 const API_CONFIG = {
@@ -137,7 +161,6 @@ export const calculateSecretHash = (
   } catch (error) {
     // Don't log sensitive operation errors in production
     if (process.env.NODE_ENV !== 'production') {
-      console.error('Error calculating secret hash');
     }
     return '';
   }

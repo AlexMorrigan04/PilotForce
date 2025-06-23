@@ -13,7 +13,6 @@ const RETRY_DELAY = 2000; // 2 seconds
  */
 export const getMediaCount = async (companyId: string): Promise<number> => {
   if (!companyId) {
-    console.warn('No company ID provided for media count');
     return 0;
   }
   
@@ -34,7 +33,6 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
         } else {
         }
       } catch (parseError) {
-        console.warn('Error parsing cached media count', parseError);
         // Continue to fetch fresh data if cache parsing fails
       }
     }
@@ -44,7 +42,6 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
     const token = getAuthToken();
     
     if (!token) {
-      console.warn('Authentication token not found when fetching media count');
       return getEstimatedCountFallback(companyId);
     }
     
@@ -83,7 +80,6 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
             });
             localStorage.setItem(cacheKey, cacheData);
           } catch (cacheError) {
-            console.warn('Failed to cache media count:', cacheError);
           }
           
           return count;
@@ -97,7 +93,6 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
         // For other errors or last attempt 502, log the error
         
         if (response.status === 502) {
-          console.warn(`Gateway error (502) when fetching media count for company ${companyId}.`);
         }
         
         // If we've exhausted retries or got a non-502 error, use fallback
@@ -105,7 +100,6 @@ export const getMediaCount = async (companyId: string): Promise<number> => {
       } catch (fetchError) {
         // Handle timeout or network errors
         if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
-          console.warn('Media count request timed out');
         } else {
         }
         

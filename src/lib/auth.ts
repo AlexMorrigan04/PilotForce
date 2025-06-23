@@ -8,11 +8,12 @@ Amplify.configure({
       userPoolClientId: process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID || '', 
       loginWith: {
         username: true,
+        email: true,
         oauth: {
           domain: process.env.REACT_APP_COGNITO_DOMAIN || '',
           scopes: ['email', 'profile', 'openid'],
-          redirectSignIn: [(process.env.REACT_APP_COGNITO_REDIRECT_URI || 'http://localhost:3000/')],
-          redirectSignOut: [(process.env.REACT_APP_COGNITO_REDIRECT_URI || 'http://localhost:3000/')],
+          redirectSignIn: [process.env.REACT_APP_COGNITO_REDIRECT_URI || ''],
+          redirectSignOut: [process.env.REACT_APP_COGNITO_REDIRECT_URI?.replace('/oauth-callback', '/') || ''],
           responseType: 'code'
         }
       }

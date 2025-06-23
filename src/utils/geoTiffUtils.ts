@@ -138,7 +138,6 @@ export const proxyFetchGeoTiff = async (url: string): Promise<ArrayBuffer | null
         return await dataResponse.arrayBuffer();
       }
     } catch (directError) {
-      console.warn('Direct fetch failed, trying API proxy:', directError);
       // Continue to proxy approach
     }
     
@@ -313,7 +312,6 @@ export const analyzeS3Url = (url: string): void => {
           }
         }
       } catch (e) {
-        console.warn('Error parsing presigned URL components:', e);
       }
     }
   } catch (error) {

@@ -20,9 +20,12 @@ export const getCompanyId = (user?: any): string | null => {
     if (idToken) {
       // Simple JWT parsing without external library
       const payload = JSON.parse(atob(idToken.split('.')[1]));
-      if (payload && payload['custom:companyId']) {
-        companyId = payload['custom:companyId'];
-        return companyId;
+      if (payload) {
+        // Try both uppercase and lowercase versions
+        companyId = payload['custom:CompanyId'] || payload['custom:companyId'];
+        if (companyId) {
+          return companyId;
+        }
       }
     }
   } catch (tokenError) {
@@ -48,9 +51,9 @@ export const getCompanyId = (user?: any): string | null => {
       return companyId;
     }
     
-    // Custom attribute format
-    if (user['custom:companyId']) {
-      companyId = user['custom:companyId'];
+    // Custom attribute format - try both cases
+    if (user['custom:CompanyId'] || user['custom:companyId']) {
+      companyId = user['custom:CompanyId'] || user['custom:companyId'];
       return companyId;
     }
   }
@@ -85,11 +88,54 @@ export const getCompanyId = (user?: any): string | null => {
     }
   } catch (e) {
   }
-  
-  console.warn("Could not find companyId in any source");
   return null;
 };
 
+/**
+ * Extracts the company name from various sources in order of priority:
+ * 1. localStorage (cached)
+ * 2. User object (custom attributes)
+ * 3. Email domain as fallback
+ * @param user The user object
+ * @returns The company name if found, otherwise empty string
+ */
+export const getCompanyName = (user?: any): string => {
+  // Try localStorage first (might have been cached from previous API/DynamoDB lookup)
+  const cachedName = localStorage.getItem('companyName');
+  if (cachedName) return cachedName;
+  
+  // If we have a user object, try to get company name from it
+  if (user) {
+    // Direct property access
+    if (user.companyName && typeof user.companyName === 'string') {
+      return user.companyName;
+    }
+    
+    // Custom attribute format
+    if (user['custom:companyName'] && typeof user['custom:companyName'] === 'string') {
+      return user['custom:companyName'];
+    }
+    
+    // Nested formats
+    if (user.attributes && user.attributes['custom:companyName']) {
+      return user.attributes['custom:companyName'];
+    }
+    
+    // Try to extract from email domain as fallback
+    if (user.email) {
+      const emailParts = user.email.split('@');
+      if (emailParts.length > 1) {
+        const domain = emailParts[1].split('.')[0];
+        return domain.charAt(0).toUpperCase() + domain.slice(1).toLowerCase();
+      }
+    }
+  }
+  
+  // No company name found
+  return "";
+};
+
 export default {
-  getCompanyId
+  getCompanyId,
+  getCompanyName
 };

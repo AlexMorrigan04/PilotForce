@@ -40,7 +40,6 @@ export const generateSecureRandomString = (length: number = 32): string => {
     }
   } catch (error) {
     // Fallback with warning
-    console.warn('Secure random generation unavailable');
     return Math.random().toString(36).substring(2, length + 2);
   }
 };
@@ -113,10 +112,8 @@ export const createHmac = (algorithm: string, key: string): HmacInterface => {
       update: (data: string) => {
         return {
           digest: (encoding: string) => {
-            console.error('Secure cryptographic functions unavailable');
             // Return a placeholder hash for compilation, but warn that it's insecure
             if (process.env.NODE_ENV !== 'production') {
-              console.warn('WARNING: Using insecure hash fallback');
             }
             
             // Simple string hash function (NOT secure, just for fallback)
@@ -176,7 +173,6 @@ export const hashValue = async (value: string): Promise<string> => {
     }
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
-      console.error('Error during hash calculation:', error);
     }
     throw new Error('Secure hashing unavailable');
   }

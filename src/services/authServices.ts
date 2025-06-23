@@ -3,6 +3,12 @@ import { getApiEndpoint } from '../utils/cognitoUtils';
 import cognitoService from './cognitoService';
 import { API, getApiBaseUrl } from '../utils/apiUtils';
 import { AUTH_ENDPOINTS, logEndpoint } from '../utils/endpoints';
+import logger from '../utils/logger';
+import { securityAuditLogger } from '../utils/securityAuditLogger';
+import secureLogger from '../utils/secureLogger';
+
+// Verify the security logger is imported
+secureLogger.info('AuthServices: SecurityAuditLogger imported successfully');
 
 // Get the API endpoint from environment variables or use the default
 const API_URL = getApiEndpoint();
@@ -98,95 +104,106 @@ export const refreshToken = async (): Promise<AuthResponse> => {
       };
     }
     
+    // Get username for token refresh with multiple fallback approaches
+    let username = localStorage.getItem('auth_username');
+    let userRole = localStorage.getItem('userRole') || null;
     
-    // Get username for SECRET_HASH calculation
-    const username = localStorage.getItem('auth_username');
+    // Log the starting point of our username extraction process
+    // Get user role if available - important for CompanyAdmin handling
+    if (!userRole) {
+      try {
+        const userDataStr = localStorage.getItem('userData') || localStorage.getItem('user');
+        if (userDataStr) {
+          const userData = JSON.parse(userDataStr);
+          userRole = userData.role || userData['custom:role'] || userData.userRole || null;
+          if (userRole) {
+            localStorage.setItem('userRole', userRole);
+          }
+        }
+      } catch (err) {
+      }
+    } else {
+    }
+
+    // If username is not in localStorage, try to extract it from the ID token
+    if (!username) {
+      try {
+        const idToken = localStorage.getItem('idToken');
+        if (idToken) {
+          const tokenPayload = JSON.parse(atob(idToken.split('.')[1]));
+          username = tokenPayload['cognito:username'] || tokenPayload.email || tokenPayload.sub;
+          
+          if (username) {
+            // For Google SSO users, ensure the username has the 'google_' prefix
+            if (username.includes('@') && !username.startsWith('google_')) {
+              username = `google_${username}`;
+            }
+            
+            // Store it for future use
+            localStorage.setItem('auth_username', username);
+            localStorage.setItem('token_username', username);
+          }
+        }
+      } catch (err) {
+      }
+    }
     
+    // Try other locations if still not found
+    if (!username) {
+      username = localStorage.getItem('cognito_username');
+    }
+
+    // Make sure we have a username for the token refresh
     if (!username) {
       return {
         success: false,
-        message: 'Username required for token refresh'
+        message: 'No username available for token refresh'
       };
     }
+    // Get the API endpoint
+    const apiUrl = process.env.REACT_APP_API_URL || '';
     
-    // Import the cognitoService to calculate SECRET_HASH
-    const cognitoService = await import('./cognitoService');
-    const secretHash = cognitoService.default.calculateSecretHash(username);
-    
-    // Call the refresh token endpoint with SECRET_HASH
-    const response = await fetch(`${API_URL}/refresh-token`, {
+    // Make token refresh request
+    const response = await fetch(`${apiUrl}/refresh-token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         refreshToken,
-        username, 
-        secretHash 
+        username,
+        userRole
       })
     });
-    
+
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorData = await response.json().catch(() => ({}));
       return {
         success: false,
-        message: `Refresh failed: ${response.status} ${errorText}`
+        message: errorData.message || 'Failed to refresh token'
       };
     }
+
+    const data = await response.json();
     
-    const responseText = await response.text();
-    let responseData;
-    
-    try {
-      responseData = JSON.parse(responseText);
-    } catch (parseError) {
-      return {
-        success: false,
-        message: 'Invalid response format from server'
-      };
-    }
-    
-    // Handle nested response structure from API Gateway
-    let parsedData: any = responseData;
-    
-    if (responseData.body && typeof responseData.body === 'string') {
-      try {
-        parsedData = JSON.parse(responseData.body);
-      } catch (error) {
-        return {
-          success: false,
-          message: 'Invalid response body format'
-        };
-      }
-    }
-    
-    // If we have new tokens, store them using our persistence utility
-    if (parsedData.tokens) {
-      
-      // Store tokens in both localStorage and sessionStorage
+    // Store the new tokens
+    if (data.tokens) {
       storeAuthTokens(
-        parsedData.tokens.idToken,
-        parsedData.tokens.refreshToken,
-        parsedData.tokens.accessToken
+        data.tokens.idToken || null,
+        data.tokens.refreshToken || null,
+        data.tokens.accessToken || null,
+        data.user || null
       );
-      
-      return {
-        success: true,
-        tokens: parsedData.tokens,
-        message: 'Token refreshed successfully'
-      };
     }
-    
+
     return {
-      success: false,
-      message: 'Could not refresh token: No tokens in response'
+      success: true,
+      ...data
     };
   } catch (error: any) {
-    
     return {
       success: false,
-      message: 'Token refresh failed due to an error',
-      error
+      message: error.message || 'Failed to refresh token'
     };
   }
 };
@@ -200,30 +217,26 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
   let pwd: string;
 
   if (typeof usernameOrParams === 'object') {
-    // New format: single object parameter
     username = usernameOrParams.username;
     pwd = usernameOrParams.password;
   } else {
-    // Old format: two separate parameters
     username = usernameOrParams;
-    pwd = password || ''; // password should always be provided in old format
+    pwd = password || '';
   }
 
+  secureLogger.info('AuthService: Attempting login for user:', username);
   
   try {
     // Create the proper payload for API Gateway Lambda function
-    // Important: Our Lambda function expects both email and username fields
-    // Even though they can both be the same value
     const payload = {
-      username: username,      // Keep as-is for backward compatibility
-      email: username,         // Add email field with same value
+      username: username,
+      email: username,
       password: pwd
     };
     
-    // Get the API Gateway endpoint
-    const apiGatewayUrl = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/login';
+    const apiGatewayUrl = `${API_URL}/login`;
+    secureLogger.info('AuthService: Using API Gateway URL:', apiGatewayUrl);
     
-    // Make the API request
     const response = await fetch(apiGatewayUrl, {
       method: 'POST',
       headers: {
@@ -233,180 +246,47 @@ export const login = async (usernameOrParams: string | LoginParams, password?: s
       body: JSON.stringify(payload)
     });
     
+    secureLogger.info('AuthService: Login response status:', response.status);
     
-    // Get the raw text response to help with debugging
     const rawText = await response.text();
-    
-    // Parse the response text
     let responseData;
+    
     try {
       responseData = JSON.parse(rawText);
+      secureLogger.info('AuthService: Parsed response data:', { success: responseData.success });
       
-      // Handle the specific format from API Gateway which might include body-json
-      if (responseData['body-json']) {
-        responseData = responseData['body-json'];
-      }
+      // Log authentication result
+      secureLogger.info('AuthService: Logging authentication result');
+      securityAuditLogger.logAuthentication(username, responseData.success, {
+        status: responseData.success ? 'success' : 'failed',
+        message: responseData.success ? 'Login successful' : (responseData.message || 'Login failed'),
+        timestamp: new Date().toISOString(),
+        statusCode: response.status,
+        error: !responseData.success ? (responseData.error || 'Unknown error') : undefined
+      });
       
-      // API Gateway sometimes wraps the response in a body property
-      if (responseData.body && typeof responseData.body === 'string') {
-        try {
-          responseData = JSON.parse(responseData.body);
-        } catch (parseError) {
-        }
-      }
-      
-    } catch (e) {
-      return {
-        success: false,
-        message: 'Failed to parse server response'
-      };
-    }
-    
-    // CRITICAL: Check for error messages or unsuccessful responses
-    if (responseData.error || 
-        responseData.message?.includes('Incorrect username or password') || 
-        responseData.message?.includes('Incorrect email or password') ||
-        response.status === 401) {
-      
-      // Try alternate endpoint using email explicit format
-      try {
-        
-        // Use the alternate login endpoint that explicitly handles email
-        const altApiUrl = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/email-login';
-        
-        const altResponse = await fetch(altApiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({
-            email: username,
-            password: pwd
-          })
-        });
-        
-        if (altResponse.ok) {
-          const altData = await altResponse.json();
-          
-          // Process the successful response from alt endpoint
-          let idToken = null, accessToken = null, refreshToken = null, user = null;
-          
-          // Extract tokens and user data from altData
-          if (altData.tokens) {
-            idToken = altData.tokens.idToken;
-            accessToken = altData.tokens.accessToken;
-            refreshToken = altData.tokens.refreshToken;
-          } else if (altData.AuthenticationResult) {
-            idToken = altData.AuthenticationResult.IdToken;
-            accessToken = altData.AuthenticationResult.AccessToken;
-            refreshToken = altData.AuthenticationResult.RefreshToken;
-          }
-          
-          user = altData.user || altData.User;
-          
-          // Store tokens in localStorage
-          if (idToken) localStorage.setItem('idToken', idToken);
-          if (accessToken) localStorage.setItem('accessToken', accessToken);
-          if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
-          if (user) localStorage.setItem('userData', JSON.stringify(user));
-          
-          return {
-            success: true,
-            idToken,
-            accessToken,
-            refreshToken,
-            user,
-            message: 'Login successful via alternate endpoint'
-          };
-        }
-      } catch (altError) {
-      }
-      
-      return {
-        success: false,
-        message: responseData.message || 'Authentication failed'
-      };
-    }
-    
-    // Check for successful login
-    if (response.status === 200 && responseData.success !== false) {
-      // Extract tokens from response based on our API structure
-      let idToken = null;
-      let accessToken = null;
-      let refreshToken = null;
-      let user = null;
-      
-      // Extract from the Auth result format
-      if (responseData.AuthenticationResult) {
-        idToken = responseData.AuthenticationResult.IdToken;
-        accessToken = responseData.AuthenticationResult.AccessToken;
-        refreshToken = responseData.AuthenticationResult.RefreshToken;
-      } 
-      // Extract from our custom format
-      else if (responseData.tokens) {
-        idToken = responseData.tokens.idToken;
-        accessToken = responseData.tokens.accessToken;
-        refreshToken = responseData.tokens.refreshToken;
-      }
-      // Direct properties on the response
-      else {
-        idToken = responseData.idToken || responseData.IdToken;
-        accessToken = responseData.accessToken || responseData.AccessToken;
-        refreshToken = responseData.refreshToken || responseData.RefreshToken;
-      }
-      
-      // IMPORTANT: Verify we actually have tokens
-      if (!idToken && !accessToken) {
-        console.warn('No tokens found in successful response');
-        return {
-          success: false,
-          message: 'Authentication succeeded but no tokens were returned'
-        };
-      }
-      
-      // Extract user data from response
-      user = responseData.user || responseData.User;
-      
-      // Store tokens in localStorage
-      if (idToken) {
-        localStorage.setItem('idToken', idToken);
-      }
-      
-      if (accessToken) {
-        localStorage.setItem('accessToken', accessToken);
-      }
-      
-      if (refreshToken) {
-        localStorage.setItem('refreshToken', refreshToken);
-      }
-      
-      if (user) {
-        localStorage.setItem('userData', JSON.stringify(user));
-      }
-      
-      return {
-        success: true,
-        idToken,
-        accessToken,
-        refreshToken,
-        user,
-        message: 'Login successful'
-      };
-    } else {
-      // Handle login failure
-      const errorMessage = responseData.message || 'Login failed';
-      
-      return {
-        success: false,
-        message: errorMessage
-      };
+      return responseData;
+    } catch (parseError) {
+      secureLogger.error('AuthService: Failed to parse response:', parseError);
+      // Log failed authentication attempt
+      securityAuditLogger.logAuthentication(username, false, {
+        status: 'error',
+        error: 'Invalid response format',
+        statusCode: response.status,
+        timestamp: new Date().toISOString(),
+        rawResponse: rawText.substring(0, 100) // Log first 100 chars of raw response
+      });
+      throw new Error('Invalid response format from server');
     }
   } catch (error: any) {
-    return {
-      success: false,
-      message: error.message || 'An unexpected error occurred during login'
-    };
+    // Log any other errors during login
+    secureLogger.error('AuthService: Login error:', error);
+    securityAuditLogger.logAuthentication(username, false, {
+      status: 'error',
+      error: error.message || 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+    throw error;
   }
 };
 
@@ -462,8 +342,8 @@ export const signup = async (
     
     
     try {
-      // Use direct API URL to ensure proper endpoint connection
-      const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+      // Use API URL from environment variables
+      const apiUrl = process.env.REACT_APP_API_URL || API_URL;
       
       // Send signup request to the API with complete URL
       const response = await axios.post(`${apiUrl}/signup`, signupData);
@@ -507,8 +387,6 @@ export const signup = async (
         nextStep: { signUpStep: 'CONFIRM_SIGN_UP' }
       };
     } catch (apiError: any) {
-      console.warn('API Gateway signup failed:', apiError.message);
-      
       // FOCUSED UPDATE: Enhanced check for email exists in error response
       if (apiError.response?.data?.type === 'EmailExistsException' ||
           (apiError.response?.data?.message && (
@@ -592,8 +470,8 @@ export const confirmSignup = async (
   try {
     
     try {
-      // Fix the API endpoint URL to use the full URL instead of relative path
-      const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+      // Fix the API endpoint URL to use environment variables
+      const apiUrl = process.env.REACT_APP_API_ENDPOINT || process.env.REACT_APP_API_URL || API_URL;
       
       const response = await axios.post(`${apiUrl}/confirm-user`, {
         username,
@@ -606,8 +484,6 @@ export const confirmSignup = async (
         success: true
       };
     } catch (apiError: any) {
-      console.warn('API Gateway confirmation failed, error:', apiError.message);
-      
       // For CORS issues or 404, attempt direct Cognito confirmation
       if (apiError.message === 'Network Error' || 
           apiError.code === 'ERR_NETWORK' || 
@@ -615,7 +491,7 @@ export const confirmSignup = async (
         
         // Try the alternate endpoint format
         try {
-          const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+          const apiUrl = process.env.REACT_APP_API_ENDPOINT || process.env.REACT_APP_API_GATEWAY_URL || API_URL;
           
           const altResponse = await axios.post(`${apiUrl}/auth/confirm`, {
             username,
@@ -627,8 +503,6 @@ export const confirmSignup = async (
             message: 'Account confirmed successfully'
           };
         } catch (altError) {
-          console.warn('Alternate confirmation endpoint failed:', altError);
-          
           // Fall back to direct Cognito confirmation
           const result = await cognitoService.cognitoConfirmSignUp(username, confirmationCode);
           if (result.success) {
@@ -673,7 +547,7 @@ export const confirmSignUp = async (username: string, code: string) => {
   try {
     
     // Try to confirm using API Gateway
-    const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+    const apiUrl = process.env.REACT_APP_API_ENDPOINT || process.env.REACT_APP_API_GATEWAY_URL || API_URL;
     const response = await axios.post(`${apiUrl}/auth/confirm`, {
       username: username,
       confirmationCode: code
@@ -780,7 +654,7 @@ export const checkAuthentication = async () => {
     
     // Make a lightweight call to verify the token
     try {
-      const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/user-status', {
+      const response = await fetch(`${API_URL}/user-status`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -857,8 +731,8 @@ export const getCurrentUser = async (): Promise<AuthResponse> => {
     if (error.response?.status === 401) {
       try {
         // Try to use refresh token to get new tokens
-        const refreshed = await refreshToken();
-        if (refreshed.success) {
+        const refreshResult = await refreshToken();
+        if (refreshResult.success) {
           // Retry the request with new token
           return getCurrentUser();
         }
@@ -891,36 +765,29 @@ export const getCurrentUser = async (): Promise<AuthResponse> => {
  */
 export const logout = async (): Promise<AuthResponse> => {
   try {
-    // Clear all auth-related data from localStorage
-    localStorage.removeItem('idToken');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('auth_username');
-    localStorage.removeItem('auth_password');
-    localStorage.removeItem('tokens');
+    // Use the AuthManager to clear all tokens
+    const authManager = await import('../utils/authManager');
+    authManager.default.clearAllAuthTokens();
     
     // Clear Authorization header
     delete authApi.defaults.headers.common['Authorization'];
     
     return {
       success: true,
-      message: 'Logout successful'
+      message: 'Logout successful - all storage cleared'
     };
   } catch (error: any) {
-    
-    // Clear local storage even if there was an error
-    localStorage.removeItem('idToken');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('auth_username');
-    localStorage.removeItem('auth_password');
-    localStorage.removeItem('tokens');
+    // Still try to clear essential tokens even if there was an error
+    try {
+      localStorage.removeItem('idToken');
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+    } catch (e) {
+    }
     
     return {
       success: true, // Still return success since local logout succeeded
-      message: 'Local logout successful, but server session may still be active'
+      message: 'Local logout successful, but there were some errors clearing all storage'
     };
   }
 };

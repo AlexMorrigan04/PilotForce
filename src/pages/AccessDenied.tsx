@@ -1,34 +1,42 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { jwtDecode } from "jwt-decode"; // Import jwtDecode
 
 const AccessDenied: React.FC = () => {
   const [userInfo, setUserInfo] = React.useState<any>(null);
   
   React.useEffect(() => {
-    // Get user info from token
-    const token = localStorage.getItem("token");
+    // Get user info from token - check multiple token locations
+    const token = localStorage.getItem("token") || 
+                localStorage.getItem("idToken") || 
+                localStorage.getItem("accessToken");
     if (token) {
       try {
-        const base64Url = token.split(".")[1];
-        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-        const jsonPayload = decodeURIComponent(
-          atob(base64)
-            .split("")
-            .map(function (c) {
-              return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
-            })
-            .join("")
-        );
-        setUserInfo(JSON.parse(jsonPayload));
+        // Use jwt-decode for more reliable token decoding
+        const decoded = jwtDecode(token);
+        setUserInfo(decoded);
       } catch (error) {
       }
     }
   }, []);
 
   const handleLogout = () => {
+    // Clear all token types
     localStorage.removeItem("token");
-    window.location.href = "/logout";
+    localStorage.removeItem("idToken");
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("isAdmin");
+    
+    // Redirect to login page instead of logout
+    window.location.href = "/login";
   };
+
+  // Display role information for debugging
+  const userRole = userInfo?.['custom:role'] || 
+                  userInfo?.['custom:userRole'] || 
+                  userInfo?.role || 
+                  "Unknown";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -47,11 +55,20 @@ const AccessDenied: React.FC = () => {
             <p className="font-medium text-gray-700 mb-4">
               Your account: {userInfo?.email || "Unknown"}
             </p>
+            <p className="font-medium text-gray-700 mb-4">
+              Your role: {userRole}
+            </p>
             <p className="text-gray-500 mb-4">
               Please contact your administrator to get appropriate permissions assigned to your account.
             </p>
           </div>
-          <div className="flex justify-center">
+          
+          <div className="flex flex-col space-y-3">
+            <Link to="/dashboard"
+                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+              Try Dashboard Access
+            </Link>
+            
             <button
               onClick={handleLogout}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"

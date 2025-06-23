@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+const API_URL = process.env.REACT_APP_API_URL || '';
 
 /**
  * Get all resources for a specific booking

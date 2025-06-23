@@ -32,7 +32,6 @@ export const useAdminAuth = () => {
       return hasAdminAccess;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error verifying admin status';
-      console.error('Admin verification error:', errorMessage);
       setError(errorMessage);
       setIsAdmin(false);
       return false;

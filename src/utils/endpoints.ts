@@ -4,7 +4,7 @@
  */
 
 // Base API URL from environment variables or default fallback
-export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '';
 
 // Security configuration
 const SECURITY_CONFIG = {
@@ -134,7 +134,6 @@ export const logEndpoint = (endpoint: string, method: string = 'GET'): void => {
     // Don't log sensitive data
     const sanitizedUrl = secureUrl.replace(/token=[^&]+/, 'token=REDACTED')
                                  .replace(/password=[^&]+/, 'password=REDACTED');
-    console.info(`API ${method} Request to: ${sanitizedUrl}`);
   }
 };
 

@@ -36,6 +36,9 @@ export interface CompanyUser {
   position?: string;
   lastLogin?: string;
   updatedAt?: string;
+
+  // New property for invitation status
+  isInvitation?: boolean;
 }
 
 /**
@@ -178,7 +181,7 @@ export const getCompanyUsers = async (user?: any): Promise<CompanyUser[]> => {
     }
     
     // Use the correct API endpoint from API Gateway configuration
-    const apiUrl = `https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`;
+    const apiUrl = `${getApiUrl()}/companies/${companyId}/users`;
 
     const response = await fetch(apiUrl, {
       method: 'GET',
@@ -247,7 +250,7 @@ async function fallbackGetCompanyUsers(companyId: string): Promise<CompanyUser[]
     const authToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
     
     // Try the alternative endpoint from API Gateway configuration
-    const apiUrl = `https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/users/company/${companyId}`;
+    const apiUrl = `${getApiUrl()}/users/company/${companyId}`;
 
     const response = await fetch(apiUrl, {
       method: 'GET',

@@ -17,5 +17,5 @@
     "jsx": "react-jsx",
     "typeRoots": ["./node_modules/@types"]
   },
-  "include": ["src"]
+  "include": ["src", "security-audit.js"]
 }

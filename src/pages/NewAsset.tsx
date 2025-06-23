@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
-import Map, { Marker, Source, Layer, NavigationControl } from 'react-map-gl';
+import Map, { Source, Layer, NavigationControl, MapRef } from 'react-map-gl';
 import mapboxgl from 'mapbox-gl';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import * as turf from '@turf/turf';
-import AWS from 'aws-sdk';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
+import { getCompanyId, getCompanyName } from '../utils/companyUtils';
 
 // Asset type definitions
 type AssetType = 'buildings' | 'construction' | 'area' | 'security' | 'infrastructure';
@@ -53,10 +53,20 @@ const assetTypes: AssetTypeInfo[] = [
   }
 ];
 
+interface CompanyDetails {
+  name: string;
+  id: string;
+  plan: string;
+  status: string;
+  createdAt?: string;
+  userCount?: number;
+}
+
 const NewAsset: React.FC = () => {
-  const { user } = useContext(AuthContext);
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [userInfo, setUserInfo] = useState<any>(null);
+  const [companyInfo, setCompanyInfo] = useState<CompanyDetails | null>(null);
   const [assetName, setAssetName] = useState<string>('');
   const [selectedType, setSelectedType] = useState<AssetType | null>(null);
   const [drawnArea, setDrawnArea] = useState<any>(null);
@@ -78,7 +88,7 @@ const NewAsset: React.FC = () => {
   const [geocodingLoading, setGeocodingLoading] = useState(false);
   const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
   const [apiEndpoint, setApiEndpoint] = useState<string>(
-    "https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/assets"
+    `${process.env.REACT_APP_API_URL || ''}/assets`
   );
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -86,78 +96,54 @@ const NewAsset: React.FC = () => {
   const drawRef = useRef<any>(null);
   const drawControlRef = useRef<any>(null);
 
-  // Configure AWS SDK
-  AWS.config.update({
-    region: process.env.REACT_APP_AWS_REGION,
-    accessKeyId: process.env.REACT_APP_AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.REACT_APP_AWS_SECRET_ACCESS_KEY,
-  });
-
-  const dynamoDb = new AWS.DynamoDB.DocumentClient();
-
   // Enhanced user info setup
   useEffect(() => {
-    const fetchUserDetails = async () => {
+    const fetchUserAndCompanyDetails = async () => {
       try {
-        // First check if user context already has what we need
-        if (user && user.username) {
-          setUserInfo({
-            name: user.username,
-            userId: user.sub || user.userId || user.id,
-            companyId: user.companyId,
-            email: user.email
+        if (!user) return;
+        
+        // Get user details
+        setUserInfo({
+          id: user.id || user.sub || '',
+          name: user.username || user.name || 'User',
+          email: user.email || 'No email provided',
+          role: user.role || user['custom:userRole'] || 'User'
+        });
+
+        // Get company details
+        const companyId = getCompanyId(user);
+        const companyName = getCompanyName(user);
+
+        if (companyId) {
+          setCompanyInfo({
+            id: companyId,
+            name: companyName || 'Your Organization',
+            plan: 'Standard',
+            status: 'Active'
           });
-          return;
-        }
-        
-        // If not in user context, try to get from localStorage
-        const idToken = localStorage.getItem('idToken');
-        const tokensStr = localStorage.getItem('tokens');
-        const savedUserStr = localStorage.getItem('user');
-        
-        if (savedUserStr) {
-          try {
-            const savedUser = JSON.parse(savedUserStr);
-            setUserInfo({
-              name: savedUser.username || savedUser.name || 'Demo User',
-              userId: savedUser.sub || savedUser.userId || savedUser.id,
-              companyId: savedUser.companyId,
-              email: savedUser.email
-            });
-            return;
-          } catch (error) {
+
+          // Store company info in localStorage if not already present
+          if (!localStorage.getItem('companyName') && companyName) {
+            localStorage.setItem('companyName', companyName);
+          }
+          if (!localStorage.getItem('companyId') && companyId) {
+            localStorage.setItem('companyId', companyId);
           }
         }
-        
-        // If we still don't have user info, try getting from API
-        if (idToken || tokensStr) {
-          // Ideally here we would call an API endpoint to get user info
-        }
-        
-        // Fallback to demo data if nothing else works
-        setUserInfo({
-          name: 'Demo User',
-          userId: 'demo-user-id',
-          companyId: 'demo-company-id',
-          email: 'demo@example.com'
-        });
       } catch (error) {
-        setUserInfo({
-          name: 'Demo User',
-          userId: 'demo-user-id',
-          companyId: 'demo-company-id'
-        });
       }
     };
     
-    fetchUserDetails();
+    fetchUserAndCompanyDetails();
   }, [user]);
 
-  // Log userInfo whenever it changes
+  // Log userInfo and companyInfo whenever they change
   useEffect(() => {
     if (userInfo) {
     }
-  }, [userInfo]);
+    if (companyInfo) {
+    }
+  }, [userInfo, companyInfo]);
 
   // Initialize MapboxDraw when the map loads
   const onMapLoad = (event: any) => {
@@ -278,6 +264,11 @@ const NewAsset: React.FC = () => {
       return;
     }
 
+    if (!companyInfo) {
+      setError('Company information is not available. Please try again.');
+      return;
+    }
+
     if (!assetName.trim()) {
       setError('Please provide a name for the asset');
       return;
@@ -315,19 +306,21 @@ const NewAsset: React.FC = () => {
       centerPoint = [viewState.longitude, viewState.latitude];
     }
 
-    // Create the asset object with user info - ensure the field names match exactly what the Lambda function expects
+    // Create the asset object with enhanced user and company info
     const assetData = {
       name: assetName,
       assetType: selectedType,
       description: `Asset created from postal code: ${postcode}`,
-      address: address, // Use address input value for address field
-      postcode: postcode, // Use postcode input value for postcode field
+      address: address,
+      postcode: postcode,
       coordinates: coordinates,
       area: areaSize,
       centerPoint: centerPoint,
-      userId: userInfo.userId,  // This must match the field name in the Lambda
-      companyId: userInfo.companyId, // This must match the field name in the Lambda
+      userId: userInfo.id,
+      companyId: companyInfo.id,
+      companyName: companyInfo.name,
       createdBy: userInfo.name,
+      createdAt: new Date().toISOString(),
       tags: [selectedType],
       geojson: {
         type: 'Feature',
@@ -335,8 +328,9 @@ const NewAsset: React.FC = () => {
           name: assetName,
           type: selectedType,
           area: areaSize,
-          userId: userInfo.userId,
-          companyId: userInfo.companyId
+          userId: userInfo.id,
+          companyId: companyInfo.id,
+          companyName: companyInfo.name
         },
         geometry: {
           type: 'Polygon',
@@ -345,125 +339,24 @@ const NewAsset: React.FC = () => {
       }
     };
 
-
     try {
-      // Get auth token for API request
-      const token = getAuthToken();
-      
-      // Make API request to create asset
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          'Authorization': `Bearer ${getAuthToken()}`
         },
         body: JSON.stringify(assetData)
       });
-      
-      const responseText = await response.text();
-      
-      let responseData;
-      try {
-        responseData = JSON.parse(responseText);
-      } catch (err) {
-        throw new Error(`API returned invalid JSON: ${responseText}`);
-      }
-      
+
       if (!response.ok) {
-        throw new Error(responseData.message || `API error: ${response.status}`);
+        throw new Error(`Failed to save asset: ${response.statusText}`);
       }
-      
-      
-      // Navigate back to the assets page
+
+      // Navigate back to assets page on success
       navigate('/assets');
     } catch (err: any) {
-      setError(err.message || 'Failed to create asset');
-      
-      // Fallback to direct Lambda invocation through AWS SDK
-      try {
-        
-        // Configure AWS SDK for Lambda access
-        const lambda = new AWS.Lambda({
-          region: 'eu-north-1', // Update to your Lambda region
-          accessKeyId: process.env.REACT_APP_AWS_ACCESS_KEY_ID,
-          secretAccessKey: process.env.REACT_APP_AWS_SECRET_ACCESS_KEY
-        });
-        
-        // Invoke Lambda function directly
-        const params = {
-          FunctionName: 'pilotforce-create-asset',
-          InvocationType: 'RequestResponse',
-          Payload: JSON.stringify(assetData)
-        };
-        
-        const lambdaResponse = await lambda.invoke(params).promise();
-        
-        if (lambdaResponse.StatusCode === 200) {
-          navigate('/assets');
-        } else {
-          throw new Error(`Lambda error: ${lambdaResponse.FunctionError || 'Unknown error'}`);
-        }
-      } catch (lambdaErr: any) {
-        
-        // Last resort: fall back to DynamoDB direct access
-        if (process.env.NODE_ENV === 'development') {
-          try {
-            
-            // Generate a unique AssetId
-            const assetId = `asset_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-
-            // Create the asset object with all required fields
-            const newAsset = {
-              CompanyId: userInfo.companyId || 'unknown-company',
-              AssetId: assetId,
-              UserId: userInfo.userId || 'unknown-user',
-              userName: userInfo.name || 'Unknown User',
-              name: assetName,
-              type: selectedType,
-              coordinates: coordinates,
-              centerPoint: centerPoint,
-              area: areaSize,
-              createdAt: new Date().toISOString(),
-              status: 'active',
-              address: address, // Add address separately
-              postcode: postcode, // Add postcode separately
-              geojson: {
-                type: 'Feature',
-                properties: {
-                  name: assetName,
-                  type: selectedType,
-                  area: areaSize,
-                  userId: userInfo.userId,
-                  companyId: userInfo.companyId
-                },
-                geometry: {
-                  type: 'Polygon',
-                  coordinates: coordinates
-                }
-              }
-            };
-
-            // Save to DynamoDB
-            const params = {
-              TableName: 'Assets',
-              Item: newAsset,
-            };
-
-            dynamoDb.put(params, (dbErr) => {
-              if (dbErr) {
-                setError(`Failed to save asset: ${dbErr.message}`);
-              } else {
-                // Navigate back to the assets page
-                navigate('/assets');
-              }
-            });
-          } catch (fallbackErr: any) {
-            setError(`All attempts to save asset failed: ${fallbackErr.message}`);
-          }
-        } else {
-          setError(`Failed to create asset: ${lambdaErr.message}`);
-        }
-      }
+      setError(err.message || 'Failed to save asset');
     } finally {
       setIsSaving(false);
     }
@@ -523,7 +416,7 @@ const NewAsset: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
-      <Navbar userInfo={userInfo} />
+      <Navbar />
       
       {/* Hero section with gradient background */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
@@ -550,7 +443,7 @@ const NewAsset: React.FC = () => {
               >
                 {isSaving ? (
                   <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-700" xmlns="" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
@@ -558,7 +451,7 @@ const NewAsset: React.FC = () => {
                   </>
                 ) : (
                   <>
-                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     Save Asset
@@ -618,7 +511,7 @@ const NewAsset: React.FC = () => {
             {/* Asset Information */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 Asset Information
@@ -677,12 +570,12 @@ const NewAsset: React.FC = () => {
                         : 'bg-blue-600 text-white hover:bg-blue-700'}`}
                   >
                     {isLoadingPostcode ? (
-                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <svg className="animate-spin h-4 w-4" xmlns="" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
                     ) : (
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
@@ -697,7 +590,7 @@ const NewAsset: React.FC = () => {
               
               {areaSize > 0 && (
                 <div className="mb-4 bg-blue-50 rounded-md p-3 flex items-center">
-                  <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                   </svg>
                   <div>
@@ -717,14 +610,14 @@ const NewAsset: React.FC = () => {
                 >
                   {isDrawing ? (
                     <>
-                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                       Stop Drawing
                     </>
                   ) : (
                     <>
-                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                       </svg>
                       Draw on Map
@@ -737,7 +630,7 @@ const NewAsset: React.FC = () => {
             {/* Asset Type Selection */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
                 Asset Type <span className="text-red-500">*</span>
@@ -757,7 +650,7 @@ const NewAsset: React.FC = () => {
                     <div className="flex-shrink-0">
                       <div className={`w-10 h-10 rounded-md flex items-center justify-center
                         ${selectedType === type.id ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-500'}`}>
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={type.icon} />
                         </svg>
                       </div>
@@ -768,7 +661,7 @@ const NewAsset: React.FC = () => {
                     </div>
                     {selectedType === type.id && (
                       <div className="ml-2 flex-shrink-0">
-                        <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                        <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20" xmlns="">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                       </div>
@@ -790,7 +683,7 @@ const NewAsset: React.FC = () => {
                     onMove={(evt: any) => setViewState(evt.viewState)}
                     style={{ width: '100%', height: '100%' }}
                     mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
-                    mapboxAccessToken="pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
+                    mapboxAccessToken={process.env.REACT_APP_MAPBOX_ACCESS_TOKEN}
                     scrollZoom={true}
                     onLoad={onMapLoad}
                     attributionControl={false}
@@ -850,7 +743,7 @@ const NewAsset: React.FC = () => {
                 {isDrawing && (
                   <div className="absolute top-4 left-0 right-0 mx-auto w-max bg-white px-4 py-2 rounded-md shadow-md border border-gray-200 z-10">
                     <p className="text-sm font-medium text-gray-800 flex items-center">
-                      <svg className="w-4 h-4 mr-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <svg className="w-4 h-4 mr-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                       Click on the map to start drawing your asset boundary
@@ -862,7 +755,7 @@ const NewAsset: React.FC = () => {
             
             <div className="mt-4 bg-blue-50 p-4 rounded-lg border border-blue-200">
               <h3 className="font-medium text-blue-800 flex items-center mb-2">
-                <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 Drawing Instructions

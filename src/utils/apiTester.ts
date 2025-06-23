@@ -45,7 +45,6 @@ export const inspectToken = () => {
   
   // Check if token has Bearer prefix (it shouldn't in localStorage)
   if (token.startsWith('Bearer ')) {
-    console.warn('Token has Bearer prefix in localStorage - this is incorrect!');
   }
   
   return token;

@@ -38,7 +38,6 @@ export const recoverableFetch = async (
     const alternatives = generateAlternativePresignedUrls(originalUrl);
     urlsToTry = [...new Set([originalUrl, ...alternatives])];
   } catch (error) {
-    console.warn('🔄 S3FetchRecovery: Failed to generate alternative URLs:', error);
   }
   
   // Add standard fetch options
@@ -82,7 +81,6 @@ export const recoverableFetch = async (
         
         // For other errors, we'll retry this URL
         const errorMsg = `HTTP error ${response.status}: ${response.statusText}`;
-        console.warn(`🔄 S3FetchRecovery: ${errorMsg}`);
         lastError = new Error(errorMsg);
         
         // Notify caller about retry

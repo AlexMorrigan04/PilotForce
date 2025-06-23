@@ -26,8 +26,8 @@ Amplify.configure({
   API: {
     REST: {
       PilotForceAPI: {
-        endpoint: 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod',
-        region: 'eu-north-1'
+        endpoint: process.env.REACT_APP_API_ENDPOINT || '',
+        region: process.env.REACT_APP_AWS_REGION || ''
       }
     }
   },
@@ -35,7 +35,7 @@ Amplify.configure({
   Storage: {
     S3: {
       bucket: process.env.REACT_APP_S3_BUCKET_NAME || '',
-      region: process.env.REACT_APP_AWS_REGION || 'eu-north-1',
+      region: process.env.REACT_APP_AWS_REGION || '',
     }
   }
 });
@@ -67,7 +67,6 @@ if (typeof document !== 'undefined') {
   );
   
   // Log that we've updated the CSP
-  console.info('Updated Content Security Policy to allow data: URLs in connect-src');
 }
 
 // Get the root element

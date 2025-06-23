@@ -1,11 +1,32 @@
 ﻿{
   "CORSRules": [
     {
-      "AllowedOrigins": ["*"],
-      "AllowedHeaders": ["*"],
-      "AllowedMethods": ["GET", "HEAD", "PUT", "POST", "DELETE"],
-      "MaxAgeSeconds": 3000,
-      "ExposeHeaders": ["ETag"]
+      "AllowedHeaders": [
+        "Authorization",
+        "Content-Type",
+        "x-amz-acl",
+        "x-amz-meta-altitude",
+        "x-amz-meta-bookingid",
+        "x-amz-meta-coordinates",
+        "x-amz-meta-filename",
+        "x-amz-meta-resourceid",
+        "*"
+      ],
+      "AllowedMethods": [
+        "GET",
+        "PUT",
+        "POST",
+        "DELETE",
+        "HEAD"
+      ],
+      "AllowedOrigins": [
+        "https://d291plyoifbxo0.cloudfront.net",
+        "http://localhost:3000"
+      ],
+      "ExposeHeaders": [
+        "ETag"
+      ],
+      "MaxAgeSeconds": 3600
     }
   ]
 }

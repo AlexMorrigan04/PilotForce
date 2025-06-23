@@ -51,7 +51,7 @@ export const getProxyUrl = (url: string): string => {
   // For development, you might use a proxy defined in package.json
   if (url.startsWith('https://') && process.env.REACT_APP_USE_PROXY === 'true') {
     // If the URL is absolute, convert it to a relative URL that will use the proxy
-    const apiUrl = process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+    const apiUrl = process.env.REACT_APP_API_URL || '';
     return url.replace(apiUrl, '/api');
   }
   

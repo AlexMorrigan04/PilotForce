@@ -12,8 +12,6 @@ const DEBUG_MODE = true;
  */
 export const logApiResponse = (source: string, response: any) => {
   if (!DEBUG_MODE) return;
-  
-  console.group(`🌐 API Response - ${source}`);
   try {
     
     // Extract and log main data structures if available
@@ -38,7 +36,6 @@ export const logApiResponse = (source: string, response: any) => {
     }
   } catch (e) {
   }
-  console.groupEnd();
 };
 
 /**
@@ -49,8 +46,6 @@ export const logApiResponse = (source: string, response: any) => {
  */
 export const logComponentData = (component: string, data: any, description: string = 'Data') => {
   if (!DEBUG_MODE) return;
-  
-  console.group(`🧩 ${component} - ${description}`);
   try {
     if (data && Array.isArray(data)) {
       if (data.length > 0) {
@@ -58,7 +53,6 @@ export const logComponentData = (component: string, data: any, description: stri
     }
   } catch (e) {
   }
-  console.groupEnd();
 };
 
 export default {

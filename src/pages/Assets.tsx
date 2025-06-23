@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useContext, useRef, useMemo, useCallback } from 'react';
-import { AuthContext } from '../context/AuthContext';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
 import Map, { Source, Layer, Marker, Popup } from 'react-map-gl';
 import mapboxgl from 'mapbox-gl';
@@ -10,8 +10,8 @@ import { getAssets } from '../services/assetService';
 import { debugAuthState } from '../utils/tokenDebugger';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Set Mapbox token directly (replace with your actual token in production)
-const MAPBOX_TOKEN = "pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q";
+// Set Mapbox token from environment variables
+const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
 
 // Define asset type
 interface Asset {
@@ -33,7 +33,7 @@ interface Asset {
 }
 
 const Assets: React.FC = () => {
-  const { user } = useContext(AuthContext);
+  const { user } = useAuth();
   const [userInfo, setUserInfo] = useState<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -67,9 +67,36 @@ const Assets: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Add a function to handle viewing asset details
-  const handleViewAssetDetails = (assetId: string) => {
-    navigate(`/assets/${assetId}`);
-  };
+  const handleViewAssetDetails = useCallback((assetId: string) => {
+    const asset = assets.find(a => a.AssetId === assetId);
+    if (!asset) return;
+
+    const essentialAssetData = {
+      id: asset.AssetId,
+      name: asset.Name,
+      type: asset.AssetType,
+      description: asset.Description,
+      area: asset.Area,
+      address: asset.Address,
+      postcode: asset.Postcode || asset.PostCode || '',
+      coordinates: asset.Coordinates || [],
+      CenterPoint: asset.CenterPoint || null
+    };
+    
+    setTimeout(() => {
+      navigate('/make-booking', { 
+        state: { 
+          selectedAsset: essentialAssetData,
+          fromAssetsList: true,
+          timestamp: Date.now()
+        } 
+      });
+      
+      setTimeout(() => {
+        sessionStorage.removeItem('navigating_to_booking');
+      }, 1000);
+    }, 100);
+  }, [assets, navigate]);
 
   // Enhanced navigation function for booking a flight
   const handleBookFlight = useCallback((asset: Asset, event: React.MouseEvent) => {
@@ -109,21 +136,21 @@ const Assets: React.FC = () => {
                       });
                     }
                   } catch (styleError) {
-                    console.warn('Error accessing map style:', styleError);
+                    console.error('Error cleaning up map style:', styleError);
                   }
                 }
                 mapRef.current = null;
               }
             } catch (cleanupError) {
-              console.warn('Non-critical map cleanup error:', cleanupError);
+              console.error('Error during map cleanup:', cleanupError);
             }
           }, 10);
         } catch (e) {
-          console.warn('Error during map cleanup:', e);
+          console.error('Error setting map loaded state:', e);
         }
       }
     } catch (e) {
-      console.warn('Error during map cleanup:', e);
+      console.error('Error in handleBookFlight:', e);
     }
     
     sessionStorage.removeItem('makeBookings_loaded');
@@ -171,12 +198,10 @@ const Assets: React.FC = () => {
         } catch (e) {
         }
       } else {
-        console.warn('⚠️ No user data found in localStorage.');
       }
     }
 
     if (!companyId) {
-      console.warn('⚠️ No CompanyId found. Cannot fetch assets.');
       setError('Missing company ID. Please log in again.');
       setLoading(false);
       return;
@@ -190,7 +215,6 @@ const Assets: React.FC = () => {
       const assetsData = await getAssets(companyId.toString());
       
       if (assetsData.length === 0) {
-        console.warn('⚠️ No assets found in the API response');
       }
       
       setAssets(assetsData);
@@ -259,19 +283,12 @@ const Assets: React.FC = () => {
     }
   }, [user, userInfo, navigate]);
 
-  const calculateOptimalMapView = useCallback((assetList: Asset[]) => {
-    const assetsWithCoords = assetList.filter(
-      asset => asset.CenterPoint || (asset.Coordinates && asset.Coordinates.length > 0)
-    );
-    
-    if (assetsWithCoords.length === 0) return null;
-    
-    // Collect all coordinate points from assets
+  const calculateOptimalMapView = useCallback((assetsWithCoords: Asset[]) => {
     const allPoints: [number, number][] = [];
     
     assetsWithCoords.forEach(asset => {
+      // Handle CenterPoint if available
       if (asset.CenterPoint && Array.isArray(asset.CenterPoint) && asset.CenterPoint.length >= 2) {
-        // Make sure coordinates are valid numbers
         const lng = parseFloat(asset.CenterPoint[0].toString());
         const lat = parseFloat(asset.CenterPoint[1].toString());
         
@@ -282,8 +299,10 @@ const Assets: React.FC = () => {
         }
       }
       
+      // Handle Coordinates if available
       if (asset.Coordinates && Array.isArray(asset.Coordinates) && 
           asset.Coordinates.length > 0 && Array.isArray(asset.Coordinates[0])) {
+        // For each point in the polygon
         asset.Coordinates[0].forEach(coord => {
           if (Array.isArray(coord) && coord.length >= 2) {
             const lng = parseFloat(coord[0].toString());
@@ -300,11 +319,16 @@ const Assets: React.FC = () => {
     });
     
     if (allPoints.length === 0) {
-      console.warn('No valid coordinates found in assets');
-      return null;
+      // Default to UK bounds
+      return {
+        longitude: -2.587910,
+        latitude: 51.454514,
+        zoom: 5,
+        bounds: [[-8.0, 49.0], [2.0, 59.0]] as [[number, number], [number, number]]
+      };
     }
     
-    // Calculate bounds using more robust approach
+    // Calculate bounds
     let minLng = 180;
     let maxLng = -180;
     let minLat = 90;
@@ -317,27 +341,32 @@ const Assets: React.FC = () => {
       maxLat = Math.max(maxLat, lat);
     });
     
-    // Add padding to bounds (about 10% on each side)
-    const lngPadding = (maxLng - minLng) * 0.1;
-    const latPadding = (maxLat - minLat) * 0.1;
+    // Add padding to bounds (about 20% on each side)
+    const lngPadding = (maxLng - minLng) * 0.2;
+    const latPadding = (maxLat - minLat) * 0.2;
     
     const paddedBounds: [[number, number], [number, number]] = [
       [minLng - lngPadding, minLat - latPadding],
       [maxLng + lngPadding, maxLat + latPadding]
     ];
     
+    // Calculate center point
     const centerLongitude = (minLng + maxLng) / 2;
     const centerLatitude = (minLat + maxLat) / 2;
     
-    // Use explicit bounds rather than trying to calculate zoom mathematically
-    // The actual zoom will be determined by fitBounds in the UI
-    const defaultZoom = 12; // Will be overridden by fitBounds
+    // Calculate appropriate zoom level based on bounds
+    const lngDiff = maxLng - minLng;
+    const latDiff = maxLat - minLat;
+    const maxDiff = Math.max(lngDiff, latDiff);
     
+    // Rough zoom calculation - will be refined by fitBounds
+    let zoom = Math.floor(14 - Math.log2(maxDiff));
+    zoom = Math.min(Math.max(zoom, 5), 15); // Clamp between 5 and 15
     
     return {
       longitude: centerLongitude,
       latitude: centerLatitude,
-      zoom: defaultZoom,
+      zoom: zoom,
       bounds: paddedBounds
     };
   }, []);
@@ -348,38 +377,27 @@ const Assets: React.FC = () => {
       if (optimalView) {
         setOptimizedViewState(optimalView);
         
-        // Only set initial view on first load
-        if (viewState.zoom === 12) {
-          // Allow map to fully initialize before setting bounds
-          setTimeout(() => {
-            if (mapRef.current && optimalView.bounds) {
-              try {
-                // Use fitBounds for a more accurate fit
-                mapRef.current.fitBounds(optimalView.bounds, {
-                  padding: 100, // Padding around bounds in pixels
-                  maxZoom: 16, // Don't zoom in too far if only one asset
-                  duration: 1000 // Smooth animation
-                });
-              } catch (e) {
-                console.warn('Error fitting bounds on initial load:', e);
-                // Fallback to just setting the center point and zoom
-                setViewState({
-                  ...viewState,
-                  longitude: optimalView.longitude,
-                  latitude: optimalView.latitude,
-                  zoom: 14
-                });
-              }
-            } else {
+        // Only set initial view on first load or when assets change
+        setTimeout(() => {
+          if (mapRef.current && optimalView.bounds) {
+            try {
+              // Use fitBounds for a more accurate fit
+              mapRef.current.fitBounds(optimalView.bounds, {
+                padding: { top: 50, bottom: 50, left: 50, right: 50 },
+                maxZoom: 15, // Prevent zooming in too far
+                duration: 1000 // Smooth animation
+              });
+            } catch (e) {
+              // Fallback to just setting the center point and zoom
               setViewState({
                 ...viewState,
                 longitude: optimalView.longitude,
                 latitude: optimalView.latitude,
-                zoom: 14
+                zoom: optimalView.zoom
               });
             }
-          }, 500);
-        }
+          }
+        }, 100); // Short delay to ensure map is ready
       }
     }
   }, [assets, calculateOptimalMapView]);
@@ -403,8 +421,6 @@ const Assets: React.FC = () => {
         
         setSelectedAsset(null);
       } catch (e) {
-        console.warn('Error in fitBounds:', e);
-        
         // Fallback to direct viewState setting if fitBounds fails
         setViewState({
           ...viewState,
@@ -479,47 +495,91 @@ const Assets: React.FC = () => {
       opacity: 1, 
       y: 0, 
       transition: {
-        type: "spring",
+        type: "spring" as const,
         stiffness: 100,
         damping: 12
       }
     }
   };
 
-  return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
-      <Navbar userInfo={userInfo} />
+  const handleAssetSelection = useCallback((asset: Asset) => {
+    setSelectedAsset(asset);
+    
+    if (!mapRef.current) return;
+    
+    try {
+      let targetBounds: [[number, number], [number, number]] | null = null;
+      let targetCenter: [number, number] | null = null;
       
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
-        <div className="container mx-auto max-w-7xl">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div className="mb-4 md:mb-0">
-              <h1 className="text-3xl font-bold mb-2">My Assets</h1>
-              <p className="text-blue-100">Manage and monitor all your property assets in one place</p>
-            </div>
-            <motion.button
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleAddNewAsset}
-              className="inline-flex items-center px-5 py-2.5 bg-white text-blue-700 border border-transparent rounded-lg font-medium hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white shadow-sm transition duration-150"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              Add New Asset
-            </motion.button>
-          </div>
-        </div>
-      </div>
+      // Try to get bounds from coordinates first
+      if (asset.Coordinates && Array.isArray(asset.Coordinates) && asset.Coordinates.length > 0) {
+        const coordinates = asset.Coordinates[0];
+        if (coordinates && coordinates.length > 0) {
+          let minLng = parseFloat(coordinates[0][0].toString());
+          let maxLng = parseFloat(coordinates[0][0].toString());
+          let minLat = parseFloat(coordinates[0][1].toString());
+          let maxLat = parseFloat(coordinates[0][1].toString());
+          
+          coordinates.forEach(coord => {
+            const lng = parseFloat(coord[0].toString());
+            const lat = parseFloat(coord[1].toString());
+            minLng = Math.min(minLng, lng);
+            maxLng = Math.max(maxLng, lng);
+            minLat = Math.min(minLat, lat);
+            maxLat = Math.max(maxLat, lat);
+          });
+          
+          targetBounds = [[minLng, minLat], [maxLng, maxLat]];
+        }
+      }
+      
+      // If no coordinates, try to use center point
+      if (!targetBounds && asset.CenterPoint && Array.isArray(asset.CenterPoint)) {
+        const lng = parseFloat(asset.CenterPoint[0].toString());
+        const lat = parseFloat(asset.CenterPoint[1].toString());
+        if (!isNaN(lng) && !isNaN(lat)) {
+          targetCenter = [lng, lat];
+        }
+      }
+      
+      if (targetBounds) {
+        // Animate to bounds with padding
+        mapRef.current.fitBounds(targetBounds, {
+          padding: { top: 50, bottom: 50, left: 50, right: 50 },
+          maxZoom: 18,
+          duration: 1500, // Smooth animation duration
+          essential: true // Makes the animation smoother
+        });
+      } else if (targetCenter) {
+        // Animate to center point
+        mapRef.current.easeTo({
+          center: targetCenter,
+          zoom: 17,
+          duration: 1500,
+          essential: true
+        });
+      }
+    } catch (error) {
+    }
+  }, []);
 
-      <Breadcrumbs 
-        items={[
-          { label: 'Dashboard', path: '/dashboard' },
-          { label: 'Assets', isCurrent: true }
-        ]} 
-      />
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      sessionStorage.removeItem('navigating_to_booking');
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [navigate]);
 
-      <main className="flex-1 container mx-auto px-4 py-6 max-w-7xl">
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <div className="container mx-auto px-4 py-8">
+        <Breadcrumbs 
+          items={[
+            { label: 'Dashboard', path: '/dashboard' },
+            { label: 'Assets', isCurrent: true }
+          ]} 
+        />
         <motion.div 
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -731,18 +791,12 @@ const Assets: React.FC = () => {
                   {filteredAssets.map(asset => (
                     <motion.li 
                       key={asset.AssetId}
-                      className={`hover:bg-gray-50 cursor-pointer transition-all duration-200 ${selectedAsset?.AssetId === asset.AssetId ? 'bg-blue-50 border-l-4 border-blue-500' : 'border-l-4 border-transparent'}`}
-                      onClick={() => {
-                        setSelectedAsset(asset);
-                        if (asset.CenterPoint) {
-                          setViewState({
-                            ...viewState,
-                            longitude: asset.CenterPoint[0],
-                            latitude: asset.CenterPoint[1],
-                            zoom: 16
-                          });
-                        }
-                      }}
+                      onClick={() => handleAssetSelection(asset)}
+                      className={`relative bg-white rounded-lg border cursor-pointer transition-all duration-200 ${
+                        selectedAsset?.AssetId === asset.AssetId 
+                          ? 'border-blue-500 shadow-md' 
+                          : 'border-gray-200 hover:border-blue-300 shadow-sm hover:shadow'
+                      }`}
                       variants={itemVariants}
                       whileHover={{ 
                         backgroundColor: "rgba(243, 244, 246, 1)",
@@ -752,7 +806,7 @@ const Assets: React.FC = () => {
                       <div className="px-5 py-4">
                         <div className="flex items-start">
                           <div className={`flex-shrink-0 w-12 h-12 rounded-md flex items-center justify-center mt-1`} style={{ backgroundColor: `${getAssetColor(asset.AssetType)}15`}}>
-                            <svg className="w-6 h-6" fill="none" stroke={getAssetColor(asset.AssetType)} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <svg className="w-6 h-6" fill="none" stroke={getAssetColor(asset.AssetType)} viewBox="0 0 24 24" xmlns="">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                             </svg>
                           </div>
@@ -1178,20 +1232,7 @@ const Assets: React.FC = () => {
             </div>
           </motion.div>
         )}
-      </main>
-
-      <footer className="bg-white border-t border-gray-200 py-4 px-8 mt-auto">
-        <div className="container mx-auto max-w-7xl flex flex-col md:flex-row justify-between items-center">
-          <div className="text-gray-500 text-sm">
-            &copy; {new Date().getFullYear()} PilotForce. All rights reserved.
-          </div>
-          <div className="flex space-x-6 mt-2 md:mt-0">
-            <a href="#" className="text-gray-500 hover:text-gray-900 text-sm">Privacy</a>
-            <a href="#" className="text-gray-500 hover:text-gray-900 text-sm">Terms</a>
-            <a href="#" className="text-gray-500 hover:text-gray-900 text-sm">Contact</a>
-          </div>
-        </div>
-      </footer>
+      </div>
     </div>
   );
 };

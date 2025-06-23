@@ -1,6 +1,6 @@
-import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
 import Map, { Source, Layer, NavigationControl, MapRef } from 'react-map-gl';
 import mapboxgl from 'mapbox-gl';
@@ -9,6 +9,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { Breadcrumbs, BreadcrumbItem } from '../components/Breadcrumbs';
 import { sendBookingNotification } from '../utils/emailService';
 import { FORMSPREE_ENDPOINTS } from '../utils/emailService';
+import { getCompanyId, getCompanyName } from '../utils/companyUtils';
 
 // Define job types for each asset type
 const jobTypesByAssetType = {
@@ -322,8 +323,17 @@ const extractPostcodeFromAddress = (address: string): string | null => {
   return null;
 };
 
+// Add this helper function near the top with other utility functions
+const formatTimeSlot = (time: string) => {
+  const [hours, minutes] = time.split(':');
+  const hour = parseInt(hours);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  return `${displayHour}:${minutes} ${ampm}`;
+};
+
 const MakeBookings: React.FC = () => {
-    const { user } = useContext(AuthContext);
+    const { user } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
     const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>([]);
@@ -334,7 +344,7 @@ const MakeBookings: React.FC = () => {
     });
     const [mapLoaded, setMapLoaded] = useState(false);
     const [asset, setAsset] = useState<any>(null);
-    const [scheduleType, setScheduleType] = useState('scheduled');
+    const [scheduleType, setScheduleType] = useState<'scheduled' | 'flexible' | 'repeat'>('scheduled');
     const [date, setDate] = useState('');
     const [timeSlot, setTimeSlot] = useState('');
     const [flexibility, setFlexibility] = useState('exact');
@@ -360,6 +370,64 @@ const MakeBookings: React.FC = () => {
     const [notes, setNotes] = useState<string>('');
     const mapRef = useRef<MapRef | null>(null);
     const [storedUserData, setStoredUserData] = useState<any>(null);
+    const [companyName, setCompanyName] = useState('');
+    const [unavailableTimeSlots, setUnavailableTimeSlots] = useState<string[]>([]);
+    const [isLoadingTimeSlots, setIsLoadingTimeSlots] = useState(false);
+
+    // Add this function to check booking availability
+    const checkBookingAvailability = useCallback(async (selectedDate: string) => {
+      if (!selectedDate) return;
+      
+      setIsLoadingTimeSlots(true);
+      try {
+        // Get ID token for authorization
+        const token = localStorage.getItem('idToken');
+        if (!token) {
+          throw new Error('Authentication token missing');
+        }
+
+        // Fetch bookings for the selected date
+        const apiUrl = process.env.REACT_APP_API_URL || '';
+        const response = await fetch(`${apiUrl}/bookings`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch bookings');
+        }
+
+        const data = await response.json();
+        const bookings = data.bookings || [];
+
+        // Filter bookings for the selected date
+        const dateBookings = bookings.filter((booking: any) => {
+          const bookingDate = booking.flightDate?.split('T')[0];
+          return bookingDate === selectedDate;
+        });
+
+        // Get all booked time slots
+        const bookedSlots = dateBookings.map((booking: any) => {
+          if (booking.scheduling?.timeSlot) {
+            return booking.scheduling.timeSlot;
+          }
+          return null;
+        }).filter(Boolean);
+
+        setUnavailableTimeSlots(bookedSlots);
+      } catch (error) {
+      } finally {
+        setIsLoadingTimeSlots(false);
+      }
+    }, []);
+
+    // Add effect to check availability when date changes
+    useEffect(() => {
+      if (date) {
+        checkBookingAvailability(date);
+      }
+    }, [date, checkBookingAvailability]);
 
   useEffect(() => {
     if (location.state && location.state.selectedAsset && !asset) {
@@ -397,12 +465,10 @@ const MakeBookings: React.FC = () => {
               zoom: 17
             });
           } catch (error) {
-            console.warn('Error calculating center of asset:', error);
             // Default view state remains unchanged
           }
         }
       } catch (error) {
-        console.warn('Error setting view state:', error);
       }
     }
   }, [location.state, asset]);
@@ -437,16 +503,13 @@ const MakeBookings: React.FC = () => {
                   }
                   mapRef.current = null;
                 } catch (delayedError) {
-                  console.warn('Non-critical delayed map cleanup error:', delayedError);
                 }
               }, 100);
             }
           } catch (cleanupError) {
-            console.warn('Non-critical map cleanup error:', cleanupError);
           }
         }
       } catch (error) {
-        console.warn('Error during map cleanup in MakeBookings:', error);
       }
     };
   }, [mapLoaded]);
@@ -678,85 +741,55 @@ const MakeBookings: React.FC = () => {
     const bookingId = `booking_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
     try {
-      // Try to get user data from context first, then localStorage
       const userData = user || storedUserData;
       if (!userData) {
         throw new Error('User data not available');
       }
-      
+
       // Extract user ID correctly
       const userId = userData.id || userData.sub || ''; 
       
       if (!userId) {
-        console.warn('Warning: No user ID found in user data, this may cause issues');
+        throw new Error('User ID not available');
       }
-      
-      // Get user details directly from userData instead of using mock data
-      // This is the key change - use the real data from localStorage/context
-      const userEmail = userData.email || '';
-      const userPhone = userData.phoneNumber || '';
-      const companyId = userData.companyId || 'unknown-company';
-      
-      // For company name, try to use real company name if available
-      const companyName = companyDetails?.CompanyName || userData.companyName || 'Unknown Company';
-      
-      // Prepare domain info
-      let emailDomain = '';
-      if (userEmail) {
-        const domainPart = userEmail.split('@')[1] || '';
-        emailDomain = domainPart;
-        
-        // Extract organization name from domain
-        const domainMatch = emailDomain.match(/^([^.]+)/);
-        if (domainMatch) emailDomain = domainMatch[1];
-      }
-      
-      // Get asset postcode with improved extraction and logging
-      // First check if postcode is directly available in the asset data
-      let finalPostcode = asset.postcode || asset.PostCode || '';
-      
 
+      // Extract user contact info
+      const userEmail = userData.email || '';
+      const emailDomain = userEmail.split('@')[1] || '';
       
-      // If postcode is missing, try to extract it from the address using regex
-      if (!finalPostcode && asset.address) {
-        const extractedPostcode = extractPostcodeFromAddress(asset.address);
-        if (extractedPostcode) {
-          finalPostcode = extractedPostcode;
-        } else {
-        }
-      }
-      
-      // If still no postcode, use a default for testing purposes only
-      if (!finalPostcode) {
-        finalPostcode = 'BS16 1QY'; // Default postcode for testing
-      }
+      // Extract phone number from user data
+      // Cast userData to any to access potential phone number locations
+      const userDataAny = userData as any;
+      const userPhone = userDataAny.phoneNumber || 
+                       userDataAny.phone_number ||
+                       userDataAny.phone ||
+                       (userDataAny.attributes && (
+                         userDataAny.attributes.phone_number ||
+                         userDataAny.attributes.phoneNumber
+                       )) ||
+                       userDataAny['custom:phoneNumber'] || '';
       
       // Assign contact ID
       const contactId = `contact_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       
-      // Prepare scheduling information
-      const schedulingInfo = {
-        scheduleType,
-        ...(scheduleType === 'scheduled' ? { 
-          date,
-          timeSlot 
-        } : {}),
-        ...(scheduleType === 'flexible' ? { 
-          date, 
-          flexibility,
-          preferredTimeOfDay 
-        } : {}),
-        ...(scheduleType === 'repeat' ? { 
-          startDate, 
-          endDate, 
-          repeatFrequency,
-          preferredTimeOfDay 
-        } : {})
-      };
+      // Get company name using utility
+      const companyName = getCompanyName(userData);
+      
+      // Get final postcode (reuse existing logic)
+      let finalPostcode = asset.postcode || '';
+      if (!finalPostcode && asset.address) {
+        const extractedPostcode = extractPostcodeFromAddress(asset.address);
+        if (extractedPostcode) {
+          finalPostcode = extractedPostcode;
+        }
+      }
+      if (!finalPostcode) {
+        finalPostcode = 'BS16 1QY'; // Default postcode for testing
+      }
       
       // Create booking object with actual user data
       const bookingData = {
-        CompanyId: companyId,
+        CompanyId: getCompanyId(userData),
         BookingId: bookingId,
         UserId: userId,
         assetId: asset.AssetId,
@@ -767,12 +800,29 @@ const MakeBookings: React.FC = () => {
         location: `${viewState.latitude}, ${viewState.longitude}`,
         status: 'pending',
         userName: userData.username || userData.name || 'Unknown User',
-        scheduling: schedulingInfo,
+        scheduling: {
+          scheduleType,
+          ...(scheduleType === 'scheduled' ? { 
+            date,
+            timeSlot 
+          } : {}),
+          ...(scheduleType === 'flexible' ? { 
+            date, 
+            flexibility,
+            preferredTimeOfDay 
+          } : {}),
+          ...(scheduleType === 'repeat' ? { 
+            startDate, 
+            endDate, 
+            repeatFrequency,
+            preferredTimeOfDay 
+          } : {})
+        },
         serviceOptions: Object.keys(selectedOptions).length > 0 ? selectedOptions : null,
         postcode: finalPostcode,
         Postcode: finalPostcode,
-        userEmail: userEmail, // Use the actual email from userData
-        userPhone: userPhone, // Use the actual phone from userData
+        userEmail: userEmail,
+        userPhone: userPhone,
         emailDomain: emailDomain,
         companyName: companyName,
         CompanyName: companyName,
@@ -786,8 +836,6 @@ const MakeBookings: React.FC = () => {
         notes: notes.trim() || null
       };
 
-      // Log the complete booking data for debugging
-
       // Get ID token for authorization
       const token = localStorage.getItem('idToken');
       if (!token) {
@@ -795,7 +843,8 @@ const MakeBookings: React.FC = () => {
       }
 
       // Send booking to API
-      const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/bookings', {
+      const apiUrl = process.env.REACT_APP_API_URL || '';
+      const response = await fetch(`${apiUrl}/bookings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -810,47 +859,40 @@ const MakeBookings: React.FC = () => {
           const errorData = await response.json();
           errorText = errorData.message || errorText;
         } catch (e) {
-          // Use default error message if can't parse response
         }
         throw new Error(errorText);
       }
 
       const responseData = await response.json();
-      
-      // Try to send notification email
+
+      // Send email notification using email service/API
       try {
-        if (FORMSPREE_ENDPOINTS.booking && !FORMSPREE_ENDPOINTS.booking.includes('undefined')) {
-          const emailData = {
+        const notifyUrl = process.env.REACT_APP_API_URL || '';
+        await fetch(`${notifyUrl}/notify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            type: 'booking_created',
             bookingId: bookingId,
-            assetName: asset.name,
-            assetType: asset.type,
-            jobTypes: selectedJobTypes.join(', '),
-            flightDate: scheduleType === 'scheduled' || scheduleType === 'flexible' ? date : startDate,
-            userName: userData.username,
             userEmail: userEmail,
-            siteContactName: siteContact.name,
-            siteContactPhone: siteContact.phone
-          };
-          
-          await fetch(FORMSPREE_ENDPOINTS.booking, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            body: JSON.stringify(emailData)
-          });
-        }
+            userName: userData.username || userData.name,
+            companyName: companyName
+          })
+        });
       } catch (emailError) {
-        console.warn('Failed to send email notification, but booking was saved:', emailError);
+        // Log but don't fail if email notification fails
       }
-      
+
       setBookingSuccess(true);
       
       // Navigate after a delay
       setTimeout(() => {
         navigate('/my-bookings');
       }, 2000);
+
     } catch (err) {
       if (err instanceof Error) {
         setError('Failed to submit booking: ' + err.message);
@@ -864,6 +906,44 @@ const MakeBookings: React.FC = () => {
   const getJobTypes = () => {
     if (!asset) return [];
     return jobTypesByAssetType[asset.type as AssetType] || [];
+  };
+
+  // Modify the time slot buttons to show availability
+  const TimeSlotButton = ({ time }: { time: string }) => {
+    const isUnavailable = unavailableTimeSlots.includes(time);
+    return (
+      <button
+        onClick={() => !isUnavailable && setTimeSlot(time)}
+        disabled={isUnavailable}
+        className={`
+          relative w-full h-[52px] flex items-center justify-center
+          rounded-lg transition-all duration-200 group
+          ${isUnavailable 
+            ? 'bg-gray-100 cursor-not-allowed text-gray-400' 
+            : timeSlot === time 
+              ? 'bg-green-50 ring-2 ring-green-500 text-green-700' 
+              : 'bg-white hover:bg-gray-50 border-2 border-gray-200 hover:border-green-400'
+          }
+        `}
+      >
+        <span className={`
+          text-sm transition-colors duration-200
+          ${isUnavailable 
+            ? 'text-gray-400'
+            : timeSlot === time 
+              ? 'font-semibold' 
+              : 'font-medium text-gray-700 group-hover:text-gray-900'
+          }
+        `}>
+          {formatTimeSlot(time)}
+        </span>
+        {isUnavailable && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-90 rounded-lg">
+            <span className="text-xs text-gray-500">Unavailable</span>
+          </div>
+        )}
+      </button>
+    );
   };
 
   if (bookingSuccess) {
@@ -1000,7 +1080,7 @@ const MakeBookings: React.FC = () => {
                       backgroundColor: getAssetTypeInfo(asset.type).color,
                       color: 'white'
                     }}>
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={getAssetTypeInfo(asset.type).icon} />
                       </svg>
                     </div>
@@ -1260,21 +1340,33 @@ const MakeBookings: React.FC = () => {
                       {getJobTypes().map((type, index) => (
                         <div 
                           key={index}
-                          onClick={() => toggleJobType(type)}
-                          className={`flex items-center p-4 border rounded-lg cursor-pointer transition-all duration-200
+                          className={`flex items-center p-4 border rounded-lg transition-all duration-200
                             ${selectedJobTypes.includes(type) 
                               ? 'border-blue-500 bg-blue-50 shadow-sm' 
                               : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}
                         >
-                          <input
-                            type="checkbox"
-                            id={`job-type-${index}`}
-                            name="jobType"
-                            checked={selectedJobTypes.includes(type)}
-                            onChange={() => toggleJobType(type)}
-                            className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <div className="ml-3 flex-1">
+                          <div 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleJobType(type);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <label className="cursor-pointer">
+                              <input
+                                type="checkbox"
+                                id={`job-type-${index}`}
+                                name="jobType"
+                                checked={selectedJobTypes.includes(type)}
+                                onChange={() => {}}
+                                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              />
+                            </label>
+                          </div>
+                          <div 
+                            className="ml-3 flex-1 cursor-pointer"
+                            onClick={() => toggleJobType(type)}
+                          >
                             <label htmlFor={`job-type-${index}`} className="block text-sm font-medium text-gray-700">
                               {type}
                             </label>
@@ -1539,7 +1631,6 @@ const MakeBookings: React.FC = () => {
                     <div className="space-y-5">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div 
-                          onClick={() => setScheduleType('scheduled')}
                           className={`p-4 border rounded-lg cursor-pointer transition duration-200 ${
                             scheduleType === 'scheduled' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
                           }`}
@@ -1560,7 +1651,6 @@ const MakeBookings: React.FC = () => {
                           <p className="text-xs text-gray-500 ml-6">Book a service for an exact date and time slot</p>
                         </div>
                         <div 
-                          onClick={() => setScheduleType('flexible')}
                           className={`p-4 border rounded-lg cursor-pointer transition duration-200 ${
                             scheduleType === 'flexible' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
                           }`}
@@ -1581,7 +1671,6 @@ const MakeBookings: React.FC = () => {
                           <p className="text-xs text-gray-500 ml-6">Indicate preferred dates with flexibility for optimal conditions</p>
                         </div>
                         <div 
-                          onClick={() => setScheduleType('repeat')}
                           className={`p-4 border rounded-lg cursor-pointer transition duration-200 ${
                             scheduleType === 'repeat' ? 'border-green-500 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-green-300 hover:bg-green-50'
                           }`}
@@ -1611,63 +1700,109 @@ const MakeBookings: React.FC = () => {
                                 <svg className="w-5 h-5 mr-1 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                 </svg>
-                                Date Selection
+                                Select Date & Time
                               </h3>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
-                                  <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
-                                    Service Date <span className="text-red-500">*</span>
-                                  </label>
-                                  <input
-                                    type="date"
-                                    id="date"
-                                    value={date}
-                                    onChange={(e) => setDate(e.target.value)}
-                                    min={new Date().toISOString().split('T')[0]}
-                                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                  />
+                              <div className="bg-white border border-gray-300 rounded-lg shadow-sm">
+                                {/* Date Selection at the top */}
+                                <div className="border-b border-gray-200 p-5">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                                    <div>
+                                      <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-2">
+                                        Service Date <span className="text-red-500">*</span>
+                                      </label>
+                                      <input
+                                        type="date"
+                                        id="date"
+                                        value={date}
+                                        onChange={(e) => setDate(e.target.value)}
+                                        min={new Date().toISOString().split('T')[0]}
+                                        className="block w-full border-2 border-gray-300 rounded-lg shadow-sm py-3 px-4 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent sm:text-sm"
+                                      />
+                                    </div>
+                                    {date && (
+                                      <div className="bg-green-50 rounded-md border border-green-200 p-3">
+                                        <p className="text-sm text-green-800 font-medium">
+                                          {new Date(date).toLocaleDateString('en-GB', { 
+                                            weekday: 'long',
+                                            day: 'numeric', 
+                                            month: 'long', 
+                                            year: 'numeric' 
+                                          })}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {timeSlot && (
+                                      <div className="bg-blue-50 rounded-md border border-blue-200 p-3">
+                                        <p className="text-sm text-blue-800">
+                                          <span className="font-medium">Selected Time:</span> {formatTimeSlot(timeSlot)}
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                                
-                                <div className="bg-white border border-gray-300 rounded-md shadow-sm p-4">
-                                  <label htmlFor="time-slot" className="block text-sm font-medium text-gray-700 mb-1">
-                                    Time Slot <span className="text-red-500">*</span>
-                                  </label>
-                                  <select
-                                    id="time-slot"
-                                    value={timeSlot}
-                                    onChange={(e) => setTimeSlot(e.target.value)}
-                                    className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                  >
-                                    <option value="">Select Time</option>
-                                    <option value="early-morning">Early Morning (6 AM - 8 AM)</option>
-                                    <option value="morning">Morning (8 AM - 12 PM)</option>
-                                    <option value="afternoon">Afternoon (12 PM - 4 PM)</option>
-                                    <option value="evening">Evening (4 PM - 8 PM)</option>
-                                  </select>
+
+                                {/* Time Selection below */}
+                                <div className="p-5">
+                                  <div className="mb-4">
+                                    <h4 className="text-sm font-medium text-gray-700">
+                                      Available Time Slots <span className="text-red-500">*</span>
+                                    </h4>
+                                    <p className="text-xs text-gray-500 mt-1">Select your preferred appointment time</p>
+                                  </div>
+
+                                  <div className="space-y-8">
+                                    <div>
+                                      <div className="flex items-center justify-between mb-3">
+                                        <h5 className="text-xs font-medium text-gray-700">Morning</h5>
+                                        <span className="text-xs text-gray-500">9:00 AM - 12:00 PM</span>
+                                      </div>
+                                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                        {isLoadingTimeSlots ? (
+                                          <div className="col-span-full flex justify-center py-4">
+                                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-500"></div>
+                                          </div>
+                                        ) : (
+                                          ['09:00', '10:00', '11:00'].map((time) => (
+                                            <TimeSlotButton key={time} time={time} />
+                                          ))
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <div className="flex items-center justify-between mb-3">
+                                        <h5 className="text-xs font-medium text-gray-700">Afternoon</h5>
+                                        <span className="text-xs text-gray-500">12:00 PM - 5:00 PM</span>
+                                      </div>
+                                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                        {isLoadingTimeSlots ? (
+                                          <div className="col-span-full flex justify-center py-4">
+                                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-500"></div>
+                                          </div>
+                                        ) : (
+                                          ['12:00', '13:00', '14:00', '15:00', '16:00', '17:00'].map((time) => (
+                                            <TimeSlotButton key={time} time={time} />
+                                          ))
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-                              {date && (
-                                <div className="mt-3 text-sm text-gray-600">
-                                  Selected: {date && new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                                  {timeSlot && (
-                                    <span className="font-medium"> • {
-                                      {
-                                        'early-morning': 'Early Morning (6 AM - 8 AM)',
-                                        'morning': 'Morning (8 AM - 12 PM)',
-                                        'afternoon': 'Afternoon (12 PM - 4 PM)',
-                                        'evening': 'Evening (4 PM - 8 PM)'
-                                      }[timeSlot]
-                                    }</span>
-                                  )}
+
+                              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
+                                <div className="flex items-start">
+                                  <div className="flex-shrink-0">
+                                    <svg className="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                  </div>
+                                  <div className="ml-3">
+                                    <p className="text-sm text-yellow-700">
+                                      Drone operations require suitable weather conditions. If conditions are unsuitable on the scheduled day, we'll contact you to reschedule.
+                                    </p>
+                                  </div>
                                 </div>
-                              )}
-                            </div>
-                            <div>
-                              <div className="flex items-center">
-                                <div className="h-4 w-4 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                  <div className="h-2 w-2 rounded-full bg-blue-600"></div>
-                                </div>
-                                <span className="ml-2 text-xs text-gray-500">Drone operations require suitable weather conditions. If unsuitable on the scheduled day, we'll contact you to reschedule.</span>
                               </div>
                             </div>
                           </div>

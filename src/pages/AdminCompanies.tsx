@@ -1,28 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import AdminNavbar from '../components/AdminNavbar';
-import CompanyTable from '../components/admin/CompanyTable';
-import { FiBriefcase, FiSearch, FiRefreshCw, FiDownload } from 'react-icons/fi';
-import * as adminService from '../services/adminService';
+import AdminNavbar from '../components/common/Navbar';
+import AdminCompaniesList from '../components/admin/AdminCompaniesList';
 import { validateAmplifyConfig } from '../utils/apiUtils';
+import { FiBriefcase, FiSearch, FiRefreshCw, FiFilter, FiX, FiPlus } from 'react-icons/fi';
+import * as adminService from '../services/adminService';
 
-interface Company {
-  id: string;
-  name: string;
-  primaryDomain: string;
-  status: string;
-  userCount: number;
-  createdAt: string;
+interface CompanyStats {
+  total: number;
+  active: number;
+  pending: number;
+  disabled: number;
+  withUsers: number;
 }
 
 const AdminCompanies: React.FC = () => {
   const { isAdmin } = useAuth();
   const [loading, setLoading] = useState<boolean>(true);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<CompanyStats>({
+    total: 0,
+    active: 0,
+    pending: 0,
+    disabled: 0,
+    withUsers: 0
+  });
+  const [filters, setFilters] = useState({
+    status: '',
+    type: '',
+    search: ''
+  });
   const navigate = useNavigate();
 
   // Verify Amplify configuration
@@ -39,258 +47,274 @@ const AdminCompanies: React.FC = () => {
       }, 2000);
       return;
     }
-    
-    fetchCompanies();
+
+    loadCompanies();
   }, [isAdmin, navigate]);
 
-  // Fetch companies from API
-  const fetchCompanies = async () => {
-    setLoading(true);
+  const loadCompanies = async () => {
     try {
+      setLoading(true);
       const response = await adminService.getAllCompanies();
       
-      // Check if response has companies array
-      if (!response || !response.companies) {
-        throw new Error('Invalid API response format');
+      if (response && response.companies) {
+        // Calculate stats
+        const newStats = response.companies.reduce((acc: CompanyStats, company: any) => {
+          acc.total++;
+          if (company.Status === 'ACTIVE') acc.active++;
+          if (company.Status === 'PENDING') acc.pending++;
+          if (company.Status === 'DISABLED') acc.disabled++;
+          if (company.UserCount > 0) acc.withUsers++;
+          return acc;
+        }, { total: 0, active: 0, pending: 0, disabled: 0, withUsers: 0 });
+
+        setStats(newStats);
       }
-      
-      // Log the raw data for debugging
-      
-      // Map the API response to our Company interface
-      const mappedCompanies = response.companies.map((company: any) => ({
-        id: company.CompanyId || company.id || '',
-        name: company.Name || company.CompanyName || company.name || '',
-        primaryDomain: company.PrimaryDomain || company.EmailDomain || company.domain || '',
-        status: company.Status || company.status || 'Active',
-        userCount: company.UserCount || company.userCount || 0,
-        createdAt: company.CreatedAt || company.createdAt || ''
-      }));
-      
-      setCompanies(mappedCompanies);
       setError(null);
     } catch (err: any) {
-      setError(err.message || 'Failed to load companies');
+      setError(err.message || 'Failed to load companies data');
     } finally {
       setLoading(false);
     }
   };
 
-  // Filter companies based on search term
-  const filteredCompanies = companies.filter(company => {
-    const searchTermLower = searchTerm.toLowerCase();
-    return (
-      (company.name && company.name.toLowerCase().includes(searchTermLower)) ||
-      (company.primaryDomain && company.primaryDomain.toLowerCase().includes(searchTermLower)) ||
-      (company.status && company.status.toLowerCase().includes(searchTermLower))
-    );
-  });
-
-  // Handle company selection for bulk actions
-  const handleSelectAll = () => {
-    if (selectedCompanies.length === filteredCompanies.length) {
-      setSelectedCompanies([]);
-    } else {
-      setSelectedCompanies(filteredCompanies.map(company => company.id));
-    }
+  const handleFilterChange = (name: string, value: string) => {
+    setFilters(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
-  const handleSelectCompany = (companyId: string) => {
-    if (selectedCompanies.includes(companyId)) {
-      setSelectedCompanies(selectedCompanies.filter(id => id !== companyId));
-    } else {
-      setSelectedCompanies([...selectedCompanies, companyId]);
-    }
-  };
-
-  // Company management actions
-  const handleAddCompany = () => {
-    navigate('/admin/companies/add');
-  };
-
-  const handleEditCompany = (companyId: string) => {
-    navigate(`/admin/companies/edit/${companyId}`);
-  };
-
-  const handleViewCompanyDetails = (companyId: string) => {
-    navigate(`/admin/companies/details/${companyId}`);
-  };
-
-  const handleManageCompanyUsers = (companyId: string) => {
-    navigate(`/admin/companies/${companyId}/users`);
-  };
-
-  const handleDeleteCompany = async (companyId: string) => {
-    if (window.confirm('Are you sure you want to delete this company? This action cannot be undone.')) {
-      try {
-        setLoading(true);
-        await adminService.deleteCompany(companyId);
-        // Update local state
-        setCompanies(companies.filter(company => company.id !== companyId));
-        // Remove from selected companies if present
-        setSelectedCompanies(selectedCompanies.filter(id => id !== companyId));
-        alert('Company deleted successfully');
-      } catch (err: any) {
-        setError(err.message || 'Failed to delete company');
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  // Handle bulk actions
-  const handleBulkDelete = async () => {
-    if (selectedCompanies.length === 0) return;
-    
-    if (window.confirm(`Are you sure you want to delete ${selectedCompanies.length} companies? This action cannot be undone.`)) {
-      try {
-        setLoading(true);
-        
-        // Process deletions sequentially
-        for (const companyId of selectedCompanies) {
-          await adminService.deleteCompany(companyId);
-        }
-        
-        // Update local state
-        setCompanies(companies.filter(company => !selectedCompanies.includes(company.id)));
-        setSelectedCompanies([]);
-        alert('Companies deleted successfully');
-      } catch (err: any) {
-        setError(err.message || 'Failed to delete companies');
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  // Export companies to CSV
-  const handleExportCompanies = () => {
-    const headers = ['Company Name', 'Domain', 'Status', 'Users', 'Created'];
-    
-    const csvData = filteredCompanies.map(company => [
-      company.name,
-      company.primaryDomain || '',
-      company.status || 'Active',
-      company.userCount.toString(),
-      new Date(company.createdAt).toLocaleDateString()
-    ]);
-    
-    const csvContent = [
-      headers.join(','),
-      ...csvData.map(row => row.join(','))
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'companies.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleClearFilters = () => {
+    setFilters({
+      status: '',
+      type: '',
+      search: ''
+    });
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <AdminNavbar />
       
-      <main className="flex-1 container mx-auto px-4 py-8">
-        <header className="mb-8 flex flex-col md:flex-row md:justify-between md:items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Company Management</h1>
-            <p className="text-gray-600">View and manage companies in the system</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="md:flex md:items-center md:justify-between mb-8">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
+              Company Management
+            </h1>
           </div>
-          <div className="mt-4 md:mt-0 flex space-x-3">
-            <button 
-              onClick={handleAddCompany}
-              className="inline-flex items-center px-4 py-2 bg-blue-600 border border-transparent rounded-md font-semibold text-white hover:bg-blue-700 focus:outline-none"
+          <div className="mt-4 flex md:mt-0 md:ml-4 space-x-3">
+            <button
+              type="button"
+              onClick={() => document.dispatchEvent(new Event('openAddCompanyModal'))}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
-              <FiBriefcase className="mr-2" />
+              <FiPlus className="mr-2" />
               Add Company
             </button>
-            <button 
-              onClick={handleExportCompanies}
-              className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none"
-            >
-              <FiDownload className="mr-2" />
-              Export CSV
-            </button>
           </div>
-        </header>
+        </div>
 
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-            {error}
-          </div>
-        )}
-
-        {/* Company management controls */}
-        <div className="bg-white rounded-lg shadow mb-6">
-          <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center">
-            <div className="relative w-full sm:w-64 mb-4 sm:mb-0">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <FiSearch className="text-gray-400" />
+        {/* Stats */}
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5 mb-8">
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="bg-indigo-100 rounded-lg p-3">
+                    <FiBriefcase className="h-6 w-6 text-indigo-600" />
+                  </div>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">Total Companies</dt>
+                    <dd className="text-lg font-semibold text-gray-900">{stats.total}</dd>
+                  </dl>
+                </div>
               </div>
-              <input
-                type="text"
-                placeholder="Search companies..."
-                className="pl-10 pr-4 py-2 border border-gray-300 rounded-md w-full focus:ring-blue-500 focus:border-blue-500"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600">
-                {filteredCompanies.length} company/companies
-              </span>
-              <button
-                onClick={fetchCompanies}
-                className="p-2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                title="Refresh"
-              >
-                <FiRefreshCw className={loading ? 'animate-spin' : ''} />
-              </button>
             </div>
           </div>
-          
-          {selectedCompanies.length > 0 && (
-            <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex items-center">
-              <span className="mr-4 text-sm text-blue-800">
-                {selectedCompanies.length} company/companies selected
-              </span>
-              <button 
-                onClick={handleBulkDelete}
-                className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                Delete
-              </button>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="bg-green-100 rounded-lg p-3">
+                    <FiBriefcase className="h-6 w-6 text-green-600" />
+                  </div>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">Active</dt>
+                    <dd className="text-lg font-semibold text-gray-900">{stats.active}</dd>
+                  </dl>
+                </div>
+              </div>
             </div>
-          )}
-          
-          {/* Company table */}
-          <CompanyTable 
-            companies={filteredCompanies}
-            loading={loading}
-            onEdit={handleEditCompany}
-            onDelete={handleDeleteCompany}
-            onViewDetails={handleViewCompanyDetails}
-            onManageUsers={handleManageCompanyUsers}
-            selectedCompanies={selectedCompanies}
-            onSelectCompany={handleSelectCompany}
-            onSelectAll={handleSelectAll}
-          />
-          
-          {/* Pagination - could be implemented if needed */}
-          <div className="px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700">
-                  Showing <span className="font-medium">1</span> to <span className="font-medium">{filteredCompanies.length}</span> of <span className="font-medium">{filteredCompanies.length}</span> results
-                </p>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="bg-yellow-100 rounded-lg p-3">
+                    <FiBriefcase className="h-6 w-6 text-yellow-600" />
+                  </div>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">Pending</dt>
+                    <dd className="text-lg font-semibold text-gray-900">{stats.pending}</dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="bg-red-100 rounded-lg p-3">
+                    <FiBriefcase className="h-6 w-6 text-red-600" />
+                  </div>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">Disabled</dt>
+                    <dd className="text-lg font-semibold text-gray-900">{stats.disabled}</dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="bg-purple-100 rounded-md p-3">
+                    <FiBriefcase className="h-6 w-6 text-purple-600" />
+                  </div>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">With Users</dt>
+                    <dd className="text-lg font-semibold text-gray-900">{stats.withUsers}</dd>
+                  </dl>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </main>
+
+        {/* Filters */}
+        <div className="bg-white shadow rounded-lg mb-8">
+          <div className="px-4 py-5 sm:p-6">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <label htmlFor="search" className="block text-sm font-medium text-gray-700">
+                  Search
+                </label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FiSearch className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    name="search"
+                    id="search"
+                    value={filters.search}
+                    onChange={(e) => handleFilterChange('search', e.target.value)}
+                    className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md"
+                    placeholder="Search companies..."
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="status" className="block text-sm font-medium text-gray-700">
+                  Status
+                </label>
+                <select
+                  id="status"
+                  name="status"
+                  value={filters.status}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                  className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="PENDING">Pending</option>
+                  <option value="DISABLED">Disabled</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="type" className="block text-sm font-medium text-gray-700">
+                  Type
+                </label>
+                <select
+                  id="type"
+                  name="type"
+                  value={filters.type}
+                  onChange={(e) => handleFilterChange('type', e.target.value)}
+                  className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                >
+                  <option value="">All Types</option>
+                  <option value="Enterprise">Enterprise</option>
+                  <option value="Business">Business</option>
+                  <option value="Startup">Startup</option>
+                </select>
+              </div>
+
+              <div className="flex items-end space-x-3">
+                <button
+                  type="button"
+                  onClick={handleClearFilters}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  <FiX className="mr-2" />
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={loadCompanies}
+                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  <FiRefreshCw className="mr-2" />
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="rounded-md bg-red-50 p-4 mb-8">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <FiX className="h-5 w-5 text-red-400" />
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">
+                  Error
+                </h3>
+                <div className="mt-2 text-sm text-red-700">
+                  <p>{error}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Companies List */}
+        <div className="bg-white shadow rounded-lg">
+          <AdminCompaniesList />
+        </div>
+      </div>
     </div>
   );
 };

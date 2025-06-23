@@ -76,7 +76,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <p className="text-sm text-gray-500">{user.Email}</p>
                     </div>
                     <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      (user.UserRole || user.role || '').toLowerCase().includes('admin') ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                      (user.UserRole || user.role || '').toLowerCase() === 'admin' || 
+                      (user.UserRole || user.role || '').toLowerCase() === 'administrator' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
                     }`}>
                       {user.UserRole || user.role || 'User'}
                     </span>

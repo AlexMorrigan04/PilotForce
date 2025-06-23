@@ -1,182 +1,3 @@
-import AWS from 'aws-sdk';
-
-// Replace hardcoded AWS credentials with environment variables
-const awsRegion = process.env.REACT_APP_AWS_REGION;
-const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
-const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
-
-// Only update AWS config if all values are present
-if (awsRegion && accessKey && secretKey) {
-  AWS.config.update({
-    accessKeyId: accessKey,
-    secretAccessKey: secretKey,
-    region: awsRegion
-  });
-} else {
-  console.warn('AWS credentials not fully specified in environment variables');
-}
-
-const dynamoDb = new AWS.DynamoDB.DocumentClient();
-
-/**
- * Gets all user IDs for users in the same company (with the same email domain)
- * @param emailDomain The email domain to search for (e.g., "company.com")
- * @param currentUserId The current user's ID to include as fallback
- * @returns Array of user IDs from the same company
- */
-export const getCompanyUserIds = async (emailDomain: string, currentUserId: string): Promise<string[]> => {
-  try {
-    const usersParams = {
-      TableName: 'Users',
-      FilterExpression: 'contains(Email, :domain)',
-      ExpressionAttributeValues: {
-        ':domain': `@${emailDomain}`
-      }
-    };
-
-    // Check if we have necessary AWS credentials
-    if (!awsRegion || !accessKey || !secretKey) {
-      console.warn('Missing AWS credentials, returning only current user ID');
-      return [currentUserId];
-    }
-    
-    const result = await dynamoDb.scan(usersParams).promise();
-    
-    if (!result.Items || result.Items.length === 0) {
-      return [currentUserId];
-    }
-    
-    const userIds = result.Items.map(item => item.UserID || item.userId || item.UserId)
-      .filter(Boolean) as string[];
-      
-    
-    // Always include current user ID in case it wasn't found in the query
-    if (currentUserId && !userIds.includes(currentUserId)) {
-      userIds.push(currentUserId);
-    }
-    
-    return userIds;
-  } catch (error) {
-    return [currentUserId];
-  }
-};
-
-/**
- * Gets the company ID associated with an email domain
- * @param emailDomain The email domain to search for
- * @returns The company ID if found, null otherwise
- */
-export const getCompanyIdFromDomain = async (emailDomain: string): Promise<string | null> => {
-  try {
-    // Look for an admin user with this domain to get the company ID
-    const adminParams = {
-      TableName: 'Users',
-      FilterExpression: 'contains(Email, :domain) AND UserRole = :adminRole',
-      ExpressionAttributeValues: {
-        ':domain': `@${emailDomain}`,
-        ':adminRole': 'AccountAdmin'
-      }
-    };
-    
-    const adminData = await dynamoDb.scan(adminParams).promise();
-    if (adminData.Items && adminData.Items.length > 0) {
-      // Return the company ID from the first admin user
-      return adminData.Items[0].CompanyId;
-    }
-    
-    // If no admin found, try to find any user with this domain
-    const userParams = {
-      TableName: 'Users',
-      FilterExpression: 'contains(Email, :domain)',
-      ExpressionAttributeValues: {
-        ':domain': `@${emailDomain}`
-      }
-    };
-    
-    const userData = await dynamoDb.scan(userParams).promise();
-    if (userData.Items && userData.Items.length > 0) {
-      // Return the company ID from the first user
-      return userData.Items[0].CompanyId;
-    }
-    
-    // No users found with this domain
-    return null;
-  } catch (error) {
-    return null;
-  }
-};
-
-/**
- * Fetches all assets belonging to a company
- * @param companyId The company ID to fetch assets for
- * @returns Array of assets belonging to the company
- */
-export const getAssetsForCompany = async (companyId: string): Promise<any[]> => {
-  try {
-    const assetsParams = {
-      TableName: 'Assets',
-      FilterExpression: 'CompanyId = :companyId',
-      ExpressionAttributeValues: {
-        ':companyId': companyId
-      }
-    };
-    
-    const assetsData = await dynamoDb.scan(assetsParams).promise();
-    return assetsData.Items || [];
-  } catch (error) {
-    return [];
-  }
-};
-
-/**
- * Fetches all bookings belonging to a company
- * @param companyId The company ID to fetch bookings for
- * @returns Array of bookings belonging to the company
- */
-export const getBookingsForCompany = async (companyId: string): Promise<any[]> => {
-  try {
-    const bookingsParams = {
-      TableName: 'Bookings',
-      FilterExpression: 'CompanyId = :companyId',
-      ExpressionAttributeValues: {
-        ':companyId': companyId
-      }
-    };
-    
-    const bookingsData = await dynamoDb.scan(bookingsParams).promise();
-    return bookingsData.Items || [];
-  } catch (error) {
-    return [];
-  }
-};
-
-// Original functions to maintain backward compatibility
-export const getCompanyAssets = getCompanyUserIds;
-export const getCompanyBookings = getCompanyUserIds;
-export const getCompanyMediaCount = async (companyUserIds: string[]): Promise<number> => {
-  let totalMedia = 0;
-  
-  for (const userId of companyUserIds) {
-    try {
-      const mediaParams = {
-        TableName: 'ImageUploads',
-        FilterExpression: 'UserId = :userId',
-        ExpressionAttributeValues: {
-          ':userId': userId
-        }
-      };
-      
-      const mediaData = await dynamoDb.scan(mediaParams).promise();
-      if (mediaData.Items) {
-        totalMedia += mediaData.Items.length;
-      }
-    } catch (error) {
-    }
-  }
-  
-  return totalMedia;
-};
-
 /**
  * Fetches all users for a specific company
  * @param companyId - The ID of the company to fetch users for
@@ -225,16 +46,17 @@ export async function getUsersByCompany(companyId: string) {
     // First try with GET request (token auth)
     let response;
     let method = 'GET';
+    const apiUrl = process.env.REACT_APP_API_URL || '';
     
     if (tokenToUse) {
       try {
-        response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`, {
+        response = await fetch(`${apiUrl}/companies/${companyId}/users`, {
           method,
           headers
         });
       } catch (networkError) {
         // Retry with alternative endpoint if available
-        response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/user?companyId=${companyId}`, {
+        response = await fetch(`${apiUrl}/user?companyId=${companyId}`, {
           method,
           headers
         });
@@ -243,14 +65,14 @@ export async function getUsersByCompany(companyId: string) {
       // If no token but we have username/password, use POST instead
       method = 'POST';
       try {
-        response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`, {
+        response = await fetch(`${apiUrl}/companies/${companyId}/users`, {
           method,
           headers,
           body: JSON.stringify(requestBody)
         });
       } catch (networkError) {
         // Retry with alternative endpoint if available
-        response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/user`, {
+        response = await fetch(`${apiUrl}/user`, {
           method,
           headers,
           body: JSON.stringify({
@@ -329,3 +151,58 @@ export async function getUsersByCompany(companyId: string) {
     throw error;
   }
 }
+
+// Create mock data utility for testing and development when real AWS credentials aren't available
+const createMockCompanyData = (companyId: string) => {
+  return {
+    CompanyId: companyId,
+    Name: "Development Company",
+    Status: "Active",
+    Plan: "Professional",
+    UserCount: 5,
+    CreatedAt: new Date().toISOString(),
+    UpdatedAt: new Date().toISOString(),
+    BillingEmail: "billing@example.com",
+    BillingAddress: "123 Development St, Dev City",
+    ContactPerson: "Dev User",
+    ContactPhone: "+1234567890"
+  };
+};
+
+/**
+ * Fetches company information by ID directly from DynamoDB
+ * @param companyId The company ID to fetch
+ * @returns Company information object or null if not found
+ */
+export const getCompanyInfo = async (companyId: string): Promise<any> => {
+  if (!companyId) {
+    return null;
+  }
+
+  try {
+    const token = localStorage.getItem('idToken');
+    if (!token) {
+        throw new Error("No auth token found");
+    }
+    const apiUrl = process.env.REACT_APP_API_URL || '';
+    const response = await fetch(`${apiUrl}/companies/${companyId}`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+
+    if(!response.ok) {
+        throw new Error("Failed to fetch company info");
+    }
+    
+    const data = await response.json();
+    return data.company || data;
+
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      return createMockCompanyData(companyId);
+    }
+    return null;
+  }
+};

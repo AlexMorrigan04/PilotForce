@@ -2,18 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FiX, FiImage, FiFile, FiMap, FiDownload, FiEye, FiLoader } from 'react-icons/fi';
 import * as adminService from '../../services/adminService';
 import { downloadResource, saveBlob } from '../../utils/resourceDownloader';
-
-interface Resource {
-  ResourceId?: string;
-  FileName?: string;
-  ResourceUrl?: string;
-  ContentType?: string;
-  Size?: number;
-  IsImage?: boolean;
-  CreatedAt?: string;
-  S3Path?: string;
-  isChunked?: boolean;
-}
+import { Resource, ResourcesResponse } from '../../services/adminService';
 
 interface BookingResourcesModalProps {
   isOpen: boolean;
@@ -21,21 +10,32 @@ interface BookingResourcesModalProps {
   bookingId: string;
 }
 
+// Define a local Resource interface that includes all the properties used in this component
+interface UIResource extends Resource {
+  ResourceId?: string;
+  ResourceUrl?: string;
+  FileName?: string;
+  ContentType?: string;
+  Size?: number;
+  IsImage?: boolean;
+  isChunked?: boolean;
+}
+
 const BookingResourcesModal: React.FC<BookingResourcesModalProps> = ({
   isOpen,
   onClose,
   bookingId,
 }) => {
-  const [resources, setResources] = useState<Resource[]>([]);
+  const [resources, setResources] = useState<UIResource[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeImage, setActiveImage] = useState<Resource | null>(null);
+  const [activeImage, setActiveImage] = useState<UIResource | null>(null);
   const [downloading, setDownloading] = useState<{[key: string]: boolean}>({});
   const [downloadProgress, setDownloadProgress] = useState<{[key: string]: number}>({});
 
   useEffect(() => {
     if (isOpen && bookingId) {
-      fetchResources();
+      loadResources();
     } else {
       // Reset when modal is closed
       setResources([]);
@@ -43,34 +43,29 @@ const BookingResourcesModal: React.FC<BookingResourcesModalProps> = ({
     }
   }, [isOpen, bookingId]);
 
-  const fetchResources = async () => {
+  const loadResources = async () => {
     try {
       setLoading(true);
-      console.log(`Fetching resources for booking ${bookingId}`);
       
       const response = await adminService.getBookingResources(bookingId);
-      console.log('Resources API response:', response);
       
+      // Handle different API response formats
       if (Array.isArray(response)) {
-        setResources(response);
-      } else if (response && Array.isArray(response.resources)) {
-        setResources(response.resources);
+        setResources(response as UIResource[]);
+      } else if (response && 'resources' in response) {
+        setResources(response.resources as UIResource[]);
       } else {
-        console.warn('Unexpected resources response format:', response);
         setResources([]);
       }
-      
-      setError(null);
-    } catch (err: any) {
-      console.error('Error fetching resources:', err);
-      setError(err.message || 'Failed to load resources');
+    } catch (error) {
+      setError('Failed to load resources');
       setResources([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const getFileIcon = (resource: Resource) => {
+  const getFileIcon = (resource: UIResource) => {
     if (resource.IsImage || (resource.ContentType && resource.ContentType.startsWith('image/'))) {
       return <FiImage className="h-5 w-5 text-blue-500" />;
     } 
@@ -87,7 +82,7 @@ const BookingResourcesModal: React.FC<BookingResourcesModalProps> = ({
     return (bytes / 1048576).toFixed(1) + ' MB';
   };
 
-  const handleDownload = async (resource: Resource, e: React.MouseEvent) => {
+  const handleDownload = async (resource: UIResource, e: React.MouseEvent) => {
     e.stopPropagation();
     
     const resourceId = resource.ResourceId;
@@ -120,7 +115,6 @@ const BookingResourcesModal: React.FC<BookingResourcesModalProps> = ({
       saveBlob(result.blob, result.metadata.fileName);
       
     } catch (error) {
-      console.error('Error downloading resource:', error);
       // If we have a direct URL as fallback, use it
       if (resource.ResourceUrl) {
         window.open(resource.ResourceUrl, '_blank');

@@ -57,8 +57,6 @@ export const getAssetCount = async (companyId: string): Promise<number> => {
     const token = getAuthToken() || localStorage.getItem('idToken');
     
     if (!token) {
-      console.warn('No authentication token available, trying alternate methods');
-      
       // Try fallback to see if we can get assets from localStorage
       try {
         const cachedAssets = localStorage.getItem(`assets_${companyId}`);
@@ -74,7 +72,7 @@ export const getAssetCount = async (companyId: string): Promise<number> => {
     }
 
     // First try to get count from API endpoint if available
-    const response = await fetch(`${apiUrl}/assets/count?companyId=${companyId}`, {
+    const response = await fetch(`${apiUrl}/assets?companyId=${companyId}&countOnly=true`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,

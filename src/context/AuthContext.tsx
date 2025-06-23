@@ -1,151 +1,249 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import * as authService from '../services/authServices';
-import { isAdminFromToken } from '../utils/adminUtils';
-import { AuthContextType } from '../types/auth';
-import { AuthResponse } from '../services/authServices';
-import { 
-  storeAuthTokens, 
-  getAuthToken, 
-  getRefreshToken, 
-  clearAuthData, 
-  needsSessionRefresh,
-  getStoredUserData,
-  isAuthenticated as checkIsAuthenticated,
-  initializeSession
-} from '../utils/sessionPersistence';
-import { debugAuthState } from '../utils/tokenDebugger';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import { Amplify } from 'aws-amplify';
+import { jwtDecode } from 'jwt-decode'; // Change from default import to named import
+import authService from '../services/authServices';
 import sessionManager from '../utils/sessionManager';
+import authManager from '../utils/authManager';
+// We'll use authUtils default export instead
+import authUtils from '../utils/authUtils'; 
+import debugTokens from '../utils/debugTokens'; // Import the debug utilities
+import { storeAuthTokens } from '../utils/sessionPersistence';
+import urlUtils from '../utils/urlUtils';
+import { securityAuditLogger } from '../utils/securityAuditLogger';
 
-// Create the context with default values
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  loading: true,
-  error: null,
-  isAuthenticated: false,
-  isAdmin: false,
-  userRole: 'User',
-  login: async () => ({}),
-  signup: async () => ({}),
-  logout: async () => {},
-  checkAuth: async () => {},
-  confirmUser: async () => ({}),
-  resendConfirmationCode: async () => ({}),
-  signIn: async () => ({}),
-  signUp: async () => ({}),
-  confirmSignUp: async () => ({}),
-  checkAdminStatus: async () => false
-});
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  companyId: string;
+  role: string;
+  sub?: string;
+  phoneNumber?: string;
+  username?: string;
+  
+  accessPassword?: string;
+  tokens?: {
+    idToken?: string;
+    accessToken?: string;
+    refreshToken?: string;
+  };
+  idToken?: string;
+  accessToken?: string;
+  companyName?: string;
+  userId?: string;
+  
+  ['custom:userRole']?: string;
+  ['custom:role']?: string;
+  ['custom:companyId']?: string;
+}
 
-// Custom hook to use the auth context
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+interface AuthContextType {
+  isAuthenticated: boolean;
+  loading: boolean;
+  user: AuthUser | null;
+  error: string | null;
+  login: (usernameOrParams: string | { username: string; password: string }, password?: string) => Promise<any>;
+  logout: () => void;
+  initiateGoogleLogin: () => Promise<boolean>;
+  initiateMicrosoftLogin: () => Promise<boolean>;
+  processOAuthCallback: (code: string, inviteCode?: string, provider?: 'google' | 'microsoft') => Promise<any>;
+  refreshToken: () => Promise<boolean>;
+  isAdmin?: boolean;
+  
+  checkAuth?: () => Promise<boolean>;
+  confirmUser?: (username: string, code: string) => Promise<any>;
+  resendConfirmationCode?: (username: string) => Promise<any>;
+  confirmSignUp?: (username: string, code: string) => Promise<any>;
+  handleGoogleRedirect?: () => Promise<any>;
+  handleMicrosoftRedirect?: () => Promise<any>;
+  handleOAuthCallback?: (code: string, state?: string, provider?: 'google' | 'microsoft') => Promise<any>;
+  signUp?: (userData: any) => Promise<any>;
+}
+
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Configure Amplify from environment variables
+const configureAmplify = () => {
+  Amplify.configure({
+    Auth: {
+      Cognito: {
+        userPoolId: process.env.REACT_APP_USER_POOL_ID || '',
+        userPoolClientId: process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID || '',
+        loginWith: {
+          email: true,
+          username: true
+        }
+      }
+    },
+    API: {
+      REST: {
+        pilotforce: {
+          endpoint: process.env.REACT_APP_API_URL || process.env.REACT_APP_API_ENDPOINT || '',
+          region: process.env.REACT_APP_AWS_REGION || 'eu-north-1',
+        }
+      }
+    }
+  });
 };
 
-// Auth provider component
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<any | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<{ message: string } | null>(null);
+// Invoke configuration
+configureAmplify();
+
+// Utility to extract and store Cognito user details from idToken
+const saveCognitoUserDetailsFromIdToken = (idToken: string | null) => {
+  if (!idToken) return;
+  try {
+    const decoded: any = jwtDecode(idToken); // This now uses the named import
+    const userDetails = {
+      email: decoded.email || 'No email found',
+      name: decoded.name || decoded['cognito:username'] || 'No name found',
+      groups: decoded['cognito:groups'] || [],
+      role: decoded.role || decoded['custom:role'] || decoded['custom:userRole'] || 'No role found',
+      sub: decoded.sub || 'No user ID found',
+      isAdmin: false,
+      fullToken: decoded
+    };
+    
+    // Only treat 'Administrator' or 'Admin' as admin roles - NOT 'CompanyAdmin'
+    // Using exact matches to prevent substring matching issues
+    userDetails.isAdmin = userDetails.groups.includes('Administrators') ||
+      userDetails.groups.includes('Administrator') ||
+      (userDetails.role && 
+       (userDetails.role.toLowerCase() === 'administrator' || 
+        userDetails.role.toLowerCase() === 'admin'));
+    localStorage.setItem('userCognitoDetails', JSON.stringify(userDetails));
+    sessionStorage.setItem('userCognitoDetails', JSON.stringify(userDetails));
+  } catch (error) {
+    // Silent fail
+  }
+};
+
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [userRole, setUserRole] = useState<string>('User');
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);  // Changed from Error to string | null
+  
+  // Store processed OAuth codes
+  const usedOAuthCodes = useRef<Set<string>>(new Set()).current;
 
-  // Check for existing authentication on component mount
+  // Attempts to restore auth state from stored tokens on component mount
   useEffect(() => {
     const initAuth = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
+        const idToken = localStorage.getItem('idToken');
+        const refreshTokenValue = localStorage.getItem('refreshToken');
+        const userRole = localStorage.getItem('userRole');
         
-        // Use our new initializeSession function to check stored credentials
-        const { isAuthenticated: hasValidToken, userData, token } = initializeSession();
-        
-        // If we have a valid token and user data, set auth state
-        if (hasValidToken && userData) {
-          setUser(userData);
-          setIsAuthenticated(true);
-          
-          // Also check for admin status if we have a valid session
-          const adminStatus = await checkAdminStatus();
-          
+        // Early exit if no tokens and not an admin
+        if (!idToken && !refreshTokenValue && userRole !== 'Administrator') {
+          setIsAuthenticated(false);
+          setLoading(false);
           return;
         }
-        
-        // If we have a token but no user data, or token is expired
-        if (token) {
-          
-          // Try to refresh the token first
+
+        // First try to use the existing idToken
+        if (idToken) {
           try {
-            const refreshResult = await authService.refreshToken();
+            const decodedToken: any = jwtDecode(idToken);
+            const currentTime = Math.floor(Date.now() / 1000);
             
-            if (refreshResult.success) {
-              
-              // Now try to get user info with the refreshed token
-              try {
-                const userResponse = await authService.getCurrentUser();
-                if (userResponse.success && userResponse.user) {
-                  setUser(userResponse.user);
-                  setIsAuthenticated(true);
-                  storeAuthTokens(null, null, null, userResponse.user);
-                  
-                  // Also start the session manager heartbeat
-                  sessionManager.storeUserData(userResponse.user);
-                  
-                  return;
+            // If token is valid and not expired
+            if (decodedToken.exp && decodedToken.exp > currentTime) {
+              const userData = sessionManager.getUserData();
+              if (userData) {
+                setUser(userData);
+                setIsAuthenticated(true);
+                
+                // Get user role
+                const userRole = userData.role || userData['custom:role'] || 'User';
+                
+                // Check for admin role in multiple places
+                const isAdminRole = 
+                  userRole === 'Administrator' || 
+                  userRole === 'Admin' || 
+                  userData['custom:role'] === 'Administrator' || 
+                  userData['custom:role'] === 'Admin' ||
+                  userRole === 'Administrator';
+                
+                if (isAdminRole) {
+                  setIsAdmin(true);
+                  localStorage.setItem('isAdmin', 'true');
+                  localStorage.setItem('adminAuthCompleted', 'true');
                 }
-              } catch (userError) {
-                console.warn('⚠️ Could not get user data after token refresh:', userError);
+                
+                // Store user role
+                localStorage.setItem('userRole', userRole);
+                
+                // If SubUser, ensure they can only access Flights page
+                if (userRole === 'SubUser') {
+                  localStorage.setItem('isSubUser', 'true');
+                }
+                
+                // Ensure session is marked as active
+                localStorage.setItem('pilotforceSessionActive', 'true');
+                localStorage.setItem('pilotforceSessionTimestamp', Date.now().toString());
+                sessionStorage.setItem('sessionActive', 'true');
+                
+                setLoading(false);
+                return;
               }
             } else {
-              console.warn('⚠️ Token refresh failed:', refreshResult.message);
+            }
+          } catch (err) {
+          }
+        }
+
+        // If we get here, either:
+        // 1. We have no idToken but have a refreshToken
+        // 2. The idToken is expired
+        // 3. The idToken is invalid
+        // In all cases, try to refresh the token
+        if (refreshTokenValue) {
+          try {
+            const refreshed = await refreshTokenHandler();
+            if (refreshed) {
+              const userData = sessionManager.getUserData();
+              if (userData) {
+                setUser(userData);
+                setIsAuthenticated(true);
+                
+                // Check for admin role in multiple places
+                const isAdminRole = 
+                  userData.role === 'Administrator' || 
+                  userData.role === 'Admin' || 
+                  userData['custom:role'] === 'Administrator' ||
+                  userData['custom:role'] === 'Admin' ||
+                  userRole === 'Administrator';
+                
+                if (isAdminRole) {
+                  setIsAdmin(true);
+                  localStorage.setItem('isAdmin', 'true');
+                  localStorage.setItem('adminAuthCompleted', 'true');
+                } else {
+                  localStorage.setItem('userRole', userData.role || userData['custom:role'] || 'User');
+                }
+                
+                // Ensure session is marked as active
+                localStorage.setItem('pilotforceSessionActive', 'true');
+                localStorage.setItem('pilotforceSessionTimestamp', Date.now().toString());
+                sessionStorage.setItem('sessionActive', 'true');
+                
+                setLoading(false);
+                return;
+              }
             }
           } catch (refreshError) {
           }
         }
-        
-        // First check localStorage for user data
-        const savedUserStr = localStorage.getItem('user');
-        const idToken = localStorage.getItem('idToken');
 
-        if (savedUserStr) {
-          try {
-            const savedUser = JSON.parse(savedUserStr);
-            setUser(savedUser);
-
-            // Make sure token is available in localStorage
-            if (idToken) {
-              // Also set it in sessionStorage as a backup
-              sessionStorage.setItem('idToken', idToken);
-              setIsAuthenticated(true);
-            }
-
-          } catch (e) {
-          }
-        } else if (idToken) {
-          // We have a token but no user, try to fetch user info
-          try {
-            // Call your API to verify token and get user info
-            const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/me`, {
-              headers: {
-                'Authorization': `Bearer ${idToken}`
-              }
-            });
-
-            if (response.ok) {
-              const userData = await response.json();
-              setUser(userData);
-              setIsAuthenticated(true);
-              localStorage.setItem('user', JSON.stringify(userData));
-            }
-          } catch (e) {
-            // Keep the token but couldn't get user info
-          }
-        }
-      } catch (e) {
-        setError({ message: 'Failed to initialize authentication' });
+        // If we get here, we couldn't authenticate
+        clearAuthData();
+      } catch (err: any) {
+        setError(err instanceof Error ? err.message : err.toString());
+        clearAuthData();
       } finally {
         setLoading(false);
       }
@@ -154,630 +252,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  // Load persisted auth state on mount
-  useEffect(() => {
-    const loadAuthState = async () => {
-      const idToken = localStorage.getItem('idToken');
-      const userData = localStorage.getItem('userData');
-      
-      if (idToken && userData) {
-        try {
-          const user = JSON.parse(userData);
-          setUser(user);
-          setIsAuthenticated(true);
-        } catch (e) {
-          // Clear potentially corrupted data
-          localStorage.removeItem('userData');
-        }
-      }
-    };
-    
-    loadAuthState();
-  }, []);
-
-  // Set up token refresh interval
-  useEffect(() => {
-    if (isAuthenticated) {
-      // Set up a timer to check token validity every 5 minutes
-      const tokenCheckInterval = setInterval(async () => {
-        try {
-          const result = await authService.checkAuthentication();
-          
-          if (!result.success || !result.isAuthenticated) {
-            console.warn('Token validation failed during scheduled check');
-            setUser(null);
-            setIsAuthenticated(false);
-            
-            // Clear invalid tokens
-            localStorage.removeItem('idToken');
-            sessionStorage.removeItem('idToken');
-            
-            // Redirect to login page
-            setTimeout(() => {
-              window.location.href = '/login';
-            }, 500);
-          }
-        } catch (err) {
-        }
-      }, 5 * 60 * 1000); // 5 minutes
-      
-      return () => {
-        clearInterval(tokenCheckInterval);
-      };
-    }
-  }, [isAuthenticated]);
-
-  // Check if user is already authenticated
-  const checkAuth = async () => {
-    setLoading(true);
-    try {
-      // Debug current auth state
-      debugAuthState();
-      
-      // Check if we have a stored token using our enhanced utility
-      const token = getAuthToken();
-      
-      if (!token) {
-        console.warn('No token found in storage');
-        setUser(null);
-        setIsAuthenticated(false);
-        setError(null);
-        setLoading(false);
-        return;
-      }
-      
-      
-      // If token needs refresh, do it proactively
-      if (needsSessionRefresh()) {
-        try {
-          // Use sessionManager for token refresh for better consistency
-          const refreshSuccess = await sessionManager.forceTokenRefresh();
-          if (!refreshSuccess) {
-            console.warn('Proactive token refresh failed');
-            // Continue with the old token for now, we'll try to use it
-          } else {
-          }
-        } catch (refreshError) {
-          // Continue with existing token
-        }
-      }
-      
-      // Check authentication status
-      const result = await authService.checkAuthentication();
-
-      if (result.success && result.isAuthenticated) {
-        // Get or use cached user data
-        let userData;
-        try {
-          const userResponse = await authService.getCurrentUser();
-          userData = userResponse.user;
-          
-          // Update stored user data in both localStorage and sessionStorage
-          if (userData) {
-            storeAuthTokens(null, null, null, userData);
-            
-            // Also update the sessionManager
-            sessionManager.storeUserData(userData);
-          }
-        } catch (userError) {
-          console.warn('Could not get fresh user data:', userError);
-          // If we can't get fresh user data, try to use cached data
-          userData = getStoredUserData();
-        }
-
-        setUser(userData);
-        setIsAuthenticated(true);
-      } else {
-        console.warn('Authentication check failed:', result);
-        
-        // Try one last refresh before giving up
-        try {
-          const refreshSuccess = await sessionManager.forceTokenRefresh();
-          
-          if (refreshSuccess) {
-            const recheckResult = await authService.checkAuthentication();
-            
-            if (recheckResult.success && recheckResult.isAuthenticated) {
-              // Get or use cached user data after successful refresh
-              let userData = getStoredUserData();
-              
-              try {
-                const userResponse = await authService.getCurrentUser();
-                userData = userResponse.user;
-                
-                if (userData) {
-                  storeAuthTokens(null, null, null, userData);
-                  sessionManager.storeUserData(userData);
-                }
-              } catch (userError) {
-                console.warn('Could not get fresh user data after refresh:', userError);
-              }
-              
-              setUser(userData);
-              setIsAuthenticated(true);
-              setError(null);
-              setLoading(false);
-              return;
-            }
-          }
-        } catch (emergencyRefreshError) {
-        }
-        
-        setUser(null);
-        setIsAuthenticated(false);
-        
-        // Clear invalid tokens using our comprehensive clearAuthData function
-        clearAuthData();
-      }
-      setError(null);
-    } catch (err: any) {
-      setUser(null);
-      setIsAuthenticated(false);
-
-      if (err.message === 'No authentication token found' ||
-        err.message === 'Invalid or expired authentication') {
-        // This is an expected state, don't show error
-        setError(null);
-        
-        // Clear invalid tokens
-        clearAuthData();
-      } else {
-        setError({ message: err.message || 'Failed to check authentication status' });
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Add this function to check admin status
-  const checkAdminStatus = async (): Promise<boolean> => {
-    try {
-      const idToken = localStorage.getItem('idToken');
-      if (idToken) {
-        // First try client-side check
-        const adminFromToken = isAdminFromToken(idToken);
-        if (adminFromToken) {
-          setIsAdmin(true);
-          setUserRole('Admin');
-          localStorage.setItem('isAdmin', 'true');
-          return true;
-        }
-      }
-      
-      // Check user data from local storage
-      const userDataStr = localStorage.getItem('userData') || localStorage.getItem('user');
-      if (userDataStr) {
-        try {
-          const userData = JSON.parse(userDataStr);
-          if (userData && userData.role && userData.role.toLowerCase().includes('admin')) {
-            setIsAdmin(true);
-            setUserRole('Admin');
-            localStorage.setItem('isAdmin', 'true');
-            return true;
-          }
-        } catch (e) {
-        }
-      }
-      
-      // If client check fails, verify with API
-      const token = localStorage.getItem('accessToken') || localStorage.getItem('idToken');
-      if (!token) return false;
-      
-      try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/admin`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (!response.ok) return false;
-        
-        const data = await response.json();
-        const hasAdminRole = data.isAdmin === true;
-        
-        setIsAdmin(hasAdminRole);
-        setUserRole(hasAdminRole ? 'Admin' : 'User');
-        
-        if (hasAdminRole) {
-          localStorage.setItem('isAdmin', 'true');
-        }
-        
-        return hasAdminRole;
-      } catch (apiError) {
-        return false;
-      }
-    } catch (error) {
-      return false;
-    }
-  };
-
-  // Add this to the useEffect for automatic admin status check
-  useEffect(() => {
-    // Also check admin status if the user is authenticated
-    if (isAuthenticated) {
-      checkAdminStatus().then(isAdmin => {
-        if (isAdmin) {
-          // We could add auto-redirect logic here, but it's better to handle in components
-        }
-      });
-    }
-  }, [isAuthenticated]);
-
-  // Login method - uses API Gateway
-  const login = async (username: string, password: string) => {
+  const login = async (usernameOrParams: string | { username: string; password: string }, password?: string) => {
     setLoading(true);
     setError(null);
+    
     try {
-
-      // Ensure username and password are strings
-      const sanitizedUsername = String(username).trim();
-      const sanitizedPassword = String(password);
+      let sanitizedUsername: string;
+      let sanitizedPassword: string;
+      
+      if (typeof usernameOrParams === 'object') {
+        sanitizedUsername = usernameOrParams.username.trim();
+        sanitizedPassword = usernameOrParams.password.trim();
+      } else {
+        sanitizedUsername = usernameOrParams.trim();
+        sanitizedPassword = password || '';
+      }
 
       if (!sanitizedUsername || !sanitizedPassword) {
-        setError({ message: 'Username and password are required' });
+        setError('Username and password are required');
         throw new Error('Username and password are required');
       }
 
-      // Call the service with the sanitized credentials
       const response = await authService.login({ 
         username: sanitizedUsername, 
         password: sanitizedPassword 
       });
 
-      // CRITICAL: Check if login was actually successful
       if (!response.success) {
-        // Set error message from the response
-        setError({ message: response.message || 'Login failed' });
+        setError(response.message || 'Login failed');
         setIsAuthenticated(false);
         setUser(null);
         throw new Error(response.message || 'Login failed');
       }
 
-      // IMPORTANT: Only proceed with these steps if login was successful
       if (response.success) {
-        // Save the AWS config data
-        const awsConfig = {
-          region: process.env.REACT_APP_AWS_REGION || 'eu-north-1',
-          userPoolId: process.env.REACT_APP_USER_POOL_ID || 'eu-north-1_gejWyB4ZB',
-          userPoolWebClientId: process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID || 're4qc69mpbck8uf69jd53oqpa'
+        const { storeAuthTokens } = await import('../utils/sessionPersistence');
+        storeAuthTokens(
+          response.idToken || null,
+          response.refreshToken || null,
+          response.accessToken || null,
+          response.user || null
+        );
+
+        if (response.idToken) {
+          localStorage.setItem('idToken', response.idToken);
+          saveCognitoUserDetailsFromIdToken(response.idToken);
+        }
+        if (response.refreshToken) {
+          localStorage.setItem('refreshToken', response.refreshToken);
+        }
+        if (response.accessToken) {
+          localStorage.setItem('accessToken', response.accessToken);
+        }
+
+        const tokens = {
+          idToken: response.idToken || null,
+          accessToken: response.accessToken || null,
+          refreshToken: response.refreshToken || null
         };
+        localStorage.setItem('tokens', JSON.stringify(tokens));
+        try { sessionStorage.setItem('tokens', JSON.stringify(tokens)); } catch (e) {}
 
-        // Save AWS config to localStorage
-        localStorage.setItem('awsConfig', JSON.stringify(awsConfig));
-        
-        // Store username and password in localStorage for Basic Authentication
-        // This is crucial for operations that require Basic Auth like PUT requests
-        localStorage.setItem('auth_username', sanitizedUsername);
-        localStorage.setItem('auth_password', sanitizedPassword);
-
-        // Save user data to localStorage (should already be saved in authService.login)
         if (response.user) {
-          // Use sessionManager to store user data for better cross-tab synchronization
           sessionManager.storeUserData(response.user);
           setUser(response.user);
         } else {
-          console.warn('No user data received from login response');
-
-          // Try to get user data if not provided in the login response
           try {
             const userResponse = await authService.getCurrentUser();
             if (userResponse.success && userResponse.user) {
               setUser(userResponse.user);
-              // Use sessionManager to store user data
               sessionManager.storeUserData(userResponse.user);
             }
-          } catch (userError) {
-            console.warn('Failed to fetch user data after login:', userError);
+          } catch (userErr) {
           }
         }
 
-        // Create a tokens object to store all possible token formats from the response
-        const tokens = {
-          idToken: response.tokens?.idToken || response.idToken,
-          accessToken: response.tokens?.accessToken || response.accessToken,
-          refreshToken: response.tokens?.refreshToken || response.refreshToken
-        };
-
-        // Check if we have any valid tokens
-        if (tokens.idToken || tokens.accessToken) {
-          // Save tokens using sessionManager
-          sessionManager.storeTokens(tokens);
-          setIsAuthenticated(true);
-        } else {
-          console.warn('No tokens received from login response');
-          // Check if we have tokens in localStorage that might have been set by the service
-          const idToken = localStorage.getItem('idToken');
-          if (idToken) {
-            setIsAuthenticated(true);
-          } else {
-            setIsAuthenticated(false);
-            throw new Error('No authentication tokens received');
-          }
+        try {
+          const { syncAuthTokensAcrossStorage } = await import('../utils/authDebugger');
+          syncAuthTokensAcrossStorage();
+        } catch (debugErr) {
         }
 
-        // Make sure to store the token in localStorage
-        if (tokens.idToken) {
-          // Use storeAuthTokens for better cross-storage consistency
-          storeAuthTokens(tokens.idToken, tokens.refreshToken || null, tokens.accessToken || null);
-        }
-
-        // After successful authentication, check for admin status
-        const isUserAdmin = await checkAdminStatus();
-
-        // You might want to update user object to include admin status
-        if (response.user) {
-          const updatedUser = {
-            ...response.user,
-            isAdmin: isUserAdmin,
-            role: isUserAdmin ? 'Admin' : 'User'
-          };
-          setUser(updatedUser);
-          
-          // Also update in storage
-          sessionManager.storeUserData(updatedUser);
-        }
-
-        return { success: true, user: response.user, isAdmin: isUserAdmin };
+        setIsAuthenticated(true);
+        return response;
       }
-
-      // If we somehow get here, it's an error
-      throw new Error(response.message || 'Login failed');
     } catch (err: any) {
-
-      // More robust error handling
-      if (err.needsConfirmation) {
-        setError({ message: 'Please confirm your account' });
-        return {
-          success: false,
-          needsConfirmation: true,
-          username
-        };
-      }
-
-      // Handle network errors specifically
-      if (err.message === 'Network Error' || err.code === 'ERR_NETWORK') {
-        setError({
-          message: 'Network error: Cannot connect to authentication service. ' +
-            'Please check your internet connection and try again.'
-        });
-      } else {
-        setError({ message: err.message || 'Login failed' });
-      }
-
+      setError(err instanceof Error ? err.message : err.toString());
       setIsAuthenticated(false);
-      setUser(null);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Handle sign in
-  const signIn = async (email: string, password: string) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Call the authentication service with email as the username parameter
-      const result = await authService.login({
-        username: email, // Keep using "username" as the parameter name for the API
-        password: password
-      });
-
-      // Process the login result
-      if (result.success) {
-        // Store username and password in localStorage for Basic Authentication
-        localStorage.setItem('auth_username', email);
-        localStorage.setItem('auth_password', password);
-        
-        // If we have user data, store it and set authenticated
-        if (result.user) {
-          setUser(result.user);
-          localStorage.setItem('user', JSON.stringify(result.user));
-        }
-        
-        // Only set authenticated if we have tokens
-        if (result.idToken || result.accessToken) {
-          setIsAuthenticated(true);
-          // Check for admin status
-          await checkAdminStatus();
-        } else {
-          console.warn('Login succeeded but no tokens received');
-          setIsAuthenticated(false);
-        }
-      }
-      
-      // Pass the result through unchanged
-      return result;
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during sign in');
-      return {
-        success: false,
-        error: true,
-        message: err.message || 'An unexpected error occurred'
-      };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signup = async (username: string, password: string, email: string, companyId: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Create attributes object with email and companyId
-      const attributes = {
-        email,
-        'custom:companyId': companyId,
-      };
-
-      const result = await authService.signup(username, password, attributes);
-
-      if (!result.success) {
-        throw new Error(result.message || 'Signup failed');
-      }
-
-      return {
-        isSignUpComplete: result.isSignUpComplete,
-        userId: result.userId,
-        nextStep: result.nextStep,
-        username
-      };
-    } catch (err: any) {
-      setError({ message: err.message || 'Signup failed' });
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signUp = async (username: string, password: string, attributes: Record<string, string>) => {
-    setLoading(true);
-    setError(null);
-    try {
-
-      // Ensure API URLs are properly defined
-      if (!process.env.REACT_APP_API_URL) {
-        console.warn('REACT_APP_API_URL environment variable is not defined. Using fallback URL.');
-      }
-
-      // Try using our authService directly first, with better error handling
-      try {
-        const result = await authService.signup(username, password, attributes);
-        
-        
-        // FOCUSED UPDATE: Check for email exists condition regardless of success flag
-        if (result.type === 'EmailExistsException' || 
-            (result.message && (
-              result.message.toLowerCase().includes('email already exists') || 
-              result.message.toLowerCase().includes('account with email')
-            ))) {
-          
-          // Ensure we return a consistent structure for email exists errors
-          return {
-            success: false, // Always mark email exists as error
-            message: result.message || `An account with email '${attributes.email}' already exists.`,
-            type: 'EmailExistsException',
-            email: attributes.email
-          };
-        }
-
-        if (!result.success) {
-          throw new Error(result.message || 'Signup failed');
-        }
-
-        // Store username for confirmation
-        localStorage.setItem('pendingConfirmation', username);
-        localStorage.setItem('signupEmail', attributes.email || '');
-
-        return {
-          success: true,
-          isSignUpComplete: result.isSignUpComplete || false,
-          userId: result.userId || null,
-          nextStep: result.nextStep || { signUpStep: 'CONFIRM_SIGN_UP' },
-          username
-        };
-      } catch (serviceError: any) {
-        
-        // FOCUSED UPDATE: Enhanced check for email exists error
-        if (serviceError.type === 'EmailExistsException' ||
-            serviceError.code === 'EmailExistsException' ||
-            serviceError.message?.toLowerCase().includes('email already exists') || 
-            serviceError.message?.toLowerCase().includes('account with email') ||
-            serviceError.response?.data?.type === 'EmailExistsException') {
-          
-          return {
-            success: false,
-            message: serviceError.message || `An account with email '${attributes.email}' already exists.`,
-            type: 'EmailExistsException',
-            email: attributes.email
-          };
-        }
-        
-        if (serviceError.response?.status === 404) {
-          // Try direct Cognito signup via service (the service handles this internally)
-          const fallbackResult = await authService.signup(username, password, attributes);
-          
-          if (fallbackResult.success) {
-            localStorage.setItem('pendingConfirmation', username);
-            localStorage.setItem('signupEmail', attributes.email || '');
-            
-            return {
-              success: true,
-              isSignUpComplete: fallbackResult.isSignUpComplete || false,
-              userId: fallbackResult.userId || null,
-              nextStep: fallbackResult.nextStep || { signUpStep: 'CONFIRM_SIGN_UP' },
-              username
-            };
-          }
-        }
-        
-        throw serviceError;
-      }
-    } catch (err: any) {
-      setError({ message: err.message || 'Signup failed' });
-      
-      // FOCUSED UPDATE: Enhanced check for email exists error
-      if (err.type === 'EmailExistsException' ||
-          err.code === 'EmailExistsException' ||
-          err.message?.toLowerCase().includes('email already exists') || 
-          err.message?.toLowerCase().includes('account with email') || 
-          err.response?.data?.type === 'EmailExistsException') {
-        
-        return {
-          success: false,
-          message: err.message || `An account with email '${attributes.email}' already exists.`,
-          type: 'EmailExistsException',
-          email: attributes.email
-        };
-      }
-      
-      return {
-        success: false,
-        message: err.message || 'An unexpected error occurred during signup',
-        error: err
-      };
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const confirmUser = async (username: string, code: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await authService.confirmSignup(username, code);
-
-      if (!result.success) {
-        throw new Error(result.message || 'Confirmation failed');
-      }
-
-      return result;
-    } catch (err: any) {
-      setError({ message: err.message || 'Confirmation failed' });
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const confirmSignUp = confirmUser;
-
-  const resendConfirmationCode = async (username: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await authService.resendConfirmationCode(username);
-
-      if (!result.success) {
-        throw new Error(result.message || 'Failed to resend code');
-      }
-
-      return result;
-    } catch (err: any) {
-      setError({ message: err.message || 'Failed to resend code' });
       throw err;
     } finally {
       setLoading(false);
@@ -787,54 +348,465 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     setLoading(true);
     try {
-      // Stop the session manager heartbeat
-      sessionManager.stopHeartbeat();
+      // Get the current idToken and auth provider
+      const idToken = localStorage.getItem('idToken');
+      const authProvider = localStorage.getItem('authProvider');
       
-      // Clear data from session manager
-      sessionManager.clearSession();
+      // Debug logging
+      console.log('Logout initiated:', { authProvider, hasIdToken: !!idToken });
       
-      // Clear Basic Auth credentials
-      localStorage.removeItem('auth_username');
-      localStorage.removeItem('auth_password');
+      // Log the logout event
+      securityAuditLogger.logEvent(
+        'SECURITY_EVENT',
+        user?.userId || user?.id || 'unknown',
+        'User logout',
+        { authProvider, hasIdToken: !!idToken },
+        new Date().toISOString(),
+        undefined,
+        true,
+        undefined,
+        'auth',
+        user?.userId || user?.id || 'unknown',
+        'LOW'
+      );
       
-      // Call the auth service logout
+      // Clear local storage and session
       await authService.logout();
+      authUtils.clearAuthData();
+      localStorage.removeItem('pendingInviteCode');
+      localStorage.removeItem('msAuthState');
+      localStorage.removeItem('googleAuthState');
+      sessionManager.clearSession();
+      setUser(null);
+      setIsAuthenticated(false);
+
+      // Handle provider-specific logout
+      if (authProvider === 'microsoft') {
+        console.log('Performing Microsoft logout');
+        // Microsoft logout - redirect to Microsoft logout endpoint
+        const clientId = process.env.REACT_APP_MICROSOFT_CLIENT_ID || '';
+        const redirectUri = (process.env.REACT_APP_BASE_URL || window.location.origin) + '/login'; // Redirect to login page instead of callback
+        const tenantId = 'common'; // Force to 'common' for multi-tenant applications
+        
+        const logoutUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/logout?` +
+          `post_logout_redirect_uri=${encodeURIComponent(redirectUri)}` +
+          (idToken ? `&id_token_hint=${idToken}` : '');
+
+        console.log('Redirecting to Microsoft logout:', logoutUrl);
+        window.location.href = logoutUrl;
+      } else {
+        console.log('Performing standard logout (Google or other provider)');
+        // For Google or any other provider, just redirect to login page
+        // Google doesn't have a standard logout endpoint that we can use
+        window.location.href = '/login';
+      }
       
+      // Clear the auth provider after logout
+      localStorage.removeItem('authProvider');
+      
+    } catch (err: any) {
+      // Log failed logout attempt
+      securityAuditLogger.logEvent(
+        'SECURITY_EVENT',
+        user?.userId || user?.id || 'unknown',
+        'User logout failed',
+        { error: err.message, authProvider: localStorage.getItem('authProvider') },
+        new Date().toISOString(),
+        undefined,
+        false,
+        undefined,
+        'auth',
+        user?.userId || user?.id || 'unknown',
+        'MEDIUM'
+      );
+      
+      console.error('Logout error:', err);
+      authUtils.clearAuthData();
+      sessionManager.clearSession();
+      setError(err instanceof Error ? err.message : err.toString());
       setUser(null);
       setIsAuthenticated(false);
       
-      // Use window.location instead of navigate
+      // Fallback to login page on error
       window.location.href = '/login';
-    } catch (err: any) {
-      setError({ message: err.message || 'Logout failed' });
     } finally {
       setLoading(false);
     }
   };
 
+  const initiateGoogleLogin = async (): Promise<boolean> => {
+    try {
+      // Generate state parameter for security
+      const state = Math.random().toString(36).substring(7);
+      localStorage.setItem('googleAuthState', state);
+      
+      // Create Google OAuth URL with prompt=select_account to always show account picker
+      const url = urlUtils.createGoogleOAuthUrl(
+        process.env.REACT_APP_COGNITO_DOMAIN || '',
+        process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID || '',
+        process.env.REACT_APP_COGNITO_REDIRECT_URI || window.location.origin + '/oauth-callback',
+        state,
+        'select_account'  // This forces the account selection screen
+      );
+      // Redirect to Google login
+      window.location.href = url;
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+  
+  const initiateMicrosoftLogin = async (): Promise<boolean> => {
+    try {
+      // Hardcoded Microsoft OAuth configuration
+      const clientId = process.env.REACT_APP_MICROSOFT_CLIENT_ID || '';
+      const redirectUri = (process.env.REACT_APP_BASE_URL || window.location.origin) + '/auth/microsoft/callback';
+      const tenantId = 'common'; // Force to 'common' for multi-tenant applications
+
+      // Generate state parameter for security
+      const state = Math.random().toString(36).substring(7);
+      localStorage.setItem('msAuthState', state);
+
+      // Create Microsoft OAuth URL with prompt=select_account to always show account picker
+      const url = urlUtils.createMicrosoftOAuthUrl(
+        clientId,
+        redirectUri,
+        tenantId,
+        state,
+        'select_account'  // This forces the account selection screen
+      );
+      // Redirect to Microsoft login
+      window.location.href = url;
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+  
+  const processOAuthCallback = async (code: string, inviteCode?: string, provider: 'google' | 'microsoft' = 'google'): Promise<any> => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Get the API endpoint from environment variable or use the default API Gateway URL
+      const apiEndpoint = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_ENDPOINT || '';
+      
+      // Ensure the endpoint doesn't have trailing slash
+      const baseUrl = apiEndpoint.endsWith('/') ? apiEndpoint.slice(0, -1) : apiEndpoint;
+      
+      // Build the OAuth callback endpoint URL based on provider
+      const oauthCallbackUrl = `${baseUrl}/oauth-callback/${provider}`;
+      
+      // Get configuration from environment variables based on provider
+      const clientId = provider === 'microsoft' 
+        ? process.env.REACT_APP_MICROSOFT_CLIENT_ID || ''  // Microsoft client ID
+        : process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID;
+      
+      const redirectUri = provider === 'microsoft'
+        ? (process.env.REACT_APP_BASE_URL || window.location.origin) + '/auth/microsoft/callback'  // Microsoft redirect URI
+        : process.env.REACT_APP_COGNITO_REDIRECT_URI || window.location.origin + '/oauth-callback';
+      // Create the request payload
+      const payload = {
+        code,
+        clientId,
+        redirectUri,
+        inviteCode,
+        provider
+      };
+      
+      // SSO authentication attempt
+      securityAuditLogger.logAuthentication('pending', false, {
+        message: 'Initiating SSO authentication flow',
+        flow: 'sso',
+        provider: provider
+      });
+      
+      // Make the request to exchange the code for tokens
+      const response = await fetch(oauthCallbackUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        // Check for the specific NO_INVITATION_FOUND error code
+        if (errorData.errorCode === 'NO_INVITATION_FOUND') {
+          // Store the email for use in the request access form
+          if (errorData.email) {
+            localStorage.setItem('pendingEmail', errorData.email);
+          }
+          // Log failed authentication due to no invitation
+          securityAuditLogger.logAuthentication(errorData.email || 'unknown', false, {
+            status: 'failed',
+            flow: 'sso',
+            provider,
+            error: 'No invitation found',
+            message: 'Authentication failed - No invitation found',
+            timestamp: new Date().toISOString()
+          });
+          setError('No invitation found. Please request access.');
+          throw new Error('No invitation found. Please request access.');
+        }
+        
+        // Log failed authentication
+        securityAuditLogger.logAuthentication('unknown', false, {
+          status: 'failed',
+          flow: 'sso',
+          provider,
+          error: errorData.message || 'Unknown error',
+          message: 'Authentication failed',
+          timestamp: new Date().toISOString()
+        });
+        throw new Error(errorData.message || 'Failed to exchange code for tokens');
+      }
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        // Log failed authentication
+        securityAuditLogger.logAuthentication(data.user?.email || 'unknown', false, {
+          status: 'failed',
+          flow: 'sso',
+          provider,
+          error: data.message || 'Unknown error',
+          message: 'Authentication failed',
+          timestamp: new Date().toISOString()
+        });
+        throw new Error(data.message || 'Failed to process OAuth callback');
+      }
+      
+      // Store tokens and user data
+      if (data.tokens) {
+        localStorage.setItem('idToken', data.tokens.id_token);
+        localStorage.setItem('accessToken', data.tokens.access_token);
+        if (data.tokens.refresh_token) {
+          localStorage.setItem('refreshToken', data.tokens.refresh_token);
+        }
+      }
+      
+      if (data.user) {
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setUser(data.user);
+        
+        // Set admin status if applicable
+        if (data.user.role === 'Administrator') {
+          localStorage.setItem('isAdmin', 'true');
+          localStorage.setItem('adminAuthCompleted', 'true');
+          localStorage.setItem('adminLoginTimestamp', Date.now().toString());
+          setIsAdmin(true);
+        }
+        
+        // SSO authentication success
+        securityAuditLogger.logAuthentication(data.user.email, true, {
+          message: 'SSO authentication successful',
+          flow: 'sso',
+          provider: provider,
+          userId: data.user.id
+        });
+      }
+      
+      // Only mark the code as used after successful processing
+      usedOAuthCodes.add(code);
+      
+      setIsAuthenticated(true);
+      setLoading(false);
+      
+      return data;
+    } catch (error) {
+      // SSO authentication failure
+      securityAuditLogger.logAuthentication('unknown', false, {
+        message: 'SSO authentication failed',
+        flow: 'sso',
+        provider: provider,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      setError(error instanceof Error ? error.message : 'Failed to process authentication');
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  const refreshTokenHandler = async (): Promise<boolean> => {
+    try {
+      const refreshTokenValue = localStorage.getItem('refreshToken');
+      
+      if (!refreshTokenValue) {
+        return false;
+      }
+      
+      // Use the authUtils function to detect Google SSO users
+      const isGoogleSSOUser = authUtils.isGoogleSSOUser();
+      const username = localStorage.getItem('auth_username') || 
+                      localStorage.getItem('cognito_username');
+      
+      // Check if we're dealing with a CompanyAdmin or User role
+      const userRole = localStorage.getItem('userRole');
+      const isCompanyAdmin = userRole?.toLowerCase() === 'companyadmin';
+      
+      // For non-Google users, try regular token refresh first
+      if (!isGoogleSSOUser) {
+        const response = await authService.refreshToken();
+        
+        if (response.success) {
+          // Store the new tokens using the session manager
+          sessionManager.storeTokens({
+            idToken: response.idToken,
+            refreshToken: response.refreshToken,
+            accessToken: response.accessToken
+          });
+          
+          if (response.idToken) {
+            saveCognitoUserDetailsFromIdToken(response.idToken);
+          }
+          
+          setIsAuthenticated(true);
+          return true;
+        }
+        
+        // If token refresh failed and we're not a special user type, just return false
+        if (!isCompanyAdmin && !isGoogleSSOUser) {
+          sessionManager.clearSession();
+          return false;
+        }
+      }
+      
+      // Only redirect for Google SSO or CompanyAdmin users if we're on a page that needs auth
+      const currentPath = window.location.pathname;
+      const isAuthRequiredPath = !['/login', '/signup', '/oauth-callback'].includes(currentPath);
+      
+      if ((isGoogleSSOUser || isCompanyAdmin) && isAuthRequiredPath) {
+        // Store current path for redirect after login
+        localStorage.setItem('auth_redirect_path', currentPath);
+        
+        // Initiate OAuth flow
+        window.location.href = urlUtils.createGoogleOAuthUrl(
+          process.env.REACT_APP_COGNITO_DOMAIN || '', 
+          process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID || '', 
+          process.env.REACT_APP_COGNITO_REDIRECT_URI || '',
+          Math.random().toString(36).substring(2, 15)
+        );
+        
+        return true;
+      }
+      
+      // If we get here, clear auth data
+      sessionManager.clearSession();
+      return false;
+    } catch (err) {
+      sessionManager.clearSession();
+      return false;
+    }
+  };
+
+  // Helper function to clear auth data
+  const clearAuthData = () => {
+    sessionManager.clearSession();
+    setIsAuthenticated(false);
+    setUser(null);
+    setIsAdmin(false);
+  };
+
+  const refreshToken = refreshTokenHandler;
+
+  const checkAuth = async (): Promise<boolean> => {
+    if (isAuthenticated) {
+      return true;
+    }
+    
+    const refreshResult = await refreshTokenHandler();
+    return refreshResult;
+  };
+
+  const signUp = async (userData: any): Promise<any> => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const { username, password, ...attributes } = userData;
+      const response = await authService.signup(username, password, attributes);
+      return response;
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : err.toString());
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmUser = async (username: string, code: string): Promise<any> => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await authService.confirmSignup(username, code);
+      return response;
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : err.toString());
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmSignUp = async (username: string, code: string): Promise<any> => {
+    return await authService.confirmSignUp(username, code);
+  };
+
+  const resendConfirmationCode = async (username: string): Promise<any> => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await authService.resendConfirmationCode(username);
+      return response;
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : err.toString());
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleRedirect = initiateGoogleLogin;
+
+  const handleMicrosoftRedirect = initiateMicrosoftLogin;
+
   return (
-    <AuthContext.Provider value={{
-      user,
-      loading,
-      error,
-      isAuthenticated,
-      isAdmin,
-      userRole,
-      login,
-      signup,
-      logout,
-      checkAuth,
-      confirmUser,
-      resendConfirmationCode,
-      signIn,
-      signUp,
-      confirmSignUp,
-      checkAdminStatus
-    }}>
+    <AuthContext.Provider
+      value={{
+        isAuthenticated,
+        loading,
+        user,
+        error,
+        login,
+        logout,
+        initiateGoogleLogin,
+        initiateMicrosoftLogin,
+        processOAuthCallback,
+        refreshToken,
+        isAdmin,
+        checkAuth,
+        signUp,
+        confirmUser,
+        confirmSignUp,
+        resendConfirmationCode,
+        handleGoogleRedirect: initiateGoogleLogin,
+        handleMicrosoftRedirect: initiateMicrosoftLogin,
+        handleOAuthCallback: processOAuthCallback
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 };
 
-// Export the context for direct imports
-export { AuthContext };
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

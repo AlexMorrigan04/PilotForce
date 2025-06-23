@@ -1,9 +1,12 @@
 import axios, { AxiosResponse } from 'axios';
-import { apiClient } from './apiClient';
-import { debugAuthState } from './tokenDebugger';
+import apiClient from './apiClient';
+import { getAuthTokens } from './secureStorage';
+import secureLogger from './secureLogger';
+import config from './environmentConfig';
+import { post, get } from './secureFetch';
 
-// API Gateway URL from environment variables or default
-const API_URL = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+// API Gateway URL from environment variables
+const API_URL = config.getGatewayUrl();
 
 export interface BookingRequest {
   BookingId?: string;
@@ -55,44 +58,17 @@ export interface BookingResponse {
  */
 export const createBooking = async (bookingData: BookingRequest): Promise<BookingResponse> => {
   try {
-    // Get authentication token
-    const token = localStorage.getItem('idToken');
-    
-    if (!token) {
-      throw new Error('Authentication token missing');
-    }
-    
-    // Make API request to create booking
-    const response = await axios.post<BookingResponse>(
-      `${API_URL}/bookings`, 
-      bookingData,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      }
-    );
-    
-    return response.data;
+    // Use secure fetch utility which automatically handles tokens and CSRF
+    const response = await post<BookingResponse>(`${API_URL}/bookings`, bookingData);
+    return response;
   } catch (error: any) {
-    
     // Handle specific error scenarios
-    if (error.response) {
-      // The request was made and the server responded with a status code
-      
+    if (error.status) {
       // Return server error message if available
       return {
         success: false,
-        message: error.response.data?.message || 'Failed to create booking',
-        error: error.response.data?.error
-      };
-    } else if (error.request) {
-      // The request was made but no response was received
-      return {
-        success: false,
-        message: 'No response received from server',
-        error: 'Network error'
+        message: error.data?.message || 'Failed to create booking',
+        error: error.data?.error
       };
     }
     
@@ -112,13 +88,15 @@ export const createBooking = async (bookingData: BookingRequest): Promise<Bookin
  */
 export const getBookings = async (companyId?: string) => {
   try {
-    const response = await apiClient.get('/bookings', {
+    // Use secure fetch utility
+    const response = await get('/bookings', {
       params: companyId ? { companyId } : {}
     });
     
-    return response.data?.bookings || [];
+    return response.bookings || [];
   } catch (error) {
-    throw error;
+    secureLogger.error('Error fetching bookings:', error);
+    return [];
   }
 };
 
@@ -129,31 +107,58 @@ export const getBookings = async (companyId?: string) => {
  */
 export const getBookingCount = async (companyId: string): Promise<number> => {
   try {
-    // Get authentication token
-    const token = localStorage.getItem('idToken') || localStorage.getItem('token');
+    // We'll try to get all bookings since there's no count endpoint
+    const bookingsResponse = await get(`/bookings`, { params: { companyId } });
     
-    if (!token) {
-      console.warn('Authentication token not found when fetching booking count');
-      return 0;
-    }
-    
-    // Use the countOnly parameter to only get the count, not all bookings data
-    const response = await fetch(`${API_URL}/bookings?companyId=${companyId}&countOnly=true`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+    // If the response has bookings array, return its length
+    if (bookingsResponse && Array.isArray(bookingsResponse.bookings)) {
+      // Cache the bookings for future use
+      try {
+        localStorage.setItem(`bookings_${companyId}`, JSON.stringify(bookingsResponse.bookings));
+      } catch (e) {
+        // Ignore storage errors
       }
-    });
-    
-    if (!response.ok) {
-      return 0;
+      return bookingsResponse.bookings.length;
     }
     
-    const data = await response.json();
-    return data.count || 0;
+    // If the response itself is an array, use that
+    if (Array.isArray(bookingsResponse)) {
+      // Cache the bookings for future use
+      try {
+        localStorage.setItem(`bookings_${companyId}`, JSON.stringify(bookingsResponse));
+      } catch (e) {
+        // Ignore storage errors
+      }
+      return bookingsResponse.length;
+    }
+
+    // Try to get cached bookings from localStorage if API call didn't return expected format
+    try {
+      const cachedBookings = localStorage.getItem(`bookings_${companyId}`);
+      if (cachedBookings) {
+        const parsedBookings = JSON.parse(cachedBookings);
+        return Array.isArray(parsedBookings) ? parsedBookings.length : 0;
+      }
+    } catch (e) {
+      // Ignore parse or storage errors
+    }
+
+    // Return 0 as default if we couldn't get the count any other way
+    return 0;
   } catch (error) {
-    return 0; // Return 0 as fallback in case of error
+    // Try to get cached bookings from localStorage as fallback
+    try {
+      const cachedBookings = localStorage.getItem(`bookings_${companyId}`);
+      if (cachedBookings) {
+        const parsedBookings = JSON.parse(cachedBookings);
+        return Array.isArray(parsedBookings) ? parsedBookings.length : 0;
+      }
+    } catch (e) {
+      // Ignore parse or storage errors
+    }
+    
+    // Return 0 as default if all methods fail
+    return 0;
   }
 };
 
@@ -162,40 +167,58 @@ export const getBookingCount = async (companyId: string): Promise<number> => {
  */
 export const getBookingById = async (bookingId: string) => {
   try {
-    
-    const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
-    const endpoint = `${apiUrl}/bookings/${bookingId}`;
-    
-    // Get authentication token
+    // Get API URL from environment
+    const apiUrl = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_ENDPOINT || '';
     const token = localStorage.getItem('idToken') || localStorage.getItem('token');
+    
     if (!token) {
-      throw new Error('Authentication token not found');
+      throw new Error('No authentication token found');
     }
-    
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+
+    // Try multiple endpoint patterns
+    const endpoints = [
+      `${apiUrl}/bookings/${bookingId}`,
+      `${apiUrl}/get-booking-details/${bookingId}`,
+      `${apiUrl}/get-bookings-details/${bookingId}`
+    ];
+
+    let bookingData = null;
+    let lastError = null;
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data && (data.booking || data.BookingId || data.bookingId)) {
+            bookingData = data.booking || data;
+            break;
+          }
+        } else {
+          lastError = `API request failed with status: ${response.status}`;
+        }
+      } catch (endpointError) {
+        lastError = endpointError instanceof Error ? endpointError.message : 'Unknown error';
+        continue;
       }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API request failed with status: ${response.status}`);
     }
-    
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      throw new Error(`Expected JSON response but got ${contentType}`);
+
+    if (!bookingData) {
+      throw new Error(lastError || 'Failed to fetch booking details from all endpoints');
     }
-    
-    const bookingData = await response.json();
-    
+
     // Process and validate the images array if it exists
     if (bookingData.images && Array.isArray(bookingData.images)) {
-      
       // Check for expired S3 URLs and refresh if needed
       const currentTime = new Date().getTime();
+      
       // Define interfaces for image objects
       interface ImageObject {
         url?: string;
@@ -221,22 +244,22 @@ export const getBookingById = async (bookingId: string) => {
           const dateMatch: RegExpMatchArray | null = url.match(/X-Amz-Date=(\d{8})T(\d{6})Z/);
           
           if (expiresMatch && dateMatch) {
-        const expiresSeconds: number = parseInt(expiresMatch[1], 10);
-        const dateStr: string = `${dateMatch[1]}T${dateMatch[2]}Z`;
-        const signedDate: Date = new Date(
-          parseInt(dateStr.slice(0, 4), 10),
-          parseInt(dateStr.slice(4, 6), 10) - 1,
-          parseInt(dateStr.slice(6, 8), 10),
-          parseInt(dateStr.slice(9, 11), 10),
-          parseInt(dateStr.slice(11, 13), 10),
-          parseInt(dateStr.slice(13, 15), 10)
-        );
-        
-        const expiryTime: number = signedDate.getTime() + (expiresSeconds * 1000);
-        const tenMinutesInMillis: number = 10 * 60 * 1000;
-        
-        // If URL expires within 10 minutes, we should refresh
-        return (expiryTime - currentTime) < tenMinutesInMillis;
+            const expiresSeconds: number = parseInt(expiresMatch[1], 10);
+            const dateStr: string = `${dateMatch[1]}T${dateMatch[2]}Z`;
+            const signedDate: Date = new Date(
+              parseInt(dateStr.slice(0, 4), 10),
+              parseInt(dateStr.slice(4, 6), 10) - 1,
+              parseInt(dateStr.slice(6, 8), 10),
+              parseInt(dateStr.slice(9, 11), 10),
+              parseInt(dateStr.slice(11, 13), 10),
+              parseInt(dateStr.slice(13, 15), 10)
+            );
+            
+            const expiryTime: number = signedDate.getTime() + (expiresSeconds * 1000);
+            const tenMinutesInMillis: number = 10 * 60 * 1000;
+            
+            // If URL expires within 10 minutes, we should refresh
+            return (expiryTime - currentTime) < tenMinutesInMillis;
           }
         }
         
@@ -245,31 +268,34 @@ export const getBookingById = async (bookingId: string) => {
       
       // If any URLs are expiring soon, make a special request to refresh them
       if (needsRefresh) {
-        
         try {
-          // Call the endpoint with an additional parameter to request fresh URLs
-          const refreshResponse = await fetch(`${endpoint}?refreshUrls=true`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          if (refreshResponse.ok) {
-            const refreshedData = await refreshResponse.json();
-            
-            if (refreshedData.images && Array.isArray(refreshedData.images)) {
-              bookingData.images = refreshedData.images;
+          // Try to refresh URLs using the same endpoints
+          for (const endpoint of endpoints) {
+            try {
+              const response = await fetch(`${endpoint}?refreshUrls=true`, {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+
+              if (response.ok) {
+                const refreshedData = await response.json();
+                if (refreshedData.images && Array.isArray(refreshedData.images)) {
+                  bookingData.images = refreshedData.images;
+                  break;
+                }
+              }
+            } catch (refreshError) {
+              continue;
             }
           }
         } catch (refreshError) {
-          console.warn("Failed to refresh expiring URLs, will use existing ones:", refreshError);
         }
       }
       
       // Ensure all images have a URL property
-      // Define interface for image objects
       interface BookingImage {
         url?: string;
         ResourceUrl?: string;
@@ -288,7 +314,6 @@ export const getBookingById = async (bookingId: string) => {
         if (url) {
           normalizedImage.url = url;
         } else {
-          console.warn(`Missing URL for image: ${img.name || 'unknown'}`);
         }
         
         return normalizedImage;

@@ -2,8 +2,11 @@
  * Helper functions to ensure correct API Gateway integration
  */
 
-// API Gateway base URL - matches what's in your API Gateway configuration
-const API_BASE_URL = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+// API Gateway base URL from environment variables
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || process.env.REACT_APP_API_URL;
+
+// Import security helper for CSRF token
+import { getCsrfToken } from './securityHelper';
 
 /**
  * Formats a URL for API Gateway, ensuring path parameters are correctly formatted
@@ -87,7 +90,8 @@ export function getAuthHeaderValue(): string | null {
 export function createApiHeaders(): HeadersInit {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    'Accept': 'application/json'
+    'Accept': 'application/json',
+    'X-CSRF-Token': getCsrfToken() // Add CSRF token to all API requests
   };
   
   const authHeader = getAuthHeaderValue();

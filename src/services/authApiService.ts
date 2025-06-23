@@ -23,7 +23,6 @@ authApi.interceptors.request.use(
       if (process.env.NODE_ENV !== 'production') {
       }
     } else {
-      console.warn(`No auth token available for request: ${config.url}`);
     }
     
     // Log full request details in development
@@ -55,13 +54,10 @@ authApi.interceptors.response.use(
       // Handle specific error codes
       switch (error.response.status) {
         case 403:
-          console.warn('403 Forbidden - Check API permissions and API Gateway configuration');
           break;
         case 401:
-          console.warn('401 Unauthorized - Invalid or expired token');
           break;
         case 404:
-          console.warn(`404 Not Found - Endpoint doesn't exist: ${error.config.url}`);
           break;
       }
       

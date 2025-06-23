@@ -26,8 +26,6 @@ const GeoTiffLoader = {
       const arrayBuffer = await response.arrayBuffer();
       return await GeoTIFF.fromArrayBuffer(arrayBuffer);
     } catch (directError) {
-      console.warn('GeoTiffLoader: Direct GeoTIFF load failed:', directError);
-      
       // Second try: Try proxy API if we have a booking ID
       if (bookingId) {
         try {
@@ -54,7 +52,6 @@ const GeoTiffLoader = {
           }
           throw new Error('No data returned from proxy');
         } catch (proxyError) {
-          console.warn('GeoTiffLoader: Proxy approach failed:', proxyError);
         }
       }
       
@@ -70,7 +67,6 @@ const GeoTiffLoader = {
           pathSegments.shift();
           key = pathSegments.join('/');
         } catch (parseError) {
-          console.warn('Failed to extract key from URL:', parseError);
           key = url.split('/').slice(3).join('/').split('?')[0];
         }
         
@@ -98,7 +94,6 @@ const GeoTiffLoader = {
               return await GeoTIFF.fromArrayBuffer(arrayBuffer);
             }
           } catch (freshenError) {
-            console.warn('GeoTiffLoader: Failed to get fresh URL:', freshenError);
           }
         }
         
@@ -132,7 +127,6 @@ const GeoTiffLoader = {
           throw error;
         }
       } catch (fetchError) {
-        console.warn('GeoTiffLoader: Fetch + blob approach failed:', fetchError);
       }
       
       // Last resort: throw an error that we tried everything
@@ -174,7 +168,6 @@ const GeoTiffLoader = {
             return URL.createObjectURL(blob);
           }
         } catch (proxyError) {
-          console.warn('GeoTiffLoader: Proxy download failed:', proxyError);
         }
       }
       

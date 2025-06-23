@@ -7,14 +7,6 @@ const configureAmplify = () => {
   const userPoolWebClientId = process.env.REACT_APP_USER_POOL_WEB_CLIENT_ID;
   const apiEndpoint = process.env.REACT_APP_API_ENDPOINT;
   
-  // Debug environment variables without printing actual values
-  console.log('AWS Config:', {
-    region: awsRegion ? 'SET' : 'MISSING',
-    userPoolId: userPoolId ? 'SET' : 'MISSING',
-    userPoolWebClientId: userPoolWebClientId ? 'SET' : 'MISSING',
-    apiEndpoint: apiEndpoint ? 'SET' : 'MISSING'
-  });
-  
   Amplify.configure({
     Auth: {
       Cognito: {

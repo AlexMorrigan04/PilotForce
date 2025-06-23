@@ -5,6 +5,7 @@ export interface User {
   username?: string;
   email?: string;
   name?: string;
+  Name?: string;  // Adding support for uppercase Name property for Cognito
   role?: string;
   isAdmin?: boolean;
   companyId?: string;
@@ -47,4 +48,8 @@ export interface AuthContextType {
   signUp: (username: string, password: string, attributes: Record<string, string>) => Promise<any>;
   confirmSignUp: (username: string, code: string) => Promise<any>;
   checkAdminStatus: () => Promise<boolean>;
+  initiateGoogleLogin: () => Promise<boolean>;
+  handleGoogleRedirect: (url: string) => Promise<AuthResponse>;
+  isGoogleAuthenticated: () => Promise<boolean>;
+  handleOAuthCallback: (code: string) => Promise<AuthResponse>;
 }

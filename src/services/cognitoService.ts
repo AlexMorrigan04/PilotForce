@@ -41,7 +41,8 @@ const cognitoSignIn = async (username: string, password: string): Promise<Cognit
     // Make a POST request to a simulated /login endpoint that calls Cognito
     
     // Endpoint is the same as API Gateway but with a special flag
-    const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/login', {
+    const apiUrl = process.env.REACT_APP_API_URL || '';
+    const response = await fetch(`${apiUrl}/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -128,7 +129,8 @@ const cognitoSignUp = async (
     
     
     // Use the API Gateway proxy with properly formatted attributes
-    const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/signup', {
+    const apiUrl = process.env.REACT_APP_API_URL || '';
+    const response = await fetch(`${apiUrl}/signup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -194,7 +196,8 @@ const cognitoConfirmSignUp = async (
     
     
     // Use the API Gateway proxy
-    const response = await fetch('https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/confirm-user', {
+    const apiUrl = process.env.REACT_APP_API_URL || '';
+    const response = await fetch(`${apiUrl}/confirm-user`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

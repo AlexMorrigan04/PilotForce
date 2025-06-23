@@ -7,8 +7,6 @@ const getResendInstance = () => {
   
   // Check if API key exists
   if (!apiKey) {
-    console.warn('Resend API key is missing. Email functionality will be disabled.');
-    
     // Return a mock Resend instance that logs instead of sending emails
     return {
       emails: {

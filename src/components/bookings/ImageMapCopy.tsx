@@ -192,7 +192,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         
         // Set metadata and log to console
         setGeoTiffMetadata(metadata);
-        console.log("GeoTIFF Metadata:", metadata);
         MapboxLogger.log("GeoTIFF info:", metadata);
         
         // Extract corners for proper display
@@ -732,7 +731,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
                     <svg 
                       viewBox="0 0 24 12" 
                       fill="none" 
-                      xmlns="http://www.w3.org/2000/svg"
+                      xmlns=""
                       className="w-full h-full"
                     >
                       <path 
@@ -794,7 +793,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:underline flex items-center"
                   >
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                     </svg>
                     View Full Image
@@ -817,11 +816,11 @@ export const ImageMap: React.FC<ImageMapProps> = ({
         style={{ fontSize: isEnlarged ? '16px' : '14px' }}
       >
         {isEnlarged ? (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg xmlns="" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg xmlns="" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
           </svg>
         )}
@@ -897,7 +896,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
                 }
               }}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+              <svg xmlns="" className="w-3 h-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0015.75 2H4.25zM15 5.75a.75.75 0 00-1.5 0v8.5a.75.75 0 001.5 0v-8.5zm-4 4a.75.75 0 00-1.5 0v4.5a.75.75 0 001.5 0v-4.5zm-4-2a.75.75 0 00-1.5 0v6.5a.75.75 0 001.5 0v-6.5z" clipRule="evenodd" />
               </svg>
               View in GeoTIFF.io

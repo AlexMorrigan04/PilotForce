@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Login Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    button {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 10px 0;
+    }
+    button:hover {
+      background-color: #3367D6;
+    }
+    pre {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .container {
+      background-color: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .error {
+      color: #d32f2f;
+      background-color: #ffebee;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+    .success {
+      color: #388e3c;
+      background-color: #e8f5e9;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Google Login Test</h1>
+  
+  <div class="container">
+    <h2>Current Configuration</h2>
+    <div id="config-display">Loading configuration...</div>
+    
+    <button id="login-button">Login with Google</button>
+    <button id="direct-login-button">Direct Cognito Login</button>
+    <button id="clear-data-button">Clear Auth Data</button>
+  </div>
+  
+  <div class="container">
+    <h2>Test Results</h2>
+    <div id="results">No tests run yet.</div>
+  </div>
+  
+  <script>
+    // Configuration - can be updated based on your environment
+    const config = {
+      domain: 'eu-north-1tzpyllcx2.auth.eu-north-1.amazoncognito.com',
+      clientId: '5ned1ba9pki5fggvou8fqcf3ob',
+      redirectUri: 'https://d291plyoifbxo0.cloudfront.net/oauth-callback'
+    };
+    
+    // Display configuration
+    document.getElementById('config-display').innerHTML = `
+      <pre>
+Domain: ${config.domain}
+Client ID: ${config.clientId}
+Redirect URI: ${config.redirectUri}
+      </pre>
+    `;
+    
+    // Google Login Function
+    document.getElementById('login-button').addEventListener('click', () => {
+      try {
+        // Generate a random state for CSRF protection
+        const state = Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('oauth_state', state);
+        
+        // Build the OAuth URL
+        const oauthUrl = `https://${config.domain}/oauth2/authorize?` +
+          `identity_provider=Google&` +
+          `client_id=${config.clientId}&` +
+          `response_type=code&` +
+          `scope=email+openid+profile&` +
+          `redirect_uri=${encodeURIComponent(config.redirectUri)}&` +
+          `state=${state}&` +
+          `_ts=${Date.now()}`;
+        
+        // Log and redirect
+        console.log('Redirecting to:', oauthUrl);
+        document.getElementById('results').innerHTML = `
+          <div class="success">Redirecting to Cognito Google Login...</div>
+          <pre>${oauthUrl}</pre>
+        `;
+        
+        // Redirect after a short delay to allow seeing the URL
+        setTimeout(() => {
+          window.location.href = oauthUrl;
+        }, 1500);
+      } catch (error) {
+        document.getElementById('results').innerHTML = `
+          <div class="error">Error: ${error.message}</div>
+        `;
+      }
+    });
+    
+    // Direct Cognito Login
+    document.getElementById('direct-login-button').addEventListener('click', () => {
+      try {
+        // Build the direct login URL
+        const loginUrl = `https://${config.domain}/login?` +
+          `client_id=${config.clientId}&` +
+          `response_type=code&` +
+          `scope=email+openid+profile&` +
+          `redirect_uri=${encodeURIComponent(config.redirectUri)}&` +
+          `_ts=${Date.now()}`;
+        
+        // Log and redirect
+        console.log('Redirecting to direct login:', loginUrl);
+        document.getElementById('results').innerHTML = `
+          <div class="success">Redirecting to Cognito Direct Login...</div>
+          <pre>${loginUrl}</pre>
+        `;
+        
+        // Redirect after a short delay
+        setTimeout(() => {
+          window.location.href = loginUrl;
+        }, 1500);
+      } catch (error) {
+        document.getElementById('results').innerHTML = `
+          <div class="error">Error: ${error.message}</div>
+        `;
+      }
+    });
+    
+    // Clear Auth Data
+    document.getElementById('clear-data-button').addEventListener('click', () => {
+      try {
+        // Clear all cookies
+        document.cookie.split(';').forEach(function(c) {
+          document.cookie = c.trim().split('=')[0] + '=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+        });
+        
+        // Clear localStorage
+        localStorage.removeItem('idToken');
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('userData');
+        localStorage.removeItem('oauth_state');
+        localStorage.removeItem('pendingInviteCode');
+        
+        // Clear sessionStorage
+        sessionStorage.clear();
+        
+        document.getElementById('results').innerHTML = `
+          <div class="success">All authentication data cleared successfully.</div>
+        `;
+      } catch (error) {
+        document.getElementById('results').innerHTML = `
+          <div class="error">Error clearing data: ${error.message}</div>
+        `;
+      }
+    });
+    
+    // Check for URL parameters on load (for OAuth callback)
+    window.addEventListener('load', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      const error = urlParams.get('error');
+      
+      if (code) {
+        document.getElementById('results').innerHTML = `
+          <div class="success">
+            <h3>OAuth Callback Received</h3>
+            <p>Authorization code: ${code.substring(0, 10)}...</p>
+            <p>This page would normally exchange this code for tokens.</p>
+          </div>
+        `;
+      } else if (error) {
+        const errorDescription = urlParams.get('error_description') || 'Unknown error';
+        document.getElementById('results').innerHTML = `
+          <div class="error">
+            <h3>OAuth Error</h3>
+            <p>Error: ${error}</p>
+            <p>Description: ${errorDescription}</p>
+          </div>
+        `;
+      }
+    });
+  </script>
+</body>
+</html>

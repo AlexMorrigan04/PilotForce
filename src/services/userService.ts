@@ -1,7 +1,9 @@
 import { getUser } from '../utils/localStorage';
 import { createApiHeaders, callApiGateway } from '../utils/apiGatewayHelper';
+import { getCsrfToken } from '../utils/securityHelper';
+import { securityAuditLogger } from '../utils/securityAuditLogger';
 
-const API_BASE_URL = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT || process.env.REACT_APP_API_URL;
 
 /**
  * Get authentication credentials from localStorage with better fallback options
@@ -73,6 +75,14 @@ export async function getCurrentUser() {
     });
     
     if (!response.ok) {
+      // Log failed data access
+      securityAuditLogger.logAccessDenied(
+        username,
+        'user',
+        'current_user',
+        'read',
+        { statusCode: response.status }
+      );
       throw new Error(`Failed to fetch user data: ${response.status}`);
     }
     
@@ -82,15 +92,34 @@ export async function getCurrentUser() {
       const data = JSON.parse(responseText);
       
       // Handle different response structures
+      let userData;
       if (data.body && typeof data.body === 'string') {
         const parsedBody = JSON.parse(data.body);
-        return parsedBody.user || parsedBody;
+        userData = parsedBody.user || parsedBody;
       } else if (data.user) {
-        return data.user;
+        userData = data.user;
       } else {
-        return data;
+        userData = data;
       }
+
+      // Log successful data access
+      securityAuditLogger.logDataAccess(
+        username,
+        'user',
+        'current_user',
+        'read',
+        true,
+        { fields: Object.keys(userData) }
+      );
+      
+      return userData;
     } catch (error) {
+      // Log system error
+      securityAuditLogger.logSystemError(
+        username,
+        'parse_user_data',
+        { error: error instanceof Error ? error.message : String(error) }
+      );
       throw new Error('Failed to parse user data response');
     }
   } catch (error) {
@@ -146,8 +175,6 @@ export async function getUsersByCompany(companyId: string) {
       const data = await callApiGateway(`/companies/${companyId}/users`, 'GET');
       return processUserResponse(data);
     } catch (firstError) {
-      console.warn('Company users endpoint failed, trying user endpoint:', firstError);
-      
       // Fall back to user endpoint with companyId query param
       // Note that API Gateway must be configured to accept these query parameters
       const fallbackData = await callApiGateway(`/user`, 'GET', null, {
@@ -179,8 +206,6 @@ function processUserResponse(data: any): any[] {
   } else if (Array.isArray(data)) {
     return data;
   }
-  
-  console.warn('No users found in response data');
   return [];
 }
 
@@ -192,7 +217,6 @@ export async function getCurrentUserCompanyWithUsers() {
   try {
     // Step 1: Get current user details to obtain company ID
     const currentUser = await getCurrentUser().catch(err => {
-      console.warn('Error getting current user:', err);
       // Fall back to localStorage
       const savedUser = getUser();
       if (!savedUser) {
@@ -215,7 +239,6 @@ export async function getCurrentUserCompanyWithUsers() {
     
     // Step 2: Use the company ID to get all users belonging to this company
     const companyUsers = await getUsersByCompany(companyId).catch(err => {
-      console.warn('Error fetching company users:', err);
       // Return empty array on error
       return [];
     });
@@ -326,8 +349,6 @@ export async function getCompanyUsersDirect(companyId: string): Promise<any[]> {
     if (Array.isArray(data)) {
       return data;
     }
-    
-    console.warn('No users found in response');
     return [];
   } catch (error) {
     

@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { refreshToken } from './authServices';
+import { getAuthToken } from '../utils/authUtils';
 
-const API_URL = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+const API_URL = process.env.REACT_APP_API_ENDPOINT || '';
 
 // Track if we're currently trying to refresh the token to prevent infinite loops
 let isRefreshingToken = false;
@@ -41,7 +42,6 @@ export const getAssets = async (companyId: string): Promise<any[]> => {
     } else if (Array.isArray(response.data)) {
       assets = response.data;
     } else {
-      console.warn('Unexpected API response format:', response.data);
     }
     
     return assets;
@@ -94,60 +94,60 @@ export const getAssets = async (companyId: string): Promise<any[]> => {
 /**
  * Fetches a single asset by ID
  * @param assetId The asset ID
- * @returns The asset details
+ * @returns Promise<any>
  */
 export const getAssetById = async (assetId: string): Promise<any> => {
   try {
-    // Get ID token from localStorage
+    // Get ID token instead of access token
     const token = localStorage.getItem('idToken');
     
     if (!token) {
       throw new Error('Authentication error: Please log in again');
     }
-    
-    // Use the /assets/{id} endpoint to fetch a specific asset
+
+    // Get company ID from localStorage
+    const companyId = localStorage.getItem('companyId') || 
+                     localStorage.getItem('selectedCompanyId') ||
+                     JSON.parse(localStorage.getItem('userData') || '{}').companyId;
+
+    if (!companyId) {
+      throw new Error('Company ID not found. Please select a company first.');
+    }
+
     const response = await axios.get(`${API_URL}/assets/${assetId}`, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
       },
-      timeout: 10000 // Add timeout to prevent hanging requests
-    });
-    
-    if (response.data && response.data.asset) {
-      return response.data.asset;
-    } else {
-      console.warn('Unexpected API response format for asset details:', response.data);
-      return response.data;
-    }
-  } catch (error: any) {
-    // Handle token refresh similar to getAssets
-    if (error.response?.status === 401 && !isRefreshingToken) {
-      
-      try {
-        isRefreshingToken = true;
-        const refreshResult = await refreshToken();
-        isRefreshingToken = false;
-        
-        if (refreshResult.success) {
-          // Token refreshed successfully, try again with new token
-          return getAssetById(assetId);
-        } else {
-          // If token refresh failed, we need to log in again
-          throw new Error('Authentication error: Please log in again');
-        }
-      } catch (refreshError) {
-        isRefreshingToken = false;
-        throw new Error('Authentication error: Please log in again');
+      params: {
+        companyId
       }
-    }
-    
-    if (error.response?.status === 404) {
-      throw new Error('Asset not found');
-    } else if (error.response?.status === 403) {
-      throw new Error('You do not have permission to access this asset');
-    }
-    
-    throw new Error(error.response?.data?.message || error.message || 'Failed to fetch asset details');
+    });
+
+    // Transform the response to match the expected format
+    const asset = response.data;
+    return {
+      asset: {
+        ...asset,
+        Name: asset.name || asset.Name,
+        Description: asset.description || asset.Description,
+        Address: asset.address || asset.Address,
+        Postcode: asset.postcode || asset.Postcode,
+        AssetType: asset.type || asset.AssetType || 'buildings',
+        Area: asset.area || asset.Area || 0,
+        CreatedAt: asset.createdAt || asset.CreatedAt,
+        UpdatedAt: asset.updatedAt || asset.UpdatedAt,
+        Tags: asset.tags || asset.Tags || [],
+        CenterPoint: asset.centerPoint || asset.CenterPoint,
+        Coordinates: asset.coordinates || asset.Coordinates,
+        GeoJSON: asset.geoJSON || asset.GeoJSON,
+        AssetId: asset.id || asset.AssetId || assetId,
+        CompanyId: asset.companyId || asset.CompanyId || companyId
+      },
+      bookings: asset.bookings || []
+    };
+  } catch (error: any) {
+    throw error;
   }
 };
 

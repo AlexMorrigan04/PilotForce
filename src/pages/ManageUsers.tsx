@@ -3,6 +3,7 @@ import { Navbar } from '../components/Navbar';
 import { useAuth } from '../context/AuthContext';
 import { getUser } from '../utils/localStorage';
 import { useNavigate } from 'react-router-dom';
+import { securityAuditLogger } from '../utils/securityAuditLogger';
 
 interface CompanyUser {
   UserId: string;
@@ -76,7 +77,8 @@ const ManageUsers: React.FC = () => {
         return;
       }
       
-      const response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`, {
+      const apiUrl = process.env.REACT_APP_API_URL || '';
+      const response = await fetch(`${apiUrl}/companies/${companyId}/users`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -106,10 +108,13 @@ const ManageUsers: React.FC = () => {
       
       // Sort users by role and name
       const sortedUsers = usersData.sort((a: CompanyUser, b: CompanyUser) => {
-        if ((a.UserRole?.toLowerCase().includes('admin') && !b.UserRole?.toLowerCase().includes('admin'))) {
+        const isAdminA = a.UserRole?.toLowerCase() === 'admin' || a.UserRole?.toLowerCase() === 'administrator';
+        const isAdminB = b.UserRole?.toLowerCase() === 'admin' || b.UserRole?.toLowerCase() === 'administrator';
+        
+        if (isAdminA && !isAdminB) {
           return -1;
         }
-        if ((!a.UserRole?.toLowerCase().includes('admin') && b.UserRole?.toLowerCase().includes('admin'))) {
+        if (!isAdminA && isAdminB) {
           return 1;
         }
         
@@ -192,7 +197,22 @@ const ManageUsers: React.FC = () => {
       setIsEditing(false);
       setSelectedUser(null);
       
+      securityAuditLogger.logPermissionChange(
+        user?.userId || user?.id || 'unknown',
+        selectedUser.userId || selectedUser.id || 'unknown',
+        'Update User Role',
+        { newRole: formRole },
+        true
+      );
+      
     } catch (err: any) {
+      securityAuditLogger.logPermissionChange(
+        user?.userId || user?.id || 'unknown',
+        selectedUser.userId || selectedUser.id || 'unknown',
+        'Update User Role',
+        { error: err.message, attemptedRole: formRole },
+        false
+      );
       setError(err.message || 'Failed to update user role');
     } finally {
       setIsLoading(false);
@@ -223,11 +243,7 @@ const ManageUsers: React.FC = () => {
   
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
-      <Navbar userInfo={userInfo ? {
-        username: userInfo.username || '',
-        email: userInfo.email || '',
-        name: userInfo.name || userInfo.username || ''
-      } : null} />
+      <Navbar />
       
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
         <div className="container mx-auto max-w-6xl">

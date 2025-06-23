@@ -19,7 +19,7 @@ const SomeOtherComponent: React.FC = (): React.ReactElement | null => {
 
   return (
     <div>
-      <Navbar userInfo={userInfo} />
+      <Navbar />
       {/* ...existing code... */}
     </div>
   );

@@ -1,89 +1,147 @@
-import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
-import { refreshToken } from '../services/authServices';
+/**
+ * API Client Utility
+ * Provides methods to make API requests
+ */
 
-const API_URL = 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+import { getCsrfToken } from './csrfProtection';
+import { getAuthTokens } from './secureStorage';
+import { sanitizeId } from './securityValidator';
+
+// Base API URL from environment variables
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.example.com';
 
 /**
- * Creates an authenticated API client with token refresh handling
+ * Prepare headers with authentication and CSRF tokens
+ * @param contentType Content type header
+ * @returns Headers object with tokens
  */
-export const createApiClient = () => {
-  const apiClient = axios.create({
-    baseURL: API_URL,
-    timeout: 10000,
-  });
-
-  // Request interceptor to add auth token
-  apiClient.interceptors.request.use(
-    (config) => {
-      const token = localStorage.getItem('idToken');
-      if (token) {
-        config.headers['Authorization'] = `Bearer ${token}`;
-      }
-      return config;
-    },
-    (error) => Promise.reject(error)
-  );
-
-  // Response interceptor to handle token refresh
-  apiClient.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-      const originalRequest = error.config;
-      
-      // If the error is due to an expired token (401) and we haven't tried to refresh yet
-      if (error.response?.status === 401 && !originalRequest._retry) {
-        originalRequest._retry = true;
-        
-        try {
-          const refreshResult = await refreshToken();
-          
-          if (refreshResult.success) {
-            // Update the auth header with the new token
-            const newToken = localStorage.getItem('idToken');
-            if (newToken) {
-              originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
-              return apiClient(originalRequest);
-            }
-          }
-          
-          // If refresh failed, reject with the original error
-          return Promise.reject(error);
-        } catch (refreshError) {
-          return Promise.reject(error);
-        }
-      }
-      
-      return Promise.reject(error);
-    }
-  );
-
-  return apiClient;
-};
-
-// Export a singleton instance for convenience
-export const apiClient = createApiClient();
-
-/**
- * Makes an authenticated GET request with automatic token handling
- * @param endpoint API endpoint (without base URL)
- * @param params Optional query parameters
- * @param config Optional Axios config
- * @returns Promise with the response
- */
-export const apiGet = async <T = any>(
-  endpoint: string, 
-  params?: Record<string, any>, 
-  config?: AxiosRequestConfig
-): Promise<T> => {
-  try {
-    const response = await apiClient.get<T>(endpoint, { 
-      ...config,
-      params
-    });
-    return response.data;
-  } catch (error) {
-    throw error;
+export async function prepareHeaders(contentType = 'application/json'): Promise<Record<string, string>> {
+  // Initialize headers with content type
+  const newHeaders: Record<string, string> = {
+    'Content-Type': contentType
+  };
+  
+  // Get auth token if available
+  const tokens = getAuthTokens();
+  const token = tokens?.idToken;
+  
+  if (token) {
+    newHeaders['Authorization'] = `Bearer ${token}`;
   }
-};
+  
+  // Add CSRF token for non-GET requests
+  const csrfToken = await getCsrfToken();
+  newHeaders['X-CSRF-Token'] = csrfToken;
+  
+  return newHeaders;
+}
 
-export default apiClient;
+/**
+ * Make a GET request
+ * @param endpoint API endpoint
+ * @param params Query parameters
+ * @returns Response data
+ */
+export async function get(endpoint: string, params = {}): Promise<any> {
+  const headers = await prepareHeaders();
+  
+  const queryString = Object.entries(params)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join('&');
+  
+  const url = `${API_BASE_URL}${endpoint}${queryString ? `?${queryString}` : ''}`;
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * Get a resource by ID
+ * @param endpoint Base endpoint
+ * @param id Resource ID
+ * @returns Resource data
+ */
+export async function getResourceById(endpoint: string, id: string): Promise<any> {
+  const sanitizedId = sanitizeId(id);
+  return get(`${endpoint}/${sanitizedId}`);
+}
+
+/**
+ * Make a POST request
+ * @param endpoint API endpoint
+ * @param data Request body
+ * @returns Response data
+ */
+export async function post(endpoint: string, data: any): Promise<any> {
+  const headers = await prepareHeaders();
+  
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(data)
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * Make a PUT request
+ * @param endpoint API endpoint
+ * @param data Request body
+ * @returns Response data
+ */
+export async function put(endpoint: string, data: any): Promise<any> {
+  const headers = await prepareHeaders();
+  
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(data)
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+/**
+ * Make a DELETE request
+ * @param endpoint API endpoint
+ * @returns Response data
+ */
+export async function del(endpoint: string): Promise<any> {
+  const headers = await prepareHeaders();
+  
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: 'DELETE',
+    headers
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+export default {
+  get,
+  getResourceById,
+  post,
+  put,
+  del
+};

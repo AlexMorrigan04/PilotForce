@@ -2,13 +2,15 @@ import axios from 'axios';
 import { Booking, BookingImage } from '../types/bookingTypes';
 import AWS from 'aws-sdk';
 import { createBooking, getBookings, BookingRequest, BookingResponse } from '../utils/bookingUtils';
+import { getConfiguredUrl, getCsrfToken } from '../utils/securityHelper';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// Use HTTPS instead of HTTP for default URL
+const API_BASE_URL = process.env.REACT_APP_API_ENDPOINT;
 
 // AWS Configuration
 const awsRegion = process.env.REACT_APP_AWS_REGION;
-const accessKey = process.env.REACT_APP_AWS_ACCESS_KEY_ID;
-const secretKey = process.env.REACT_APP_AWS_SECRET_ACCESS_KEY;
+const accessKey = process.env.AWS_ACCESS_KEY_ID;
+const secretKey = process.env.AWS_SECRET_ACCESS_KEY;
 
 // Configure AWS SDK
 AWS.config.update({
@@ -56,12 +58,11 @@ export const fetchBookingImages = async (bookingId: string): Promise<BookingImag
     
     const result = await dynamoDb.scan(scanParams).promise();
     
-    // Debug logging to see what we're getting from DynamoDB
-    if (result.Items && result.Items.length > 0) {
-    }
-    
     // Process and fix up the image URLs
     const images = result.Items as BookingImage[] || [];
+    
+    // Get S3 bucket name from environment variables
+    const s3Bucket = process.env.REACT_APP_S3_BUCKET_NAME || process.env.REACT_APP_S3_BUCKET || 'drone-images-bucket';
     
     return images.map(image => {
       // Create a properly formatted image object
@@ -78,8 +79,8 @@ export const fetchBookingImages = async (bookingId: string): Promise<BookingImag
       if (image.s3Url && image.s3Url.startsWith('http')) {
         processedImage.s3Url = image.s3Url;
       } else if (image.s3Key) {
-        // Try the standard S3 URL format (no region in URL)
-        processedImage.s3Url = `https://drone-images-bucket.s3.amazonaws.com/${image.s3Key}`;
+        // Use environment variable for bucket name
+        processedImage.s3Url = `https://${s3Bucket}.s3.amazonaws.com/${image.s3Key}`;
       }
       
       return processedImage;
@@ -90,7 +91,7 @@ export const fetchBookingImages = async (bookingId: string): Promise<BookingImag
 };
 
 // Add a new function to directly check if an S3 object exists and is accessible
-export const verifyS3Object = async (key: string, bucket: string = 'drone-images-bucket'): Promise<boolean> => {
+export const verifyS3Object = async (key: string, bucket?: string): Promise<boolean> => {
   try {
     const s3 = new AWS.S3({
       region: awsRegion,
@@ -98,8 +99,11 @@ export const verifyS3Object = async (key: string, bucket: string = 'drone-images
       secretAccessKey: secretKey
     });
     
+    // Use environment variable for bucket name with fallback
+    const s3Bucket = bucket || process.env.REACT_APP_S3_BUCKET_NAME || process.env.REACT_APP_S3_BUCKET || 'drone-images-bucket';
+    
     const params = {
-      Bucket: bucket,
+      Bucket: s3Bucket,
       Key: key
     };
     
@@ -132,7 +136,7 @@ export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
     
     
     // Get the API URL from environment or use a default
-    const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+    const apiUrl = process.env.REACT_APP_API_ENDPOINT || API_BASE_URL;
     
     // Create an array of possible endpoints to try (in priority order)
     const endpoints = [
@@ -155,7 +159,8 @@ export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCsrfToken() // Add CSRF protection
           }
         });
         
@@ -166,10 +171,8 @@ export const fetchBookingDetails = async (bookingId: string): Promise<any> => {
           break;
         } else {
           const errorText = await result.text();
-          console.warn(`❌ Failed response from ${endpoint}: ${result.status}`, errorText.substring(0, 200));
         }
       } catch (endpointError) {
-        console.warn(`❌ Error with endpoint ${endpoint}:`, endpointError);
       }
     }
     
@@ -209,7 +212,7 @@ export const getBookingDetails = async (bookingId: string): Promise<any> => {
     }
     
     // Get the API URL from environment or use a default
-    const apiUrl = process.env.REACT_APP_API_GATEWAY_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod';
+    const apiUrl = process.env.REACT_APP_API_ENDPOINT || API_BASE_URL;
     const bookingDetailsUrl = `${apiUrl}/bookings/${bookingId}`;
     
     
@@ -218,7 +221,8 @@ export const getBookingDetails = async (bookingId: string): Promise<any> => {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrfToken() // Add CSRF protection
       }
     });
     

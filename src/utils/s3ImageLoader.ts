@@ -2,6 +2,8 @@
  * S3 Image Loader Utility
  * Handles loading and validating S3 images with caching to improve performance
  */
+import config from './environmentConfig';
+import securityValidator from './securityValidator';
 
 // Cache for successful and failed image URLs
 const imageCache: { [url: string]: boolean } = {};
@@ -53,7 +55,6 @@ export const testImageUrl = (url: string): Promise<boolean> => {
       }
     };
     
-    
     // For S3 presigned URLs, don't use crossorigin attribute
     // as it can cause CORS issues when the presigned URL is already valid
     if (url.includes('X-Amz-Signature=')) {
@@ -86,7 +87,7 @@ export const findWorkingUrl = async (urls: string[]): Promise<string | null> => 
  * @returns Data URL for a placeholder SVG image
  */
 export const createPlaceholderImage = (text = 'Image Not Available'): string => {
-  return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23f0f0f0'/%3E%3Ctext x='50%' y='50%' font-family='Arial' font-size='14' text-anchor='middle' dominant-baseline='middle' fill='%23999'%3E${encodeURIComponent(text)}%3C/text%3E%3C/svg%3E`;
+  return config.getPlaceholderImage(text);
 };
 
 /**
@@ -112,12 +113,12 @@ export const extractFilename = (urlOrPath: string): string => {
     // Try to extract filename from URL path
     const url = new URL(urlOrPath);
     const pathname = url.pathname;
-    const parts = pathname.split('/');
-    return parts[parts.length - 1];
+    const parts = pathname.split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : 'Unknown';
   } catch (e) {
     // If URL parsing fails, try simple path extraction
-    const parts = urlOrPath.split('/');
-    const lastPart = parts[parts.length - 1];
+    const parts = urlOrPath.split('/').filter(Boolean);
+    const lastPart = parts.length ? parts[parts.length - 1] : 'Unknown';
     
     // Remove query parameters if present
     return lastPart.split('?')[0];
@@ -133,11 +134,21 @@ export const isPresignedS3Url = (url: string): boolean => {
   return !!url && url.includes('X-Amz-Algorithm=') && url.includes('X-Amz-Signature=');
 };
 
+/**
+ * Safely encode a URL component
+ * @param part String to encode
+ * @returns Safely encoded string
+ */
+export const safeUrlEncode = (part: string): string => {
+  return securityValidator.safeEncodeURIComponent(part);
+};
+
 export default {
   testImageUrl,
   findWorkingUrl,
   createPlaceholderImage,
   addTimestampToUrl,
   extractFilename,
-  isPresignedS3Url
+  isPresignedS3Url,
+  safeUrlEncode
 };

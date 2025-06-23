@@ -1,74 +1,97 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getTokenInfo, shouldRefreshToken, debugAuthState } from '../utils/tokenDebugger';
 import { isAuthenticated, needsSessionRefresh } from '../utils/sessionPersistence';
+import { refreshToken } from '../services/authServices';
+import sessionManager from '../utils/sessionManager';
 
 interface AuthMiddlewareProps {
   children: React.ReactNode;
 }
 
 const AuthMiddleware: React.FC<AuthMiddlewareProps> = ({ children }) => {
-  const { isAuthenticated: authContextAuthenticated, checkAuth } = useAuth();
-  const [isChecking, setIsChecking] = useState(true);
+  const { isAuthenticated: authContextAuthenticated } = useAuth();
   const navigate = useNavigate();
-  
-  // Check token on initial load and set up periodic checks
+  const location = useLocation();
+  const [isChecking, setIsChecking] = useState(true);
+
   useEffect(() => {
     const verifyToken = async () => {
-      setIsChecking(true);
-      
-      // Log auth state to help with debugging
-      debugAuthState();
-      
-      // Check if user is authenticated with our utility functions
-      if (!isAuthenticated()) {
-        console.warn('No valid token found, trying to refresh...');
-        await checkAuth();
-        
-        // Check again after refresh attempt
+      try {
+        // Check if user is authenticated with our utility functions
         if (!isAuthenticated()) {
-          console.warn('Authentication refresh failed, redirecting to login');
-          navigate('/login', { 
-            state: { 
-              from: window.location.pathname,
-              reason: 'session_expired' 
-            } 
-          });
-          setIsChecking(false);
-          return;
+          console.warn('No valid token found, trying to refresh...');
+          const refreshed = await refreshToken();
+          
+          // Check again after refresh attempt
+          if (!refreshed || !isAuthenticated()) {
+            console.warn('Authentication refresh failed, redirecting to login');
+            navigate('/login', { 
+              state: { 
+                from: window.location.pathname,
+                reason: 'session_expired' 
+              } 
+            });
+            setIsChecking(false);
+            return;
+          }
+        } else if (needsSessionRefresh()) {
+          // Token exists but is going to expire soon, refresh it proactively
+          await refreshToken();
         }
-      } else if (needsSessionRefresh()) {
-        // Token exists but is going to expire soon, refresh it proactively
-        await checkAuth();
+        
+        setIsChecking(false);
+      } catch (error) {
+        console.error('Auth verification error:', error);
+        navigate('/login', { 
+          state: { 
+            from: window.location.pathname,
+            reason: 'verification_error' 
+          } 
+        });
+        setIsChecking(false);
       }
-      
-      setIsChecking(false);
     };
-    
+
     verifyToken();
+
+    // Set up session timeout callback
+    const handleSessionTimeout = () => {
+      console.warn('Session timeout detected in middleware');
+      navigate('/login', { 
+        state: { 
+          from: window.location.pathname,
+          reason: 'session_timeout' 
+        } 
+      });
+    };
+
+    // Initialize session manager with timeout callback
+    sessionManager.setAutoRefreshEnabled(true);
     
-    // Set up periodic token checks (every 2 minutes)
-    const tokenCheckInterval = setInterval(async () => {
-      // Only do full verification if user seems to be active
-      // by checking recent activity timestamp from the SessionManager
-      const lastActivity = localStorage.getItem('pilotforce_session_timestamp') || '0';
+    // Set up periodic session validity checks (every 5 minutes)
+    const sessionCheckInterval = setInterval(() => {
+      // Only check if user seems to be active
+      const lastActivity = localStorage.getItem('pilotforce_last_activity') || '0';
       const timeSinceActivity = Date.now() - parseInt(lastActivity, 10);
       
-      // If user has been active in the last 10 minutes
+      // If user has been active in the last 10 minutes, check session
       if (timeSinceActivity < 10 * 60 * 1000) {
-        
-        if (needsSessionRefresh()) {
-          await checkAuth();
+        if (!isAuthenticated()) {
+          handleSessionTimeout();
+        } else if (needsSessionRefresh()) {
+          refreshToken().catch(() => {
+            handleSessionTimeout();
+          });
         }
       }
-    }, 2 * 60 * 1000); // Check every 2 minutes
-    
+    }, 5 * 60 * 1000); // Check every 5 minutes
+
     return () => {
-      clearInterval(tokenCheckInterval);
+      clearInterval(sessionCheckInterval);
     };
-  }, [navigate, checkAuth]);
-  
+  }, [navigate, location]);
+
   if (isChecking) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -77,7 +100,7 @@ const AuthMiddleware: React.FC<AuthMiddlewareProps> = ({ children }) => {
       </div>
     );
   }
-  
+
   return <>{children}</>;
 };
 

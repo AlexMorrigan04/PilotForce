@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 export interface BreadcrumbItem {
   // Support both name and label properties for compatibility
@@ -18,6 +19,13 @@ interface BreadcrumbsProps {
 }
 
 export const Breadcrumbs: React.FC<BreadcrumbsProps> = ({ items, className = '' }) => {
+  const { user } = useAuth();
+  
+  // Hide breadcrumbs for SubUsers
+  if (user?.role?.toLowerCase() === 'subuser') {
+    return null;
+  }
+
   return (
     <nav className={`flex py-4 px-4 ${className}`} aria-label="Breadcrumb">
       <ol className="flex items-center space-x-2">

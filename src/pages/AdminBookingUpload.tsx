@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import AdminNavbar from '../components/AdminNavbar';
+import AdminNavbar from '../components/common/Navbar';
 import { FiArrowLeft, FiUpload, FiFile, FiImage, FiX } from 'react-icons/fi';
 import * as adminService from '../services/adminService';
+import { uploadDirectlyToS3 } from '../utils/directS3Upload';
 
 interface Booking {
   BookingId: string;
@@ -13,6 +14,16 @@ interface Booking {
   location: string;
   status: string;
 }
+
+const extractResources = (response: any): any[] => {
+  if (Array.isArray(response)) {
+    return response;
+  } else if (response && response.resources) {
+    return response.resources;
+  } else {
+    return [];
+  }
+};
 
 const AdminBookingUpload: React.FC = () => {
   const { bookingId } = useParams<{ bookingId: string }>();
@@ -27,15 +38,10 @@ const AdminBookingUpload: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const loadBookingData = async () => {
+    const fetchBookingData = async () => {
       try {
-        setLoading(true);
-        setError(null);
-        
-        // Make sure bookingId is not undefined
         if (!bookingId) {
-          setError("Booking ID is missing");
-          setLoading(false);
+          setError('Booking ID is required');
           return;
         }
 
@@ -43,7 +49,7 @@ const AdminBookingUpload: React.FC = () => {
         setBooking(bookingData.booking || bookingData);
 
         const resourcesData = await adminService.getBookingResources(bookingId);
-        setResources(resourcesData.resources || []);
+        setResources(extractResources(resourcesData));
 
         setLoading(false);
       } catch (err: any) {
@@ -53,7 +59,7 @@ const AdminBookingUpload: React.FC = () => {
     };
 
     if (bookingId) {
-      loadBookingData();
+      fetchBookingData();
     }
   }, [bookingId]);
 
@@ -63,36 +69,31 @@ const AdminBookingUpload: React.FC = () => {
     const files = Array.from(e.target.files);
     setUploadingFiles(true);
 
-    Promise.all(
-      files.map(file =>
-        adminService.uploadBookingResource(
-          bookingId,
+    Promise.all<any>(
+      files.map(file => {
+        // Always use chunked upload to avoid API Gateway limits
+        return uploadDirectlyToS3(
           file,
+          bookingId,
           (progress: number) => {
             setUploadProgress(prev => ({
               ...prev,
               [file.name]: progress
             }));
           }
-        )
-      )
+        );
+      })
     )
-      .then(results => {
-        const failedUploads = results.filter(r => !r.success && !r.resourceId);
-
-        if (failedUploads.length > 0) {
-          setError(`Failed to upload ${failedUploads.length} files`);
-        } else {
-          setSuccess(`Successfully uploaded ${files.length} files`);
-          return adminService.getBookingResources(bookingId);
-        }
+      .then(() => {
+        return adminService.getBookingResources(bookingId);
       })
-      .then(resourcesData => {
+      .then((resourcesData: { resources: any[] }) => {
         if (resourcesData) {
-          setResources(resourcesData.resources || resourcesData || []);
+          setResources(extractResources(resourcesData));
         }
+        setSuccess('Files uploaded successfully');
       })
-      .catch(err => {
+      .catch((err: Error) => {
         setError('Error uploading files: ' + (err.message || 'Unknown error'));
       })
       .finally(() => {
@@ -119,36 +120,31 @@ const AdminBookingUpload: React.FC = () => {
     const files = Array.from(e.dataTransfer.files);
     setUploadingFiles(true);
 
-    Promise.all(
-      files.map(file =>
-        adminService.uploadBookingResource(
-          bookingId,
+    Promise.all<any>(
+      files.map(file => {
+        // Always use chunked upload to avoid API Gateway limits
+        return uploadDirectlyToS3(
           file,
+          bookingId,
           (progress: number) => {
             setUploadProgress(prev => ({
               ...prev,
               [file.name]: progress
             }));
           }
-        )
-      )
+        );
+      })
     )
-      .then(results => {
-        const failedUploads = results.filter(r => !r.success && !r.resourceId);
-
-        if (failedUploads.length > 0) {
-          setError(`Failed to upload ${failedUploads.length} files`);
-        } else {
-          setSuccess(`Successfully uploaded ${files.length} files`);
-          return adminService.getBookingResources(bookingId);
-        }
+      .then(() => {
+        return adminService.getBookingResources(bookingId);
       })
-      .then(resourcesData => {
+      .then((resourcesData: { resources: any[] }) => {
         if (resourcesData) {
-          setResources(resourcesData.resources || resourcesData || []);
+          setResources(extractResources(resourcesData));
         }
+        setSuccess('Files uploaded successfully');
       })
-      .catch(err => {
+      .catch((err: Error) => {
         setError('Error uploading files: ' + (err.message || 'Unknown error'));
       })
       .finally(() => {

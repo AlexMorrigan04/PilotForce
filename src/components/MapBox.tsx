@@ -4,6 +4,7 @@ import MapboxDraw from '@mapbox/mapbox-gl-draw';
 import * as turf from '@turf/turf';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
+import logger from '../utils/logger';
 
 interface MapBoxProps {
   assets: any[];
@@ -45,7 +46,7 @@ const MapBox: React.FC<MapBoxProps> = ({ assets, selectedAsset, setSelectedAsset
           try {
             marker.remove();
           } catch (e) {
-            console.warn('Error removing marker:', e);
+            logger.warn('Error removing marker:', e);
           }
         });
         markersRef.current = {};
@@ -57,7 +58,7 @@ const MapBox: React.FC<MapBoxProps> = ({ assets, selectedAsset, setSelectedAsset
               mapRef.current.remove();
             }
           } catch (e) {
-            console.warn('Error during map cleanup:', e);
+            logger.warn('Error during map cleanup:', e);
           }
           mapRef.current = null;
         }

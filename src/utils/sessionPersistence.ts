@@ -38,8 +38,39 @@ export const storeAuthTokens = (
     localStorage.setItem(STORAGE_KEYS.ID_TOKEN, idToken);
     try {
       sessionStorage.setItem(STORAGE_KEYS.ID_TOKEN, idToken);
+      
+      // Extract username from token for refresh operations if needed
+      try {
+        const tokenPayload = JSON.parse(atob(idToken.split('.')[1]));
+        
+        // Extract username with priority for cognito:username
+        const username = tokenPayload['cognito:username'] || tokenPayload.email;
+        if (username) {
+          localStorage.setItem(STORAGE_KEYS.AUTH_USERNAME, username);
+          // Also store the email separately if available for role-specific handling
+          if (tokenPayload.email) {
+            localStorage.setItem('auth_email', tokenPayload.email);
+          }
+          
+          // Store user role for role-specific handling if available
+          if (tokenPayload['custom:role'] || tokenPayload['custom:userRole']) {
+            const role = tokenPayload['custom:role'] || tokenPayload['custom:userRole'];
+            localStorage.setItem('userRole', role);
+            // Special handling for CompanyAdmin users
+            if (role.toLowerCase() === 'companyadmin') {
+              localStorage.setItem('isCompanyAdmin', 'true');
+              
+              // Store the user ID (sub) as well for CompanyAdmin users
+              // This can be a better identifier for token refresh
+              if (tokenPayload.sub) {
+                localStorage.setItem('companyadmin_username', tokenPayload.sub);
+              }
+            }
+          }
+        }
+      } catch (decodeErr) {
+      }
     } catch (e) {
-      console.warn('Failed to set item in sessionStorage:', e);
     }
   }
   
@@ -49,7 +80,6 @@ export const storeAuthTokens = (
     try {
       sessionStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
     } catch (e) {
-      console.warn('Failed to set refresh token in sessionStorage:', e);
     }
   }
   
@@ -59,7 +89,6 @@ export const storeAuthTokens = (
     try {
       sessionStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken);
     } catch (e) {
-      console.warn('Failed to set access token in sessionStorage:', e);
     }
   }
   
@@ -75,7 +104,6 @@ export const storeAuthTokens = (
     try {
       sessionStorage.setItem(STORAGE_KEYS.TOKENS, JSON.stringify(tokens));
     } catch (e) {
-      console.warn('Failed to set tokens object in sessionStorage:', e);
     }
   }
   
@@ -85,7 +113,6 @@ export const storeAuthTokens = (
     try {
       sessionStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
     } catch (e) {
-      console.warn('Failed to set user data in sessionStorage:', e);
     }
   }
   
@@ -95,7 +122,6 @@ export const storeAuthTokens = (
   try {
     sessionStorage.setItem(STORAGE_KEYS.SESSION_TIMESTAMP, now);
   } catch (e) {
-    console.warn('Failed to set session timestamp in sessionStorage:', e);
   }
   
   // Mark session as active
@@ -103,7 +129,6 @@ export const storeAuthTokens = (
   try {
     sessionStorage.setItem(STORAGE_KEYS.SESSION_ACTIVE, 'true');
   } catch (e) {
-    console.warn('Failed to set session active flag in sessionStorage:', e);
   }
   
   // If we have an ID token, calculate and store its expiry
@@ -115,7 +140,6 @@ export const storeAuthTokens = (
         try {
           sessionStorage.setItem(STORAGE_KEYS.SESSION_EXPIRY, tokenInfo.expiresAt.toISOString());
         } catch (e) {
-          console.warn('Failed to set session expiry in sessionStorage:', e);
         }
       }
     } catch (e) {
@@ -134,7 +158,6 @@ export const getAuthToken = (): string | null => {
   try {
     token = sessionStorage.getItem(STORAGE_KEYS.ID_TOKEN);
   } catch (e) {
-    console.warn('Error accessing sessionStorage:', e);
   }
   
   // Fall back to localStorage if not in sessionStorage
@@ -167,7 +190,6 @@ export const getRefreshToken = (): string | null => {
   try {
     token = sessionStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
   } catch (e) {
-    console.warn('Error accessing sessionStorage:', e);
   }
   
   // Fall back to localStorage if not in sessionStorage
@@ -200,7 +222,6 @@ export const getAccessToken = (): string | null => {
   try {
     token = sessionStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
   } catch (e) {
-    console.warn('Error accessing sessionStorage:', e);
   }
   
   // Fall back to localStorage if not in sessionStorage
@@ -233,7 +254,6 @@ export const getStoredUserData = (): any | null => {
   try {
     userDataStr = sessionStorage.getItem(STORAGE_KEYS.USER_DATA);
   } catch (e) {
-    console.warn('Error accessing sessionStorage for user data:', e);
   }
   
   // Fall back to localStorage
@@ -292,7 +312,6 @@ export const initializeSession = (): {
   try {
     sessionStorage.setItem(STORAGE_KEYS.SESSION_TIMESTAMP, now);
   } catch (e) {
-    console.warn('Failed to update session timestamp in sessionStorage:', e);
   }
   
   // Set session active flag
@@ -301,7 +320,6 @@ export const initializeSession = (): {
     try {
       sessionStorage.setItem(STORAGE_KEYS.SESSION_ACTIVE, 'true');
     } catch (e) {
-      console.warn('Failed to set session active flag in sessionStorage:', e);
     }
   }
   
@@ -342,7 +360,6 @@ export const clearAuthData = (): void => {
     sessionStorage.removeItem(STORAGE_KEYS.SESSION_EXPIRY);
     sessionStorage.removeItem(STORAGE_KEYS.SESSION_ACTIVE);
   } catch (e) {
-    console.warn('Error clearing sessionStorage:', e);
   }
 };
 

@@ -79,7 +79,6 @@ export const testGeoTiffUrl = async (url: string): Promise<boolean> => {
       
       const isValidType = validTypes.some(type => contentType.toLowerCase().includes(type.toLowerCase()));
       if (!isValidType) {
-        console.warn(`GeoTIFF has unexpected content type: ${contentType}`);
         // Still return true as some servers might use non-standard content types
       }
     }
@@ -128,7 +127,6 @@ export const diagnoseGeoTiffUrl = async (url: string): Promise<{
                             url.toLowerCase().includes('tiff');
                             
     if (!isLikelyGeoTiff) {
-      console.warn('URL does not appear to be a GeoTIFF file');
     }
     
     // Use HEAD request to check if the resource is accessible

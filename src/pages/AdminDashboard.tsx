@@ -1,434 +1,356 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+// Comment out react-bootstrap imports until dependency is installed
+// import { Container, Row, Col, Card, Spinner, Alert } from 'react-bootstrap';
 import { useAuth } from '../context/AuthContext';
-import AdminNavbar from '../components/AdminNavbar';
 import * as adminService from '../services/adminService';
+import AdminBookingsList from '../components/admin/AdminBookingsList';
+import { Link } from 'react-router-dom';
+import AdminNavbar from '../components/common/Navbar';
 import { 
-  FiUsers, FiBriefcase, FiCalendar, FiPieChart, FiSettings, 
-  FiMapPin, FiClock, FiAlertCircle, FiFileText 
+  FiUsers, FiGrid, FiCalendar, FiClock, FiCheckCircle, 
+  FiXCircle, FiRefreshCw, FiPackage, FiMap, FiSettings 
 } from 'react-icons/fi';
 
-const AdminDashboard: React.FC = () => {
-  const { user, isAdmin } = useAuth();
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [recentUsers, setRecentUsers] = useState<any[]>([]);
-  const [recentBookings, setRecentBookings] = useState<any[]>([]);
-  const navigate = useNavigate();
+interface User {
+  id: string;
+  companyId: string;
+  name: string;
+  email: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
-  // Stats for the dashboard
-  const [stats, setStats] = useState({
+// Define the interface for dashboard statistics
+interface DashboardStats {
+  users: number;
+  companies: number;
+  bookings: number;
+  activeBookings: number;
+  completedBookings: number;
+}
+
+const AdminDashboard: React.FC = () => {
+  const { isAuthenticated, isAdmin, loading: authLoading } = useAuth();
+  const [stats, setStats] = useState<DashboardStats>({
     users: 0,
     companies: 0,
     bookings: 0,
-    activeBookings: 0
+    activeBookings: 0,
+    completedBookings: 0
   });
+  const [recentBookings, setRecentBookings] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  // Add useEffect to fetch dashboard data when component mounts
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    // Don't proceed if auth is still loading
+    if (authLoading) {
+      return;
+    }
 
-  // Verify admin status on component mount
-  useEffect(() => {
-    const validateAdmin = async () => {
-      // Ignore loading state to prevent flicker
-      if (isAdmin) {
-        return;
-      }
-      
-      // Check if admin via local storage
-      if (localStorage.getItem('isAdmin') === 'true') {
-        return;
-      }
-      
-      // Verify via available methods
-      try {
-        // First check if the utils/authProxy module exists
-        try {
-          const { isAdminLocally } = await import('../utils/authProxy');
-          if (isAdminLocally && isAdminLocally()) {
-            return;
-          }
-        } catch (importErr) {
-          console.warn('Could not import authProxy utilities:', importErr);
-          // Continue with other checks if import fails
-        }
-        
-        // Use adminUtils directly
-        const { checkAdminStatus } = await import('../utils/adminUtils');
-        if (checkAdminStatus) {
-          const isAdminApi = await checkAdminStatus();
-          if (!isAdminApi) {
-            console.warn('User is not confirmed as admin, redirecting to dashboard');
-            setError('You do not have permission to access this page');
-            setTimeout(() => {
-              navigate('/dashboard');
-            }, 2000);
-          }
-        } else {
-          console.warn('checkAdminStatus not available, using fallback check');
-          
-          // Fallback check using token directly
-          const token = localStorage.getItem('idToken');
-          if (token) {
-            try {
-              const { isAdminFromToken } = await import('../utils/adminUtils');
-              if (!isAdminFromToken(token)) {
-                setError('You do not have permission to access this page');
-                setTimeout(() => {
-                  navigate('/dashboard');
-                }, 2000);
-              }
-            } catch (e) {
-            }
-          }
-        }
-      } catch (err) {
-        setError('Error verifying admin permissions');
-      }
-    };
-    
-    validateAdmin();
-  }, [isAdmin, navigate]);
+    // Check authentication status
+    if (!isAuthenticated) {
+      setError('You must be logged in to view this page');
+      return;
+    }
 
-  // Fetch real data for the dashboard
-  const fetchDashboardData = async () => {
-    setLoading(true);
-    setError(null);
-    
+    // Check admin status
+    if (!isAdmin) {
+      setError('You must be an admin to view this page');
+      return;
+    }
+
+    // Load dashboard data when component mounts and auth is ready
+    loadDashboardData();
+  }, [isAuthenticated, isAdmin, authLoading]);
+
+  const loadDashboardData = async () => {
     try {
+      setRefreshing(true);
+      // Fetch users and bookings in parallel
+      const [usersResponse, bookingsResponse] = await Promise.all([
+        adminService.getAllUsers().catch(error => {
+          throw new Error(`Failed to fetch users: ${error.message}`);
+        }),
+        adminService.getAllBookings().catch(error => {
+          throw new Error(`Failed to fetch bookings: ${error.message}`);
+        })
+      ]);
+      // Extract actual data from responses
+      const users = (usersResponse && usersResponse.users) ? usersResponse.users as User[] : [];
+      const bookings = (bookingsResponse && bookingsResponse.bookings) ? bookingsResponse.bookings : [];
+      // Calculate active bookings
+      const activeBookings = bookings.filter(booking => 
+        booking.status === 'scheduled' || booking.status === 'pending'
+      ).length;
+      const completedBookings = bookings.filter(booking => 
+        booking.status === 'completed'
+      ).length;
       
-      // Check if the admin service methods are available
-      if (!adminService.getAllUsers || !adminService.getAllBookings) {
-        // Use mock data as fallback
-        setStats({
-          users: 15,
-          companies: 3,
-          bookings: 24,
-          activeBookings: 8
-        });
-        
-        setRecentUsers([
-          { UserId: '1', Username: 'john_doe', Email: 'john@example.com', UserRole: 'Admin', CreatedAt: new Date().toISOString() },
-          { UserId: '2', Username: 'jane_smith', Email: 'jane@example.com', UserRole: 'User', CreatedAt: new Date().toISOString() }
-        ]);
-        
-        setRecentBookings([
-          { id: 'b1', title: 'Building Survey', status: 'confirmed', createdAt: new Date().toISOString(), jobTypes: 'Survey' },
-          { id: 'b2', title: 'Site Inspection', status: 'pending', createdAt: new Date().toISOString(), jobTypes: 'Inspection' }
-        ]);
-        
-        setLoading(false);
-        return;
-      }
+      // Sort bookings by date (newest first) and take the first 5
+      const sortedBookings = bookings
+        .sort((a, b) => {
+          const dateA = new Date(a.createdAt || a.date || 0);
+          const dateB = new Date(b.createdAt || b.date || 0);
+          return dateB.getTime() - dateA.getTime();
+        })
+        .slice(0, 5);
       
-      // Fetch real data
-      try {
-        // Fetch users, bookings and calculate stats
-        const [usersResponse, bookingsResponse] = await Promise.all([
-          adminService.getAllUsers(),
-          adminService.getAllBookings()
-        ]);
-        
-        
-        // Get actual data from responses
-        const users = (usersResponse && usersResponse.users) ? usersResponse.users : [];
-        const bookings = (bookingsResponse && bookingsResponse.bookings) ? bookingsResponse.bookings : [];
-        
-        
-        // Calculate active bookings
-        const activeBookingCount = bookings.filter((booking: any) => 
-          booking.status === 'confirmed' || booking.status === 'in-progress'
-        ).length;
-        
-        // Set the statistics
-        setStats({
-          users: users.length,
-          companies: new Set(users.map((user: any) => user.CompanyId || user.companyId)).size,
-          bookings: bookings.length,
-          activeBookings: activeBookingCount
-        });
-        
-        // Get recent users and bookings for quick access
-        const sortedUsers = [...users]
-          .sort((a, b) => new Date(b.CreatedAt || b.createdAt || 0).getTime() - new Date(a.CreatedAt || a.createdAt || 0).getTime())
-          .slice(0, 5);
-          
-        const sortedBookings = [...bookings]
-          .sort((a, b) => new Date(b.createdAt || b.CreatedAt || 0).getTime() - new Date(a.createdAt || a.CreatedAt || 0).getTime())
-          .slice(0, 5);
-        
-        setRecentUsers(sortedUsers);
-        setRecentBookings(sortedBookings);
-      } catch (apiErr) {
-        throw apiErr;
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load dashboard data');
-      
-      // Provide fallback data so UI is not empty
+      // Update state
+      setStats({
+        users: users.length,
+        companies: new Set(users.map((user: User) => user.companyId)).size,
+        bookings: bookings.length,
+        activeBookings,
+        completedBookings
+      });
+      setRecentBookings(sortedBookings);
+      setError(null);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard data';
+      setError(errorMessage);
       setStats({
         users: 0,
         companies: 0,
         bookings: 0,
-        activeBookings: 0
+        activeBookings: 0,
+        completedBookings: 0
       });
+      setRecentBookings([]);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  // Quick actions for admin tasks
-  const quickActions = [
-    { name: 'Add User', icon: <FiUsers />, path: '/admin/users/add' },
-    { name: 'View Bookings', icon: <FiCalendar />, path: '/admin/bookings' },
-    { name: 'View Resources', icon: <FiFileText />, path: '/admin/resources' },
-    { name: 'System Settings', icon: <FiSettings />, path: '/admin/settings' }
-  ];
+  // Show loading state while auth is being checked
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AdminNavbar />
+        <div className="flex justify-center items-center h-[calc(100vh-64px)]">
+          <div className="text-center p-8 bg-white rounded-lg shadow-md">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <h2 className="text-xl font-semibold text-gray-700">Verifying Admin Access</h2>
+            <p className="text-sm text-gray-500 mt-2">Please wait while we verify your credentials...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  // Format job types from array or string
-  const formatJobTypes = (jobTypes: any): string => {
-    if (!jobTypes) return 'General Booking';
-    if (Array.isArray(jobTypes)) return jobTypes.join(', ');
-    return String(jobTypes);
-  };
+  // Show loading state while data is being fetched
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AdminNavbar />
+        <div className="flex justify-center items-center h-[calc(100vh-64px)]">
+          <div className="text-center p-8 bg-white rounded-lg shadow-md">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <h2 className="text-xl font-semibold text-gray-700">Loading Dashboard</h2>
+            <p className="text-sm text-gray-500 mt-2">Please wait while we fetch your data...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AdminNavbar />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <FiXCircle className="h-5 w-5 text-red-400" />
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">Error</h3>
+                <div className="mt-2 text-sm text-red-700">{error}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <AdminNavbar />
       
-      <main className="flex-1 container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-600">Welcome back, {user?.name || 'Admin'}</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="md:flex md:items-center md:justify-between mb-8">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
+              Admin Dashboard
+            </h1>
+          </div>
+          <div className="mt-4 flex md:mt-0 md:ml-4">
+            <button
+              onClick={loadDashboardData}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              disabled={refreshing}
+            >
+              <FiRefreshCw className={`mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh Data
+            </button>
+          </div>
         </div>
 
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-            {error}
-          </div>
-        )}
-
-        {/* Key Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {loading ? (
-            Array(4).fill(0).map((_, i) => (
-              <div key={i} className="bg-white rounded-lg shadow-sm p-6 animate-pulse">
-                <div className="h-8 bg-gray-200 rounded w-2/3 mb-4"></div>
-                <div className="h-5 bg-gray-200 rounded w-1/2"></div>
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5 mb-8">
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-6">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="bg-blue-100 rounded-lg p-3">
+                    <FiCalendar className="h-6 w-6 text-blue-600" />
+                  </div>
+                </div>
+                <div className="ml-4 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Total Bookings</dt>
+                  <dd className="mt-1 text-xl font-semibold text-gray-900">{stats.bookings}</dd>
+                </div>
               </div>
-            ))
-          ) : (
-            <>
-              <StatCard 
-                title="Total Users" 
-                value={stats.users} 
-                icon={<FiUsers className="w-6 h-6" />}
-                color="blue"
-                path="/admin/users"
-              />
-              <StatCard 
-                title="Companies" 
-                value={stats.companies} 
-                icon={<FiBriefcase className="w-6 h-6" />}
-                color="indigo"
-                path="/admin/companies"
-              />
-              <StatCard 
-                title="Total Bookings" 
-                value={stats.bookings} 
-                icon={<FiCalendar className="w-6 h-6" />}
-                color="purple"
-                path="/admin/bookings"
-              />
-              <StatCard 
-                title="Active Bookings" 
-                value={stats.activeBookings} 
-                icon={<FiClock className="w-6 h-6" />}
-                color="green"
-                path="/admin/bookings?status=active"
-              />
-            </>
-          )}
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-6">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="bg-yellow-100 rounded-lg p-3">
+                    <FiClock className="h-6 w-6 text-yellow-600" />
+                  </div>
+                </div>
+                <div className="ml-4 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Active Bookings</dt>
+                  <dd className="mt-1 text-xl font-semibold text-gray-900">{stats.activeBookings}</dd>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-6">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="bg-green-100 rounded-lg p-3">
+                    <FiCheckCircle className="h-6 w-6 text-green-600" />
+                  </div>
+                </div>
+                <div className="ml-4 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Completed</dt>
+                  <dd className="mt-1 text-xl font-semibold text-gray-900">{stats.completedBookings}</dd>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-6">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="bg-purple-100 rounded-lg p-3">
+                    <FiUsers className="h-6 w-6 text-purple-600" />
+                  </div>
+                </div>
+                <div className="ml-4 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Total Users</dt>
+                  <dd className="mt-1 text-xl font-semibold text-gray-900">{stats.users}</dd>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-6">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <div className="bg-indigo-100 rounded-lg p-3">
+                    <FiPackage className="h-6 w-6 text-indigo-600" />
+                  </div>
+                </div>
+                <div className="ml-4 flex-1">
+                  <dt className="text-sm font-medium text-gray-500 truncate">Companies</dt>
+                  <dd className="mt-1 text-xl font-semibold text-gray-900">{stats.companies}</dd>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Quick Actions */}
-        <div className="bg-white rounded-lg shadow mb-6">
-          <div className="p-4 border-b border-gray-200">
+        <div className="bg-white shadow rounded-lg mb-8">
+          <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-medium text-gray-900">Quick Actions</h2>
           </div>
-          <div className="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            {quickActions.map((action, index) => (
-              <button
-                key={index}
-                onClick={() => navigate(action.path)}
-                className="flex items-center justify-center p-4 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 transition duration-200"
+          <div className="p-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Link
+                to="/admin/bookings"
+                className="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm flex items-center space-x-3 hover:border-gray-400 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"
               >
-                <span className="mr-2">{action.icon}</span>
-                {action.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          {/* Recent Users */}
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h2 className="font-bold text-lg text-gray-900">Recent Users</h2>
-              <button 
-                onClick={() => navigate('/admin/users')} 
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                View All
-              </button>
-            </div>
-            <div className="p-4">
-              {loading ? (
-                <div className="animate-pulse space-y-4">
-                  {Array(3).fill(0).map((_, i) => (
-                    <div key={i} className="flex items-center space-x-4">
-                      <div className="rounded-full bg-gray-200 h-10 w-10"></div>
-                      <div className="flex-1 space-y-2">
-                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex-shrink-0">
+                  <FiCalendar className="h-6 w-6 text-blue-600" />
                 </div>
-              ) : recentUsers && recentUsers.length > 0 ? (
-                <ul className="divide-y divide-gray-200">
-                  {recentUsers.map((user: any) => (
-                    <li key={user?.UserId || user?.id || `user-${Math.random()}`} className="py-3">
-                      <div className="flex items-center space-x-4">
-                        <div className="flex-shrink-0">
-                          <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-500">
-                            {(user?.Name || user?.Username || 'U').charAt(0).toUpperCase()}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {user?.Name || user?.Username || 'Unknown User'}
-                          </p>
-                          <p className="text-sm text-gray-500 truncate">
-                            {user?.Email || user?.email || 'No email'}
-                          </p>
-                        </div>
-                        <div>
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                            ${((user?.UserRole || user?.role || '').toString().toLowerCase().includes('admin')) ? 
-                              'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
-                            {user?.UserRole || user?.role || 'User'}
-                          </span>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-center py-4 text-gray-500">No recent users found</p>
-              )}
-            </div>
-          </div>
-          
-          {/* Recent Bookings */}
-          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h2 className="font-bold text-lg text-gray-900">Recent Bookings</h2>
-              <button 
-                onClick={() => navigate('/admin/bookings')} 
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                View All
-              </button>
-            </div>
-            <div className="p-4">
-              {loading ? (
-                <div className="animate-pulse space-y-4">
-                  {Array(3).fill(0).map((_, i) => (
-                    <div key={i} className="flex items-center space-x-4">
-                      <div className="flex-1 space-y-2">
-                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                      </div>
-                      <div className="h-8 bg-gray-200 rounded w-20"></div>
-                    </div>
-                  ))}
+                <div className="flex-1 min-w-0">
+                  <span className="absolute inset-0" aria-hidden="true" />
+                  <p className="text-sm font-medium text-gray-900">Manage Bookings</p>
+                  <p className="text-sm text-gray-500">View and manage all bookings</p>
                 </div>
-              ) : recentBookings && recentBookings.length > 0 ? (
-                <ul className="divide-y divide-gray-200">
-                  {recentBookings.map((booking: any) => (
-                    <li key={booking?.BookingId || booking?.id || `booking-${Math.random()}`} className="py-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">
-                            {formatJobTypes(booking?.jobTypes) || 
-                             booking?.title || 
-                             `Booking at ${booking?.location?.substring(0, 15) || 'Unknown Location'}`}
-                          </p>
-                          <p className="text-sm text-gray-500 truncate">
-                            {booking?.assetName ? `Asset: ${booking.assetName}` : ''} 
-                            {booking?.flightDate ? ` • ${new Date(booking.flightDate).toLocaleDateString()}` : ''}
-                          </p>
-                        </div>
-                        <div>
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                            ${booking?.status === 'confirmed' ? 'bg-green-100 text-green-800' : 
-                              booking?.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
-                              'bg-gray-100 text-gray-800'}`}>
-                            {booking?.status || 'Unknown'}
-                          </span>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-center py-4 text-gray-500">No recent bookings found</p>
-              )}
+              </Link>
+
+              <Link
+                to="/admin/users"
+                className="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm flex items-center space-x-3 hover:border-gray-400 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"
+              >
+                <div className="flex-shrink-0">
+                  <FiUsers className="h-6 w-6 text-purple-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="absolute inset-0" aria-hidden="true" />
+                  <p className="text-sm font-medium text-gray-900">Manage Users</p>
+                  <p className="text-sm text-gray-500">View and manage user accounts</p>
+                </div>
+              </Link>
+
+              <Link
+                to="/admin/assets"
+                className="relative rounded-lg border border-gray-300 bg-white px-6 py-5 shadow-sm flex items-center space-x-3 hover:border-gray-400 focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"
+              >
+                <div className="flex-shrink-0">
+                  <FiMap className="h-6 w-6 text-green-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="absolute inset-0" aria-hidden="true" />
+                  <p className="text-sm font-medium text-gray-900">Manage Assets</p>
+                  <p className="text-sm text-gray-500">View and manage asset locations</p>
+                </div>
+              </Link>
             </div>
           </div>
         </div>
-      </main>
-    </div>
-  );
-};
 
-// Stat Card Component
-interface StatCardProps {
-  title: string;
-  value: number;
-  icon: React.ReactNode;
-  color: string;
-  path: string;
-}
-
-const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color, path }) => {
-  const navigate = useNavigate();
-  const colorMap: Record<string, string> = {
-    blue: 'bg-blue-500',
-    indigo: 'bg-indigo-500',
-    purple: 'bg-purple-500',
-    green: 'bg-green-500',
-    red: 'bg-red-500',
-    yellow: 'bg-yellow-500'
-  };
-  
-  return (
-    <div 
-      className="bg-white rounded-lg shadow-sm p-6 border-t-4 border-blue-500 cursor-pointer hover:shadow-md transition-shadow"
-      onClick={() => navigate(path)}
-      style={{ borderTopColor: `var(--${color}-500)` }}
-    >
-      <div className="flex items-center">
-        <div className={`p-3 rounded-full ${colorMap[color] || 'bg-blue-500'} text-white mr-4`}>
-          {icon}
-        </div>
-        <div>
-          <p className="text-sm font-medium text-gray-500 uppercase">{title}</p>
-          <p className="text-2xl font-semibold mt-1">{value}</p>
+        {/* Recent Bookings */}
+        <div className="bg-white shadow rounded-lg">
+          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+            <h2 className="text-lg font-medium text-gray-900">Recent Bookings</h2>
+            <Link
+              to="/admin/bookings"
+              className="text-sm font-medium text-blue-600 hover:text-blue-500"
+            >
+              View All
+            </Link>
+          </div>
+          <div className="overflow-hidden">
+            <AdminBookingsList limit={5} showActions={false} />
+          </div>
         </div>
       </div>
     </div>

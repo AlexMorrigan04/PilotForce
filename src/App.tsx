@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Dashboard from './components/Dashboard';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -14,6 +14,8 @@ import ConfirmAccount from './pages/ConfirmAccount';
 import ManageUsers from './pages/ManageUsers';
 import AuthMiddleware from './middleware/AuthMiddleware';
 import AdminProtectedRoute from './components/AdminProtectedRoute';
+import SubUserProtectedRoute from './components/SubUserProtectedRoute';
+import NavigationHandler from './components/NavigationHandler';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminUsers from './pages/AdminUsers';
 import AdminBookings from './pages/AdminBookings';
@@ -22,10 +24,20 @@ import AdminResources from './pages/AdminResources';
 import AdminBookingDetails from './pages/AdminBookingDetails';
 import AdminBookingUpload from './pages/AdminBookingUpload';
 import AdminCompanies from './pages/AdminCompanies';
+import OAuthCallback from './pages/OAuthCallback';
+import MicrosoftCallback from './components/MicrosoftCallback';
+import RequestAccess from './pages/RequestAccess';
+import WaitingForApproval from './pages/WaitingForApproval';
+import AdminAssetDetails from './pages/AdminAssetDetails';
+import CompanyUsers from './pages/CompanyUsers';
+import FlightDataView from './pages/FlightDataView';
+import UserProfile from './pages/UserProfile';
+import AdminSystemLogs from './pages/AdminSystemLogs';
 
 // Protected route component that redirects to login if not authenticated
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
+  const location = useLocation();
   
   if (loading) {
     return (
@@ -36,49 +48,91 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
   
-  return isAuthenticated ? <AuthMiddleware>{children}</AuthMiddleware> : <Navigate to="/login" />;
+  // If not authenticated, redirect to login
+  if (!isAuthenticated) {
+    return <Navigate to="/login" />;
+  }
+
+  // If user is a SubUser, only allow access to booking-related routes and assets
+  if (user?.role?.toLowerCase() === 'subuser') {
+    const allowedPaths = [
+      '/my-bookings',
+      '/flight-details',
+      '/flight-data',
+      '/bookings',
+      '/assets',  // Allow access to assets page
+      '/make-booking',  // Allow creating new bookings
+      '/create-booking',  // Alternative booking creation path
+      '/new-asset',
+      '/profile'  // Allow access to profile page
+    ];
+    
+    const isAllowedPath = allowedPaths.some(path => 
+      location.pathname === path || location.pathname.startsWith(`${path}/`)
+    );
+    
+    if (!isAllowedPath) {
+      return <Navigate to="/my-bookings" />;
+    }
+  }
+  
+  return <AuthMiddleware>{children}</AuthMiddleware>;
 };
 
 // Add an admin-aware protected route component
 const AdminAwareRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, loading, isAdmin } = useAuth();
+  const { isAuthenticated, loading, isAdmin, user } = useAuth();
   const [checkingAdmin, setCheckingAdmin] = useState(true);
   const [isUserAdmin, setIsUserAdmin] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const navigate = useNavigate();
   
   useEffect(() => {
     const checkAdminStatus = async () => {
-      // Only check for admin status if authenticated
       if (!isAuthenticated) {
         setCheckingAdmin(false);
         return;
       }
-      
       try {
-        // SPECIFICALLY check for Administrators group membership
-        // Users with just the role "CompanyAdmin" or "User" should not be considered admins
         const token = localStorage.getItem('idToken');
+        let isInAdministratorGroup = false;
+        let role = null;
         
         if (token) {
-          // Check specifically for Administrators group in cognito:groups
           const { jwtDecode } = await import('jwt-decode');
           const decoded = jwtDecode<any>(token);
           const groups = decoded['cognito:groups'] || [];
+          isInAdministratorGroup = groups.some((g: string) => g.toLowerCase() === 'administrator');
           
-          // Only consider a user an admin if they belong to the specific Administrators group
-          const isInAdministratorsGroup = groups.includes('Administrators');
-          
-          if (isInAdministratorsGroup) {
-            setIsUserAdmin(true);
-            localStorage.setItem('isAdmin', 'true');
-          } else {
-            // If not in Administrators group, clear any incorrect flag
-            localStorage.removeItem('isAdmin');
-            setIsUserAdmin(false);
-          }
+          // Extract role from token, prioritizing custom:role
+          role = decoded['custom:role'] || decoded['custom:userRole'] || decoded.role;
+        }
+        
+        // Also check user object for role
+        const userRole = user?.['custom:role'] || user?.role || user?.['custom:userRole'];
+        role = role || userRole;
+        
+        setUserRole(role);
+        
+        // Check for admin roles - case insensitive comparison
+        const isAdminRole = role && ['administrator', 'admin'].includes(role.toLowerCase());
+        
+        if (isInAdministratorGroup || isAdminRole) {
+                    setIsUserAdmin(true);
+          localStorage.setItem('isAdmin', 'true');
+          // Immediately redirect to admin dashboard
+          navigate('/admin-dashboard', { replace: true });
+        } else if (role?.toLowerCase() === 'subuser') {
+          // Redirect SubUsers to /my-bookings
+          navigate('/my-bookings', { replace: true });
         } else {
-          localStorage.removeItem('isAdmin');
+                    localStorage.removeItem('isAdmin');
           setIsUserAdmin(false);
+          
+          // Store role information for regular users
+          if (role) {
+            localStorage.setItem('userRole', role);
+          }
         }
       } catch (error) {
         setIsUserAdmin(false);
@@ -86,9 +140,8 @@ const AdminAwareRoute = ({ children }: { children: React.ReactNode }) => {
         setCheckingAdmin(false);
       }
     };
-    
     checkAdminStatus();
-  }, [isAdmin, isAuthenticated, loading, navigate]);
+  }, [isAdmin, isAuthenticated, loading, navigate, user]);
   
   if (loading || checkingAdmin) {
     return (
@@ -103,11 +156,7 @@ const AdminAwareRoute = ({ children }: { children: React.ReactNode }) => {
     return <Navigate to="/login" />;
   }
   
-  // Redirect admins to admin dashboard
-  if (isUserAdmin) {
-    return <Navigate to="/admin-dashboard" />;
-  }
-  
+  // If user is authenticated and has a valid role, allow access to user dashboard
   return <AuthMiddleware>{children}</AuthMiddleware>;
 };
 
@@ -118,6 +167,10 @@ function AppRoutes() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/confirm-account" element={<ConfirmAccount />} />
       <Route path="/confirm" element={<ConfirmAccount />} />
+      <Route path="/oauth-callback" element={<OAuthCallback />} />
+      <Route path="/auth/callback" element={<OAuthCallback />} />
+      <Route path="/auth/microsoft/callback" element={<MicrosoftCallback />} />
+      <Route path="/request-access" element={<RequestAccess />} />
       <Route path="/" element={<AdminAwareRoute><Dashboard /></AdminAwareRoute>} />
       <Route path="/dashboard" element={<AdminAwareRoute><Dashboard /></AdminAwareRoute>} />
       <Route path="/assets" element={<ProtectedRoute><Assets /></ProtectedRoute>} />
@@ -125,10 +178,12 @@ function AppRoutes() {
       <Route path="/new-asset" element={<ProtectedRoute><NewAsset /></ProtectedRoute>} />
       <Route path="/my-bookings" element={<ProtectedRoute><MyBookings /></ProtectedRoute>} />
       <Route path="/flight-details/:id" element={<ProtectedRoute><BookingDetails /></ProtectedRoute>} />
+      <Route path="/flight-data/:bookingId" element={<ProtectedRoute><FlightDataView /></ProtectedRoute>} />
       <Route path="/bookings/:id" element={<ProtectedRoute><BookingDetails /></ProtectedRoute>} />
       <Route path="/make-booking" element={<ProtectedRoute><CreateBooking /></ProtectedRoute>} />
       <Route path="/create-booking" element={<ProtectedRoute><CreateBooking /></ProtectedRoute>} />
       <Route path="/manage-users" element={<ProtectedRoute><ManageUsers /></ProtectedRoute>} />
+      <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
       <Route path="/admin-dashboard" element={<AdminProtectedRoute><AdminDashboard /></AdminProtectedRoute>} />
       <Route path="/admin/users" element={<AdminProtectedRoute><AdminUsers /></AdminProtectedRoute>} />
       <Route path="/admin/users/add" element={<AdminProtectedRoute><div>Add User Page (Placeholder)</div></AdminProtectedRoute>} />
@@ -137,12 +192,15 @@ function AppRoutes() {
       <Route path="/admin/bookings/details/:bookingId" element={<AdminProtectedRoute><AdminBookingDetails /></AdminProtectedRoute>} />
       <Route path="/admin/bookings/upload/:bookingId" element={<AdminProtectedRoute><AdminBookingUpload /></AdminProtectedRoute>} />
       <Route path="/admin/assets" element={<AdminProtectedRoute><AdminAssets /></AdminProtectedRoute>} />
+      <Route path="/admin/assets/details/:assetId" element={<AdminProtectedRoute><AdminAssetDetails /></AdminProtectedRoute>} />
       <Route path="/admin/resources" element={<AdminProtectedRoute><AdminResources /></AdminProtectedRoute>} />
       <Route path="/admin/companies" element={<AdminProtectedRoute><AdminCompanies /></AdminProtectedRoute>} />
+      <Route path="/admin/system-logs" element={<AdminProtectedRoute><AdminSystemLogs /></AdminProtectedRoute>} />
       <Route path="/admin/companies/add" element={<AdminProtectedRoute><div>Add Company Page (Placeholder)</div></AdminProtectedRoute>} />
       <Route path="/admin/companies/edit/:id" element={<AdminProtectedRoute><div>Edit Company Page (Placeholder)</div></AdminProtectedRoute>} />
       <Route path="/admin/companies/details/:id" element={<AdminProtectedRoute><div>Company Details Page (Placeholder)</div></AdminProtectedRoute>} />
-      <Route path="/admin/companies/:id/users" element={<AdminProtectedRoute><div>Company Users Page (Placeholder)</div></AdminProtectedRoute>} />
+      <Route path="/admin/companies/:companyId/users" element={<CompanyUsers />} />
+      <Route path="/waiting-for-approval" element={<ProtectedRoute><WaitingForApproval /></ProtectedRoute>} />
       {['/admin/companies', '/admin/bookings', '/admin/assets', '/admin/reports', 
         '/admin/alerts', '/admin/data', '/admin/security', '/admin/settings'].map(path => (
         <Route key={path} path={path} element={
@@ -154,6 +212,8 @@ function AppRoutes() {
           </AdminProtectedRoute>
         } />
       ))}
+      {/* Catch-all route for SubUsers - redirect to /my-bookings */}
+      <Route path="*" element={<Navigate to="/my-bookings" replace />} />
     </Routes>
   );
 }
@@ -162,7 +222,9 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <AppRoutes />
+        <NavigationHandler>
+          <AppRoutes />
+        </NavigationHandler>
       </Router>
     </AuthProvider>
   );

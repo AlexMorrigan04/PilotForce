@@ -1,47 +1,61 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-
-// Use proxy URL for development, direct URL for production
-const API_BASE_URL = process.env.NODE_ENV === 'development' 
-  ? '/api' 
-  : (process.env.REACT_APP_API_URL || 'https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod');
+import { API_BASE_URL } from '../config';
+import { securityAuditLogger } from '../utils/securityAuditLogger';
 
 // AWS Configuration - using environment variables when available
 const AWS_REGION = process.env.REACT_APP_AWS_REGION || 'eu-north-1';
-const S3_BUCKET = process.env.REACT_APP_S3_BUCKET || 'pilotforce-resources';
+const S3_BUCKET = process.env.REACT_APP_S3_BUCKET || 'pilotforce-resources-dev';
+
+// Define a constant for development testing only - never use for production
+const DEV_BUCKET_PREFIX = process.env.NODE_ENV === 'production' ? '' : 'dev-';
 
 interface PresignedUrlResponse {
   uploadUrl: string;
+  downloadUrl: string;
   key: string;
-  resourceRecordId: string;
+  bucket: string;
+  resourceId: string;
+  expiresIn: number;
+}
+
+interface UploadProgress {
+  loaded: number;
+  total: number;
+  percentage: number;
 }
 
 /**
  * Request a presigned URL from the backend for direct S3 upload
  */
 export const getPresignedUrl = async (
-  bookingId: string, 
-  fileName: string, 
-  fileType: string, 
-  fileSize: number,
-  resourceType: string
+  bookingId: string,
+  file: File,
+  metadata?: Record<string, any>
 ): Promise<PresignedUrlResponse> => {
   try {
-    // Configure headers with token from localStorage
     const idToken = localStorage.getItem('idToken');
-    const headers = idToken ? { Authorization: `Bearer ${idToken}` } : {};
     
+    if (!idToken) {
+      throw new Error('No authentication token found. Please log in again.');
+    }
+
     const response = await axios.post(
       `${API_BASE_URL}/admin/bookings/${bookingId}/presigned-upload`,
       {
-        fileName,
-        fileType,
-        fileSize,
-        resourceType
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        fileSize: file.size,
+        metadata
       },
-      { headers }
+      {
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
     );
-    
+
     return response.data;
   } catch (error) {
     throw error;
@@ -50,40 +64,89 @@ export const getPresignedUrl = async (
 
 /**
  * Upload a file directly to S3 using a presigned URL
- * This method uses XMLHttpRequest for better browser compatibility and progress tracking
  */
 export const uploadToS3 = async (
-  presignedUrl: string,
   file: File,
-  onProgress?: (progress: number) => void
-): Promise<boolean> => {
-  return new Promise<boolean>((resolve, reject) => {
+  presignedUrl: string,
+  onProgress?: (progress: UploadProgress) => void
+): Promise<void> => {
+  return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && onProgress) {
-        const percentComplete = Math.round((event.loaded / event.total) * 100);
-        onProgress(percentComplete);
-      }
-    };
-    
-    xhr.onload = function() {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress && onProgress(100);
-        resolve(true);
+
+    // Handle progress
+    if (onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress: UploadProgress = {
+            loaded: event.loaded,
+            total: event.total,
+            percentage: Math.round((event.loaded * 100) / event.total)
+          };
+          onProgress(progress);
+        }
+      };
+    }
+
+    // Handle completion
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        resolve();
       } else {
-        reject(new Error(`Upload failed with status: ${xhr.status}`));
+        reject(new Error(`Upload failed with status ${xhr.status}`));
       }
     };
-    
-    xhr.onerror = function() {
-      reject(new Error('Network error occurred during upload'));
+
+    // Handle errors
+    xhr.onerror = () => {
+      reject(new Error('Upload failed'));
     };
-    
+
+    // Set up the request
     xhr.open('PUT', presignedUrl);
     xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
     xhr.send(file);
   });
+};
+
+/**
+ * Upload a file to S3 with progress tracking
+ */
+export const uploadFile = async (
+  bookingId: string,
+  file: File,
+  onProgress?: (progress: UploadProgress) => void,
+  metadata?: Record<string, any>
+): Promise<string> => {
+  try {
+    // Get presigned URL
+    const resourceId = await getPresignedUrl(bookingId, file, metadata);
+
+    // Upload file using presigned URL
+    await uploadToS3(file, resourceId.uploadUrl, onProgress);
+
+    // Record the upload in our system
+    securityAuditLogger.logDataAccess(
+      localStorage.getItem('userId') || 'unknown',
+      'file',
+      resourceId.resourceId,
+      'Upload File',
+      true,
+      { fileName: file.name, fileSize: file.size, bookingId }
+    );
+
+    // Return the resource ID for tracking
+    return resourceId.resourceId;
+  } catch (error: any) {
+    securityAuditLogger.logDataAccess(
+      localStorage.getItem('userId') || 'unknown',
+      'file',
+      '',
+      'Upload File',
+      false,
+      { error: error.message, fileName: file.name, fileSize: file.size, bookingId }
+    );
+    throw error;
+  }
 };
 
 /**
@@ -95,15 +158,56 @@ export const completeS3Upload = async (
 ): Promise<any> => {
   try {
     const idToken = localStorage.getItem('idToken');
-    const headers = idToken ? { Authorization: `Bearer ${idToken}` } : {};
     
+    if (!idToken) {
+      throw new Error('No authentication token found. Please log in again.');
+    }
+
     const response = await axios.put(
       `${API_BASE_URL}/admin/bookings/${bookingId}/resource-records/${resourceId}`,
       { status: 'complete' },
-      { headers }
+      {
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
     );
     
     return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+/**
+ * Upload a file with fallback options
+ */
+export const uploadWithFallback = async (
+  bookingId: string,
+  file: File,
+  onProgress?: (progress: number) => void
+): Promise<{ resourceId: string; resourceUrl: string }> => {
+  try {
+    const idToken = localStorage.getItem('idToken');
+    
+    if (!idToken) {
+      throw new Error('No authentication token found. Please log in again.');
+    }
+
+    // Try to upload using presigned URL first
+    const resourceId = await uploadFile(bookingId, file, 
+      progress => onProgress?.(progress.percentage),
+      {
+        fileType: file.type,
+        fileName: file.name,
+        fileSize: file.size,
+        uploadTimestamp: Date.now()
+      }
+    );
+
+    const resourceUrl = `https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${bookingId}/${resourceId}/${file.name}`;
+    return { resourceId, resourceUrl };
   } catch (error) {
     throw error;
   }
@@ -129,7 +233,7 @@ export const uploadLargeFileWithChunks = async (
     const idToken = localStorage.getItem('idToken');
     const headers = { 
       'Content-Type': 'application/json',
-      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) 
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
     };
     
     await axios.post(
@@ -244,7 +348,7 @@ export const simulateLargeFileUpload = async (
     const idToken = localStorage.getItem('idToken');
     const headers = { 
       'Content-Type': 'application/json',
-      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) 
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
     };
     
     // Try to create a record of the upload
@@ -266,7 +370,6 @@ export const simulateLargeFileUpload = async (
     
     return { resourceId, resourceUrl };
   } catch (error) {
-    console.warn('Failed to record simulated upload:', error);
     return { resourceId, resourceUrl };
   }
 };

@@ -45,9 +45,11 @@ export interface QuickAction {
 // Enhanced User interface with security considerations
 export interface User {
   id: string;
-  username: string;
-  email: string;
-  companyId: string;
+  username?: string;
+  email?: string;
+  name?: string;
+  Name?: string;  // Adding support for uppercase Name property for Cognito
+  companyId?: string;
   role?: string;
   emailDomain?: string;
   phoneNumber?: string;

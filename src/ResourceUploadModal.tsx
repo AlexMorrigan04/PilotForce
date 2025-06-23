@@ -7,9 +7,9 @@ import { v4 as uuidv4 } from 'uuid';
 // Maximum file size constant - 4MB in bytes
 const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB in bytes
 
-// AWS Configuration - should use environment variables in production
-const AWS_REGION = 'eu-north-1'; // Replace with your region
-const S3_BUCKET = 'pilotforce-resources'; // Replace with your bucket name
+// Use environment variables for AWS configuration
+const AWS_REGION = process.env.REACT_APP_AWS_REGION || 'eu-north-1';
+const S3_BUCKET = process.env.REACT_APP_S3_BUCKET || 'pilotforce-resources';
 
 interface ResourceUploadModalProps {
   bookingId: string;
@@ -87,8 +87,9 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
       // Process each file
       const uploadPromises = largeFiles.map(async (file) => {
         const resourceId = `resource_${Date.now()}_${uuidv4().substring(0, 8)}`;
-        const key = `${bookingId}/${resourceId}/${file.name}`;
-        
+        // Sanitize filename to prevent injection
+        const safeFileName = encodeURIComponent(file.name).replace(/[!'()*]/g, escape);
+        const key = `${bookingId}/${resourceId}/${safeFileName}`;
         
         // Upload to S3
         const uploadParams = {
@@ -101,22 +102,29 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
         try {
           const uploadResult = await s3Client.send(new PutObjectCommand(uploadParams));
           
-          // API record keeping
+          // API record keeping - Use safe data object creation to avoid SQL injection
           const resourceUrl = `https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
           
-          await axios.post(`/api/bookings/${bookingId}/resource-records`, {
+          // Use safe object for POST rather than direct interpolation
+          const resourceData = {
             id: resourceId,
             bookingId: bookingId,
             resourceUrl: resourceUrl,
             resourceType: file.type,
-            fileName: file.name,
+            fileName: safeFileName,
             fileSize: file.size,
             mimeType: file.type,
             uploadedAt: new Date().toISOString()
-          }, {
+          };
+          
+          // Get CSRF token from meta tag if available
+          const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+          
+          await axios.post(`/api/bookings/${encodeURIComponent(bookingId)}/resource-records`, resourceData, {
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('idToken')}`
+              'Authorization': `Bearer ${localStorage.getItem('idToken')}`,
+              ...(csrfToken && { 'X-CSRF-Token': csrfToken })
             }
           });
           
@@ -182,7 +190,7 @@ const ResourceUploadModal: React.FC<ResourceUploadModalProps> = ({
         // Add CSRF token if available
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
         
-        await axios.post(`/api/bookings/${bookingId}/resources`, formData, {
+        await axios.post(`/api/bookings/${encodeURIComponent(bookingId)}/resources`, formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
             ...(csrfToken && { 'X-CSRF-Token': csrfToken })

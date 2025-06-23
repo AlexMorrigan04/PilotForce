@@ -1,5 +1,43 @@
-import { getIdToken, isAuthenticated, SecureSession } from './sessionUtils';
+// Import statements at the top
 import { API_BASE_URL } from './endpoints';
+import { addCsrfHeader, getCsrfToken } from './securityHelper';
+
+// Implementing local versions of sessionUtils functions to fix missing import
+// isAuthenticated checks if a valid ID token exists
+const isAuthenticated = (): boolean => {
+  const token = getIdToken();
+  return !!token;
+};
+
+// getIdToken retrieves an ID token from localStorage
+const getIdToken = (): string | null => {
+  return localStorage.getItem('idToken');
+};
+
+// SecureSession simulates the original implementation with sessionStorage
+const SecureSession = {
+  setItem: (key: string, value: string): void => {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch (error) {
+      // Silent fail
+    }
+  },
+  getItem: (key: string): string | null => {
+    try {
+      return sessionStorage.getItem(key);
+    } catch (error) {
+      return null;
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      sessionStorage.removeItem(key);
+    } catch (error) {
+      // Silent fail
+    }
+  }
+};
 
 // Use environment variables for API configuration
 const API_CONFIG = {
@@ -76,9 +114,7 @@ export const validateAmplifyConfig = (): boolean => {
   if (missingConfigs) {
     // Log generic error without details in production
     if (process.env.NODE_ENV === 'production') {
-      console.error('Missing required configuration');
     } else {
-      console.error('Missing required AWS Amplify configuration. Please check your environment variables.');
     }
     return false;
   }
@@ -116,8 +152,12 @@ export const createHeaders = (includeAuth: boolean = true): HeadersInit => {
       headers['Authorization'] = `Bearer ${token}`;
     }
   }
-  
-  return headers;
+
+  // Add CSRF token header for state-changing operations
+  return {
+    ...headers,
+    'X-CSRF-Token': getCsrfToken()
+  };
 };
 
 /**

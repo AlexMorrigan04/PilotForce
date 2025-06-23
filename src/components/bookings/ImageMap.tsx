@@ -130,8 +130,6 @@ export const ImageMap: React.FC<ImageMapProps> = ({
       const isValid = await testGeoTiffUrl(normalizedUrl);
       
       if (!isValid) {
-        console.warn('📊 GeoTiff URL failed validation, trying alternative URLs');
-        
         const alternativeUrls = generateAlternativeGeoTiffUrls(normalizedUrl);
         
         let validUrl = null;
@@ -502,37 +500,31 @@ export const ImageMap: React.FC<ImageMapProps> = ({
           >
             <div className="relative">
               <div 
-                className={`w-6 h-6 rounded-full border-2 border-white shadow-lg cursor-pointer hover:opacity-80 transition-colors ${
+                className={`w-8 h-8 rounded-full border-2 border-white shadow-lg cursor-pointer transition-all duration-200 hover:scale-110 ${
                   location.cameraModel || location.droneModel ? 'bg-green-600' : 'bg-blue-600'
-                }`} 
-                title={location.name || `Image ${index + 1}`}
-              />
-              {location.heading !== undefined && (
-                <div 
-                  className="absolute top-0 left-0 w-full h-full pointer-events-none"
-                  style={{
-                    transform: `rotate(${location.heading}deg)`,
-                  }}
-                >
-                  <div className="absolute w-6 h-4 top-[-4px] left-0">
-                    <svg 
-                      viewBox="0 0 24 12" 
-                      fill="none" 
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="w-full h-full"
-                    >
-                      <path 
-                        d="M12 0L24 12H0L12 0Z" 
-                        fill="white" 
-                        stroke="#2563EB"
-                        strokeWidth="1.5"
-                      />
-                    </svg>
+                }`}
+                style={{
+                  transform: location.heading !== undefined ? `rotate(${location.heading}deg)` : 'none',
+                }}
+              >
+                {location.heading !== undefined && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="relative w-full h-full">
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-0 h-0 
+                                    border-l-[8px] border-l-transparent 
+                                    border-r-[8px] border-r-transparent 
+                                    border-b-[12px] border-white" />
+                      
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
+                                    w-2 h-2 bg-white rounded-full" />
+                    </div>
                   </div>
-                </div>
-              )}
-              {(location.cameraModel || location.droneModel) && (
-                <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full border border-white" 
+                )}
+              </div>
+
+              {(location.cameraModel || location.droneModel || location.altitude) && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full border border-white 
+                               shadow-md animate-pulse" 
                      title="Has metadata" />
               )}
             </div>
@@ -597,7 +589,7 @@ export const ImageMap: React.FC<ImageMapProps> = ({
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:underline flex items-center"
                   >
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                     </svg>
                     View Full Image

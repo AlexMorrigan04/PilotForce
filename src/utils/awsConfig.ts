@@ -22,7 +22,6 @@ export const configureAWSSDK = (): boolean => { // Renamed from configureAWS to 
       });
       return true;
     } else {
-      console.warn('AWS credentials not fully specified in environment variables');
       return false;
     }
   } catch (error) {

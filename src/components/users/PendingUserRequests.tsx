@@ -44,7 +44,8 @@ const PendingUserRequests: React.FC<PendingUserRequestsProps> = ({ onRequestsCou
       }
 
       // Fetch pending user requests for the company
-      const response = await fetch(`https://4m3m7j8611.execute-api.eu-north-1.amazonaws.com/prod/companies/${companyId}/users`, {
+      const apiUrl = process.env.REACT_APP_API_URL || '';
+      const response = await fetch(`${apiUrl}/companies/${companyId}/users`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

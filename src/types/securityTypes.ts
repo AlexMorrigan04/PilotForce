@@ -2,6 +2,36 @@
  * Security-related type definitions to support Cyber Essentials compliance
  */
 
+// Types from security.ts
+export interface CsrfToken {
+  token: string;
+  expires: number;
+}
+
+export interface SecureStorageItem {
+  data: string; // Base64 encoded encrypted data
+  iv: string;   // Base64 encoded initialization vector
+  expires: number; // Expiration timestamp
+}
+
+export interface AuthResult {
+  token: string;
+  refreshToken?: string;
+  expiresIn: number;
+  tokenType: string;
+  userId: string;
+  username: string;
+  userGroups?: string[];
+}
+
+export interface SecurityConfig {
+  enforceHttps: boolean;
+  sessionTimeoutMinutes: number;
+  advancedSecurity: boolean;
+  maxLoginAttempts: number;
+}
+
+// Original types from securityTypes.ts
 export interface AuditLogEntry {
   id: string;
   timestamp: string;

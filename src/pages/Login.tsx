@@ -2,32 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiEye, FiEyeOff, FiMoon, FiSun, FiMail, FiLock, FiAlertCircle } from 'react-icons/fi';
+import { FiMoon, FiSun, FiAlertCircle, FiInfo } from 'react-icons/fi';
 import logo from '../images/logo.png'; // Update with your actual logo path
-import LoginAccessDeniedModal from '../components/LoginAccessDeniedModal';
+import GoogleLoginButton from '../components/GoogleLoginButton';
+import MicrosoftLoginButton from '../components/MicrosoftLoginButton';
+import { getCognitoConfig } from '../utils/cognitoConfig';
+import { initiateGoogleLogin, initiateGoogleLoginWithSelection } from '../services/googleAuthService';
+import { initiateMicrosoftLogin, initiateMicrosoftLoginWithSelection } from '../services/microsoftAuthService';
 
 const Login: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isGoogleLoggingIn, setIsGoogleLoggingIn] = useState(false);
+  const [isMicrosoftLoggingIn, setIsMicrosoftLoggingIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [needsConfirmation, setNeedsConfirmation] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [showAccessDeniedModal, setShowAccessDeniedModal] = useState(false);
-  const [accessDeniedData, setAccessDeniedData] = useState({
-    email: '',
-    username: '',
-    isNewDomain: false,
-    companyName: '',
-    approvalStatus: 'PENDING'
-  });
+  const [cognitoInfo, setCognitoInfo] = useState<any>(null);
+  const [showCognitoInfo, setShowCognitoInfo] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
 
-  const { signIn, loading, isAuthenticated } = useAuth();
+  const { loading, isAuthenticated, initiateGoogleLogin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Initialize dark mode from localStorage
+  // Initialize dark mode from localStorage and check for invitation code
   useEffect(() => {
     const savedDarkMode = localStorage.getItem('darkMode') === 'true';
     setIsDarkMode(savedDarkMode);
@@ -35,6 +31,19 @@ const Login: React.FC = () => {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
+    }
+    
+    // Get Cognito configuration for display
+    const config = getCognitoConfig();
+    setCognitoInfo(config);
+
+    // Check for invitation code in the URL
+    const searchParams = new URLSearchParams(window.location.search);
+    const inviteParam = searchParams.get('invite');
+    if (inviteParam) {
+      setInviteCode(inviteParam);
+      // Store the invite code for use during login
+      localStorage.setItem('pendingInviteCode', inviteParam);
     }
   }, []);
 
@@ -64,77 +73,57 @@ const Login: React.FC = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handle Google login
+  const handleGoogleLogin = async (e?: React.MouseEvent<HTMLButtonElement>) => {
+    if (e) e.preventDefault();
     setError(null);
-    setIsLoggingIn(true);
-
+    setIsGoogleLoggingIn(true);
+    
     try {
-      // Validate required fields before sending request
-      if (!email) {
-        setError('Email is required');
-        setIsLoggingIn(false);
-        return;
-      }
-
-      // Basic email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        setError('Please enter a valid email address');
-        setIsLoggingIn(false);
-        return;
-      }
-
-      if (!password) {
-        setError('Password is required');
-        setIsLoggingIn(false);
-        return;
-      }
-
-      // Log that we're using the email for authentication
-
-      // Use the updated signIn function with email parameter
-      const result = await signIn(email, password);
+      // Reset loading state after a timeout if no redirect happens
+      const timeoutId = setTimeout(() => {
+        setIsGoogleLoggingIn(false);
+        setError('Login attempt timed out. Please try again.');
+      }, 10000);
       
-      // IMPORTANT: Always check if the result has success=true AND has required tokens
-      if (!result.success) {
-        // Check specifically for approval required case
-        if (result.requiresApproval) {
-          // If the backend provides a username, use it; otherwise extract from email
-          const derivedUsername = result.username || email.split('@')[0];
-          
-          setAccessDeniedData({
-            email: result.email || email,
-            username: derivedUsername,
-            isNewDomain: result.isNewDomain || false,
-            companyName: result.companyName || '',
-            approvalStatus: result.approvalStatus || 'PENDING'
-          });
-          setShowAccessDeniedModal(true);
-        } else if (result.needsConfirmation) {
-          // Handle confirmation required case
-          navigate(`/confirm-account?email=${encodeURIComponent(email)}`);
-        } else {
-          // General error case - be more specific about email/password combo
-          setError(result.message || 'Login failed. Please check your email and password.');
-        }
-      } else if (result.success === true) {
-        // Check if we have the required tokens
-        if (result.idToken || localStorage.getItem('idToken')) {
-          // Success case with token - redirect to dashboard
-          navigate('/dashboard');
-        } else {
-          // Response says success but no tokens - error
-          setError('Authentication succeeded but no access token was received. Please try again.');
-        }
-      } else {
-        // Unexpected response structure
-        setError('An unexpected error occurred. Please try again.');
+      const success = await initiateGoogleLogin();
+      
+      clearTimeout(timeoutId);
+      
+      if (!success) {
+        setError('Failed to initiate Google login. Please try again.');
+        setIsGoogleLoggingIn(false);
       }
     } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred');
-    } finally {
-      setIsLoggingIn(false);
+      setError(err.message || 'An unexpected error occurred during Google login');
+      setIsGoogleLoggingIn(false);
+    }
+  };
+
+  // Handle Microsoft login
+  const handleMicrosoftLogin = async (e?: React.MouseEvent<HTMLButtonElement>) => {
+    if (e) e.preventDefault();
+    setError(null);
+    setIsMicrosoftLoggingIn(true);
+    
+    try {
+      // Reset loading state after a timeout if no redirect happens
+      const timeoutId = setTimeout(() => {
+        setIsMicrosoftLoggingIn(false);
+        setError('Login attempt timed out. Please try again.');
+      }, 10000);
+      
+      const success = await initiateMicrosoftLogin();
+      
+      clearTimeout(timeoutId);
+      
+      if (!success) {
+        setError('Failed to initiate Microsoft login. Please try again.');
+        setIsMicrosoftLoggingIn(false);
+      }
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred during Microsoft login');
+      setIsMicrosoftLoggingIn(false);
     }
   };
 
@@ -145,13 +134,27 @@ const Login: React.FC = () => {
         onClick={toggleDarkMode}
         className={`absolute top-4 right-4 p-2 rounded-full transition-colors ${
           isDarkMode 
-            ? 'bg-gray-800 text-yellow-300 hover:bg-gray-700' 
-            : 'bg-white text-gray-700 hover:bg-gray-100 shadow-sm'
+            ? 'bg-gray-800 hover:bg-gray-700 text-yellow-400' 
+            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
         }`}
-        aria-label="Toggle dark mode"
+        aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
       >
-        {isDarkMode ? <FiSun className="w-5 h-5" /> : <FiMoon className="w-5 h-5" />}
+        {isDarkMode ? <FiSun size={20} /> : <FiMoon size={20} />}
       </button>
+
+      {/* Debug info */}
+      {showCognitoInfo && cognitoInfo && (
+        <div className={`absolute top-16 left-4 p-4 rounded-lg shadow-lg text-sm font-mono z-10 ${
+          isDarkMode ? 'bg-gray-800 text-gray-300' : 'bg-white text-gray-800'
+        }`}>
+          <h3 className="font-bold mb-2">Cognito Configuration:</h3>
+          <p className="mb-1">User Pool ID: <span className="text-blue-500">{cognitoInfo.userPoolId || 'Not configured'}</span></p>
+          <p className="mb-1">Client ID: <span className="text-green-500">{cognitoInfo.clientId || 'Not configured'}</span></p>
+          <p className="mb-1">Domain: <span className="text-purple-500">{cognitoInfo.domain || 'Not configured'}</span></p>
+          <p className="mb-1">Region: <span className="text-orange-500">{cognitoInfo.region || 'Not configured'}</span></p>
+          {/* Show expected values for debugging */}
+        </div>
+      )}
 
       <div className="w-full max-w-md px-6">
         <motion.div 
@@ -168,26 +171,45 @@ const Login: React.FC = () => {
             <div className="flex flex-col items-center mb-8">
               {/* Logo placeholder - update with your actual logo */}
               <div className={`w-14 h-14 mb-4 rounded-full ${isDarkMode ? 'bg-indigo-600' : 'bg-indigo-500'} flex items-center justify-center`}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" viewBox="0 0 20 20" fill="currentColor">
+                <svg xmlns="" className="h-8 w-8 text-white" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
               </div>
               <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                Welcome back
+                {isGoogleLoggingIn || isMicrosoftLoggingIn ? (
+                  <div className="flex items-center">
+                    <span>Logging you in</span>
+                    <span className="ml-1 flex">
+                      <span className="animate-bounce">.</span>
+                      <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>.</span>
+                      <span className="animate-bounce" style={{ animationDelay: '0.4s' }}>.</span>
+                    </span>
+                  </div>
+                ) : 'Welcome to PilotForce'}
               </h2>
-              <p className={`mt-1 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                Sign in to your account
+              <p className={`mt-1 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                {isGoogleLoggingIn || isMicrosoftLoggingIn 
+                  ? 'Please wait while we redirect you' 
+                  : 'Sign in with your work account'}
               </p>
             </div>
+            
+            {/* Invitation notice */}
+            {inviteCode && (
+              <div className={`mb-6 p-4 rounded-lg flex items-start ${
+                isDarkMode 
+                  ? 'bg-indigo-900/20 border border-indigo-700 text-indigo-300' 
+                  : 'bg-indigo-50 border border-indigo-100 text-indigo-700'
+              }`}>
+                <FiInfo className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
+                <span className="text-sm">We've detected an invitation code. Sign in with Google to accept your invitation.</span>
+              </div>
+            )}
             
             <AnimatePresence>
               {error && (
                 <motion.div 
-                  className={`mb-6 p-4 rounded-lg flex items-start ${
-                    needsConfirmation 
-                      ? 'bg-amber-50 text-amber-700 border border-amber-100' 
-                      : 'bg-rose-50 text-rose-700 border border-rose-100'
-                  }`}
+                  className={`mb-6 p-4 rounded-lg flex items-start bg-rose-50 text-rose-700 border border-rose-100`}
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
@@ -199,127 +221,43 @@ const Login: React.FC = () => {
               )}
             </AnimatePresence>
 
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div>
-                <label 
-                  htmlFor="email" 
-                  className={`block text-sm font-medium mb-1.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}
-                >
-                  Email
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                    <FiMail className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                  </div>
-                  <input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className={`pl-10 w-full py-2.5 px-4 rounded-lg outline-none transition-all ${
-                      isDarkMode 
-                        ? 'bg-gray-700 text-white border border-gray-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500' 
-                        : 'bg-white text-gray-900 border border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
-                    }`}
-                    placeholder="you@example.com"
-                    required
-                    disabled={isLoggingIn}
-                  />
-                </div>
+            <div className="mt-6 space-y-3">
+              {/* Google Sign-in Button */}
+              <GoogleLoginButton 
+                onClick={handleGoogleLogin}
+                text="Sign in with Google"
+                isLoading={isGoogleLoggingIn}
+                isDarkMode={isDarkMode}
+              />
+              
+              {/* Microsoft Sign-in Button */}
+              <MicrosoftLoginButton 
+                onClick={handleMicrosoftLogin}
+                text="Sign in with Microsoft"
+                isLoading={isMicrosoftLoggingIn}
+                isDarkMode={isDarkMode}
+              />
+              
+              {/* Information about invitation-only access */}
+              <div className="mt-8 text-center">
+                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  PilotForce is invitation-only. Contact your admin for access.
+                </p>
               </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label 
-                    htmlFor="password" 
-                    className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}
-                  >
-                    Password
-                  </label>
-                  <Link 
-                    to="/forgot-password" 
-                    className={`text-xs font-medium ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-700'} transition-colors`}
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                    <FiLock className={`h-5 w-5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                  </div>
-                  <input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className={`pl-10 w-full py-2.5 px-4 rounded-lg outline-none transition-all ${
-                      isDarkMode 
-                        ? 'bg-gray-700 text-white border border-gray-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500' 
-                        : 'bg-white text-gray-900 border border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
-                    }`}
-                    placeholder="••••••••••"
-                    required
-                    disabled={isLoggingIn}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className={`absolute inset-y-0 right-0 pr-3 flex items-center focus:outline-none ${
-                      isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <FiEyeOff className="h-5 w-5" /> : <FiEye className="h-5 w-5" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className={`w-full py-2.5 px-4 rounded-lg font-medium transition-all ${
-                  isLoggingIn || loading
-                    ? 'cursor-not-allowed opacity-70' 
-                    : isDarkMode ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm hover:shadow'
-                }`}
-                disabled={isLoggingIn || loading}
-              >
-                {isLoggingIn || loading ? (
-                  <div className="flex items-center justify-center">
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>Signing in...</span>
-                  </div>
-                ) : (
-                  'Sign in'
-                )}
-              </button>
-            </form>
+            </div>
           </div>
 
           <div className={`px-8 py-4 rounded-b-2xl text-center text-sm ${isDarkMode ? 'bg-gray-750 text-gray-400 border-t border-gray-700' : 'bg-slate-50 text-gray-600 border-t border-gray-100'}`}>
-            Don't have an account?{' '}
+            PilotForce requires an invitation. Need help?{" "}
             <Link 
-              to="/signup" 
-              className={`font-medium ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-500'} transition-colors`}
+              to="/request-access" 
+              className={`font-medium ${isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-500'}`}
             >
-              Create an account
+              Contact us
             </Link>
           </div>
         </motion.div>
       </div>
- 
-      {/* Access denied modal */}
-      <LoginAccessDeniedModal
-        isOpen={showAccessDeniedModal}
-        onClose={() => setShowAccessDeniedModal(false)}
-        email={accessDeniedData.email}
-        username={accessDeniedData.username}
-        isNewDomain={accessDeniedData.isNewDomain}
-        companyName={accessDeniedData.companyName}
-        approvalStatus={accessDeniedData.approvalStatus}
-      />
     </div>
   );
 };

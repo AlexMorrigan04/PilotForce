@@ -67,7 +67,6 @@ export const loadGeoTiff = async (url: string): Promise<{
       Object.assign(metadata, { geoKeys });
     }
   } catch (metadataError) {
-    console.warn('🗺️ Error extracting extended metadata:', metadataError);
   }
   
   return { tiff, image, metadata };
@@ -106,7 +105,6 @@ export const fetchGeoTiffData = async (url: string, maxRetries = 3): Promise<Arr
           (contentType.includes('text/html') || 
            contentType.includes('application/xml') ||
            contentType.includes('application/json'))) {
-        console.warn(`🗺️ Warning: Received ${contentType} instead of image/tiff`);
       }
       
       const buffer = await response.arrayBuffer();

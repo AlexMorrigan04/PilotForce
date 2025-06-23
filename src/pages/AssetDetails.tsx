@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { Navbar } from '../components/Navbar';
-import Map, { Source, Layer, Marker } from 'react-map-gl';
+import Map, { Source, Layer, Marker, NavigationControl, MapRef } from 'react-map-gl';
 import mapboxgl from 'mapbox-gl';
 import * as turf from '@turf/turf';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { getAssetById } from '../services/assetService';
+import { format } from 'date-fns';
 
 const assetTypeDetails = {
   buildings: {
@@ -64,16 +65,24 @@ const safelyFormatCoordinate = (value: any): string => {
       return 'N/A';
     }
   } catch (error) {
-    console.warn('Error formatting coordinate value:', value, error);
     return 'N/A';
   }
 };
 
-const AssetDetails: React.FC = () => {
-  const { user } = useContext(AuthContext);
-  const navigate = useNavigate();
+// Update booking status colors
+const bookingStatusColors = {
+  completed: { bg: 'bg-green-100', text: 'text-green-800', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+  inProgress: { bg: 'bg-blue-100', text: 'text-blue-800', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+  scheduled: { bg: 'bg-yellow-100', text: 'text-yellow-800', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+  cancelled: { bg: 'bg-red-100', text: 'text-red-800', icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z' },
+  pending: { bg: 'bg-gray-100', text: 'text-gray-800', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' }
+};
+
+const AssetDetails: React.FC = (): JSX.Element => {
+  const { user } = useAuth();
   const location = useLocation();
   const { id: assetId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [userInfo, setUserInfo] = useState<any>(null);
   const [asset, setAsset] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -86,41 +95,80 @@ const AssetDetails: React.FC = () => {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedAsset, setEditedAsset] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showSuccessNotification, setShowSuccessNotification] = useState(false);
+  const [showInfoNotification, setShowInfoNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const mapRef = useRef<MapRef>(null);
 
   useEffect(() => {
-    try {
-      mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q';
-    } catch (error) {
-      setMapError('Failed to initialize map: invalid access token');
-    }
+    const handleCleanup = () => {
+      setMapLoaded(false);
+    };
+
+    return handleCleanup;
   }, []);
 
   useEffect(() => {
-    if (user) {
-      setUserInfo({ 
-        name: user.username || 'Demo User',
-        companyId: user.companyId
-      });
-    } else {
-      const savedUserStr = localStorage.getItem('user');
-      if (savedUserStr) {
-        try {
-          const savedUser = JSON.parse(savedUserStr);
-          setUserInfo({
-            name: savedUser.username || savedUser.name || 'Demo User',
-            companyId: savedUser.companyId
-          });
-        } catch (e) {
-          setUserInfo({ name: 'Demo User' });
+    try {
+      if (!mapboxgl.accessToken) {
+        mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN || '';
+      }
+    } catch (error) {
+      setMapError('Failed to initialize map: invalid access token');
+    }
+
+    // Check if we're navigating to the booking page
+    const navigatingToBooking = sessionStorage.getItem('navigating_to_booking');
+    if (navigatingToBooking) {
+      sessionStorage.removeItem('navigating_to_booking');
+    }
+
+    return () => {
+      setMapLoaded(false);
+    };
+  }, []);
+
+  // Add a separate effect for map initialization
+  useEffect(() => {
+    if (!mapLoaded && mapRef.current && asset?.Coordinates) {
+      try {
+        const map = mapRef.current.getMap() as mapboxgl.Map;
+        if (map) {
+          setMapLoaded(true);
+          
+          // Calculate and fit bounds
+          const bounds = calculateAssetBounds(asset.Coordinates);
+          if (bounds) {
+            map.fitBounds(bounds as [[number, number], [number, number]], {
+              padding: { top: 50, bottom: 50, left: 50, right: 50 },
+              maxZoom: 18,
+              duration: 1000,
+              essential: true
+            });
+          }
         }
-      } else {
-        setUserInfo({ name: 'Demo User' });
+      } catch (error) {
       }
     }
-  }, [user]);
+  }, [mapRef.current, asset?.Coordinates, mapLoaded]);
+
+  useEffect(() => {
+    if (user) {
+      setUserInfo({
+        username: user.username || '',
+        email: user.email || '',
+        name: user.name || user.username || ''
+      });
+    } else {
+      navigate('/login');
+    }
+  }, [user, navigate]);
 
   useEffect(() => {
     const fetchAssetDetails = async () => {
@@ -130,8 +178,8 @@ const AssetDetails: React.FC = () => {
         
         if (location.state.asset.CenterPoint) {
           setViewState({
-            longitude: location.state.asset.CenterPoint[0],
-            latitude: location.state.asset.CenterPoint[1],
+            longitude: parseFloat(location.state.asset.CenterPoint[0]),
+            latitude: parseFloat(location.state.asset.CenterPoint[1]),
             zoom: 18
           });
         }
@@ -148,21 +196,40 @@ const AssetDetails: React.FC = () => {
       setError(null);
       
       try {
-        const assetData = await getAssetById(assetId);
-        
+        const response = await getAssetById(assetId);
+        const assetData = response.asset;
+        const bookingsData = response.bookings || [];
         
         if (assetData) {
-          setAsset(assetData);
+          // Ensure all required fields have default values
+          const processedAsset = {
+            ...assetData,
+            Name: assetData.Name || 'Unnamed Asset',
+            Address: assetData.Address || 'Not specified',
+            Postcode: assetData.Postcode || 'Not specified',
+            AssetType: assetData.AssetType || 'buildings',
+            Area: typeof assetData.Area === 'number' ? assetData.Area : 0,
+            CreatedAt: assetData.CreatedAt || new Date().toISOString(),
+            UpdatedAt: assetData.UpdatedAt || assetData.CreatedAt || new Date().toISOString(),
+            Description: assetData.Description || '',
+            Tags: Array.isArray(assetData.Tags) ? assetData.Tags : [],
+            CenterPoint: assetData.CenterPoint || null,
+            Coordinates: assetData.Coordinates || [],
+            GeoJSON: assetData.GeoJSON || null
+          };
           
-          if (assetData.CenterPoint) {
+          setAsset(processedAsset);
+          setBookings(bookingsData);
+          
+          if (processedAsset.CenterPoint && Array.isArray(processedAsset.CenterPoint)) {
             setViewState({
-              longitude: assetData.CenterPoint[0],
-              latitude: assetData.CenterPoint[1],
+              longitude: parseFloat(processedAsset.CenterPoint[0]),
+              latitude: parseFloat(processedAsset.CenterPoint[1]),
               zoom: 18
             });
-          } else if (assetData.Coordinates && assetData.Coordinates.length > 0) {
+          } else if (processedAsset.Coordinates && processedAsset.Coordinates.length > 0) {
             try {
-              const polygon = turf.polygon(assetData.Coordinates);
+              const polygon = turf.polygon([processedAsset.Coordinates]);
               const center = turf.centroid(polygon);
               const centerPoint = center.geometry.coordinates;
               
@@ -191,57 +258,12 @@ const AssetDetails: React.FC = () => {
     fetchAssetDetails();
   }, [assetId, location.state, navigate]);
 
-  useEffect(() => {
-    return () => {
-      
-      try {
-        // Safely clean up the map to prevent indoor_manager errors
-        if (mapRef.current) {
-          try {
-            // First remove all sources and layers to prevent internal errors
-            const map = mapRef.current;
-            if (map) {
-              try {
-                const style = map.getStyle && map.getStyle();
-                if (style && style.layers) {
-                  style.layers.forEach((layer: { id: string }) => {
-                    if (map.getLayer && map.getLayer(layer.id)) {
-                      map.removeLayer(layer.id);
-                    }
-                  });
-                }
-                if (style && style.sources) {
-                  Object.keys(style.sources).forEach(source => {
-                    if (map.getSource && map.getSource(source)) {
-                      map.removeSource(source);
-                    }
-                  });
-                }
-              } catch (styleError) {
-                console.warn('Error accessing map style:', styleError);
-              }
-            }
-            mapRef.current = null;
-          } catch (cleanupError) {
-            console.warn('Non-critical map cleanup error:', cleanupError);
-          }
-        }
-        
-        sessionStorage.removeItem('navigating_to_booking');
-      } catch (error) {
-        console.warn('Error cleaning up map in AssetDetails:', error);
-      }
-    };
-  }, []);
-
   const formatDate = (dateString: string) => {
     try {
       return new Date(dateString).toLocaleDateString('en-GB', {
         day: 'numeric',
         month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+        year: 'numeric'
       });
     } catch (e) {
       return 'Unknown date';
@@ -264,15 +286,7 @@ const AssetDetails: React.FC = () => {
     }
     
     sessionStorage.setItem('navigating_to_assets', 'true');
-    
-    try {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    } catch (e) {
-      console.warn('Error during map cleanup during Assets navigation:', e);
-    }
+    setMapLoaded(false);
     
     sessionStorage.setItem('reloadAssetsPage', 'true');
     
@@ -288,7 +302,7 @@ const AssetDetails: React.FC = () => {
         sessionStorage.removeItem('navigating_to_assets');
       }, 1000);
     }, 100);
-  }, [navigate, mapRef]);
+  }, [navigate]);
 
   const handleBookService = useCallback(() => {
     if (sessionStorage.getItem('navigating_to_booking')) {
@@ -296,51 +310,7 @@ const AssetDetails: React.FC = () => {
     }
     
     sessionStorage.setItem('navigating_to_booking', 'true');
-    
-    try {
-      // Safely clean up the map to prevent indoor_manager errors
-      if (mapRef.current) {
-        try {
-          // First set map loaded state to false to prevent further rendering
-          setMapLoaded(false);
-          
-          // Add a small delay to ensure React state update before map removal
-          setTimeout(() => {
-            try {
-              // Check if mapRef is still valid before removing
-              if (mapRef.current) {
-                const map = mapRef.current;
-                // Remove all sources and layers to prevent internal errors
-                if (map) {
-                  const style = map.getStyle();
-                  if (style && style.layers) {
-                    style.layers.forEach((layer: { id: string }) => {
-                      if (map.getLayer(layer.id)) {
-                      map.removeLayer(layer.id);
-                      }
-                    });
-                  }
-                  if (style && style.sources) {
-                    Object.keys(style.sources).forEach(source => {
-                      if (map.getSource(source)) {
-                        map.removeSource(source);
-                      }
-                    });
-                  }
-                }
-                mapRef.current = null;
-              }
-            } catch (cleanupError) {
-              console.warn('Non-critical map cleanup error:', cleanupError);
-            }
-          }, 10);
-        } catch (e) {
-          console.warn('Error during map cleanup:', e);
-        }
-      }
-    } catch (e) {
-      console.warn('Error during map cleanup:', e);
-    }
+    setMapLoaded(false);
     
     sessionStorage.removeItem('makeBookings_loaded');
     
@@ -352,7 +322,6 @@ const AssetDetails: React.FC = () => {
       area: asset.Area,
       address: asset.Address,
       postcode: asset.Postcode || asset.PostCode || asset.postcode || '',
-      // Safe handling of coordinates
       coordinates: asset.Coordinates || [],
       CenterPoint: asset.CenterPoint || null
     } : null;
@@ -370,39 +339,307 @@ const AssetDetails: React.FC = () => {
         sessionStorage.removeItem('navigating_to_booking');
       }, 1000);
     }, 100);
-  }, [asset, navigate, mapRef]);
+  }, [asset, navigate]);
 
-  function calculateAssetBounds(coordinates: any): [mapboxgl.LngLatLike, mapboxgl.LngLatLike] {
-    if (!coordinates || coordinates.length === 0) {
-      throw new Error('Invalid coordinates provided.');
+  function calculateAssetBounds(coordinates: number[][][]): [[number, number], [number, number]] | null {
+    try {
+      const polygon = turf.polygon(coordinates);
+      const bbox = turf.bbox(polygon);
+      // Reduce padding to approximately 150 meters
+      const padding = 0.0015;
+      return [[bbox[0] - padding, bbox[1] - padding], [bbox[2] + padding, bbox[3] + padding]];
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // Add a function to format the booking date
+  const formatBookingDate = (dateString: string) => {
+    try {
+      return format(new Date(dateString), 'PPp');
+    } catch (e) {
+      return 'Invalid date';
+    }
+  };
+
+  // Modify the showTemporarySuccessNotification to be more generic
+  const showTemporaryNotification = (message: string, isSuccess: boolean = true) => {
+    setNotificationMessage(message);
+    if (isSuccess) {
+      setShowSuccessNotification(true);
+      setTimeout(() => setShowSuccessNotification(false), 3000);
+    } else {
+      setShowInfoNotification(true);
+      setTimeout(() => setShowInfoNotification(false), 3000);
+    }
+  };
+
+  // Add these functions for editing and deleting assets
+  const handleEditAsset = async () => {
+    try {
+      setError(null);
+      
+      // Get the token from localStorage
+      const token = localStorage.getItem('idToken');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      // Check if there are any actual changes
+      const hasChanged = (oldVal: any, newVal: any): boolean => {
+        if (oldVal === newVal) return false;
+        if (oldVal === null || newVal === null) return true;
+        if (typeof oldVal !== typeof newVal) return true;
+        if (typeof oldVal === 'object') {
+          const oldKeys = Object.keys(oldVal);
+          const newKeys = Object.keys(newVal);
+          if (oldKeys.length !== newKeys.length) return true;
+          return oldKeys.some(key => hasChanged(oldVal[key], newVal[key]));
+        }
+        return oldVal !== newVal;
+      };
+
+      // Compare each editable field
+      const fieldsToCompare = ['name', 'description', 'type', 'address', 'postcode', 'coordinates', 'area', 'centerPoint', 'tags'];
+      const hasChanges: boolean = fieldsToCompare.some(field => 
+        hasChanged(asset[field], editedAsset[field])
+      );
+
+      if (!hasChanges) {
+        showTemporaryNotification('No changes detected', false);
+        setIsEditing(false);
+        return;
+      }
+
+      const apiUrl = process.env.REACT_APP_API_URL || '';
+      const response = await fetch(`${apiUrl}/assets/${asset.AssetId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(editedAsset)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Error updating asset: ${errorData.message || response.statusText}`);
+      }
+
+      const updatedAsset = await response.json();
+      setAsset(updatedAsset.asset);
+      setIsEditing(false);
+      showTemporaryNotification('Asset updated successfully');
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(`Error updating asset: ${err.message}`);
+      } else {
+        setError('An unknown error occurred while updating the asset');
+      }
+    }
+  };
+
+  const handleDeleteAsset = async () => {
+    if (!asset || !window.confirm('Are you sure you want to delete this asset? This action cannot be undone.')) {
+      return;
     }
 
-    const allPoints = coordinates.flat(1);
+    try {
+      const token = localStorage.getItem('idToken');
+      if (!token) {
+        throw new Error('Authentication token missing');
+      }
 
-    const bounds = allPoints.reduce(
-      (acc: [number, number, number, number], point: [number, number]) => {
-        const [minLng, minLat, maxLng, maxLat] = acc;
-        const [lng, lat] = point;
-        return [
-          Math.min(minLng, lng),
-          Math.min(minLat, lat),
-          Math.max(maxLng, lng),
-          Math.max(maxLat, lat),
-        ];
-      },
-      [Infinity, Infinity, -Infinity, -Infinity]
-    );
+      const apiUrl = process.env.REACT_APP_API_URL || '';
+      const response = await fetch(`${apiUrl}/assets/${asset.AssetId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
 
-    return [
-      [bounds[0], bounds[1]],
-      [bounds[2], bounds[3]],
-    ];
-  }
+      if (!response.ok) {
+        throw new Error('Failed to delete asset');
+      }
+
+      // Navigate back to assets page after successful deletion
+      handleBackToList();
+    } catch (error: any) {
+      // You might want to show an error message to the user here
+    }
+  };
+
+  // Add this function to handle input changes
+  const handleInputChange = (field: string, value: any) => {
+    setEditedAsset((prev: any) => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Add this useEffect to properly initialize editedAsset when asset changes
+  useEffect(() => {
+    if (asset) {
+      // Create a clean copy of the asset data
+      const cleanAsset = {
+        Name: asset.Name || '',
+        Description: asset.Description || '',
+        Address: asset.Address || '',
+        Postcode: asset.Postcode || '',
+        Area: typeof asset.Area === 'number' ? asset.Area : 0,
+        AssetType: asset.AssetType || 'buildings',
+        Tags: Array.isArray(asset.Tags) ? [...asset.Tags] : []
+      };
+      setEditedAsset(cleanAsset);
+    }
+  }, [asset]);
+
+  // Function to handle booking navigation
+  const handleBookingNavigation = () => {
+    sessionStorage.setItem('navigating_to_booking', 'true');
+    setMapLoaded(false);
+    navigate(`/make-booking`, { state: { selectedAsset: asset } });
+  };
+
+  // Function to handle asset deletion
+  const handleDeleteConfirmed = async () => {
+    setIsDeleting(true);
+    setMapLoaded(false);
+    try {
+      // ... rest of delete logic ...
+    } catch (error) {
+      // ... error handling ...
+    }
+  };
+
+  const handleNavigateToAssets = useCallback(() => {
+    if (sessionStorage.getItem('navigating_to_assets')) {
+      return;
+    }
+    
+    sessionStorage.setItem('navigating_to_assets', 'true');
+    setMapLoaded(false);
+    
+    sessionStorage.setItem('reloadAssetsPage', 'true');
+    
+    setTimeout(() => {
+      navigate('/assets', {
+        state: {
+          fromAssetDetails: true,
+          timestamp: Date.now()
+        }
+      });
+      
+      setTimeout(() => {
+        sessionStorage.removeItem('navigating_to_assets');
+      }, 1000);
+    }, 100);
+  }, [navigate]);
+
+  useEffect(() => {
+    if (asset?.Coordinates && mapRef.current && mapLoaded) {
+      try {
+        const bounds = calculateAssetBounds(asset.Coordinates);
+        if (bounds) {
+          const map = mapRef.current.getMap() as mapboxgl.Map;
+          // Adjust padding and zoom parameters
+          map.fitBounds(bounds, {
+            padding: { top: 50, bottom: 50, left: 50, right: 50 },
+            maxZoom: 18,
+            duration: 1000
+          });
+
+          // Fine-tune the zoom level after initial fit
+          setTimeout(() => {
+            const currentZoom = map.getZoom();
+            if (currentZoom > 17.5) {
+              map.easeTo({
+                zoom: 17.5,
+                duration: 500
+              });
+            } else if (currentZoom < 16) {
+              map.easeTo({
+                zoom: 16,
+                duration: 500
+              });
+            }
+          }, 1100);
+        }
+      } catch (error) {
+      }
+    }
+  }, [asset?.Coordinates, mapLoaded]);
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
-      <Navbar userInfo={userInfo} />
+      <Navbar />
       
+      {/* Success notification */}
+      {showSuccessNotification && (
+        <div className="fixed top-4 right-4 z-50 animate-fade-in-down">
+          <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded shadow-lg">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium text-green-800">
+                  {notificationMessage}
+                </p>
+              </div>
+              <div className="ml-auto pl-3">
+                <div className="-mx-1.5 -my-1.5">
+                  <button
+                    onClick={() => setShowSuccessNotification(false)}
+                    className="inline-flex rounded-md p-1.5 text-green-500 hover:bg-green-100 focus:outline-none"
+                  >
+                    <span className="sr-only">Dismiss</span>
+                    <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Info notification */}
+      {showInfoNotification && (
+        <div className="fixed top-4 right-4 z-50 animate-fade-in-down">
+          <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded shadow-lg">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium text-blue-800">
+                  {notificationMessage}
+                </p>
+              </div>
+              <div className="ml-auto pl-3">
+                <div className="-mx-1.5 -my-1.5">
+                  <button
+                    onClick={() => setShowInfoNotification(false)}
+                    className="inline-flex rounded-md p-1.5 text-blue-500 hover:bg-blue-100 focus:outline-none"
+                  >
+                    <span className="sr-only">Dismiss</span>
+                    <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 px-4 shadow-md">
         <div className="container mx-auto max-w-6xl">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between">
@@ -434,15 +671,47 @@ const AssetDetails: React.FC = () => {
             </div>
             <div className="flex space-x-3">
               {!loading && asset && (
-                <button
-                onClick={handleBookService}
-                  className="inline-flex items-center px-5 py-2.5 bg-white text-blue-700 border border-transparent rounded-lg font-medium hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white shadow-sm transition duration-150"
-                >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  Book a Flight
-                </button>
+                <>
+                  <button
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="inline-flex items-center px-4 py-2 bg-white/20 text-white border border-transparent rounded-lg font-medium hover:bg-white/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white shadow-sm transition duration-150"
+                  >
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    {isEditing ? 'Cancel Edit' : 'Edit Asset'}
+                  </button>
+                  {isEditing ? (
+                    <button
+                      onClick={handleEditAsset}
+                      className="inline-flex items-center px-4 py-2 bg-green-500 text-white border border-transparent rounded-lg font-medium hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-sm transition duration-150"
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Save Changes
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleDeleteAsset}
+                      className="inline-flex items-center px-4 py-2 bg-red-500 text-white border border-transparent rounded-lg font-medium hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 shadow-sm transition duration-150"
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Delete Asset
+                    </button>
+                  )}
+                  <button
+                    onClick={handleBookService}
+                    className="inline-flex items-center px-5 py-2.5 bg-white text-blue-700 border border-transparent rounded-lg font-medium hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white shadow-sm transition duration-150"
+                  >
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    Book a Flight
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -496,94 +765,50 @@ const AssetDetails: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className="h-full" ref={mapContainerRef}>
-                  {mapError ? (
-                    <div className="flex items-center justify-center h-full bg-gray-50">
-                      <div className="text-center p-6 max-w-sm">
-                        <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">Map Error</h3>
-                        <p className="text-gray-600 mb-4">{mapError}</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <Map
-                      {...viewState}
-                      onMove={(evt: any) => setViewState(evt.viewState)}
-                      style={{ width: '100%', height: '100%' }}
-                      mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
-                      mapboxAccessToken="pk.eyJ1IjoiYWxleGh1dGNoaW5nczA0IiwiYSI6ImNtN2tnMHQ3aTAwOTkya3F0bTl4YWtpNnoifQ.hnlbKPcuZiTUdRzNvjrv2Q"
-                      scrollZoom={true}
-                      onLoad={(event: any) => {
-                        mapRef.current = event.target;
-                        setMapLoaded(true);
-                        
-                        if (asset && asset.Coordinates) {
-                          setTimeout(() => {
-                            try {
-                              const bounds = calculateAssetBounds(asset.Coordinates);
-                              if (bounds) {
-                                mapRef.current?.fitBounds(bounds, {
-                                  padding: 80,
-                                  maxZoom: 19,
-                                  duration: 800
-                                });
-                              }
-                            } catch (e) {
-                              console.warn('Error zooming to asset after map load:', e);
-                            }
-                          }, 200);
-                        }
-                      }}
-                    >
-                      {mapLoaded && asset?.Coordinates && asset.Coordinates.length > 0 && (
-                        <Source
-                          id="asset-polygon"
-                          type="geojson"
-                          data={{
-                            type: 'Feature',
-                            properties: {},
-                            geometry: {
-                              type: 'Polygon',
-                              coordinates: asset.Coordinates,
-                            },
+                <div className="h-[400px] relative">
+                  <Map
+                    {...viewState}
+                    onMove={(evt: any) => setViewState(evt.viewState)}
+                    style={{ width: '100%', height: '100%' }}
+                    mapStyle="mapbox://styles/mapbox/satellite-streets-v12"
+                    mapboxAccessToken={process.env.REACT_APP_MAPBOX_ACCESS_TOKEN}
+                    onLoad={() => setMapLoaded(true)}
+                    ref={mapRef}
+                    reuseMaps={false}
+                    attributionControl={true}
+                  >
+                    {mapLoaded && asset?.Coordinates && (
+                      <Source
+                        id="asset-polygon"
+                        type="geojson"
+                        data={{
+                          type: 'Feature',
+                          properties: {},
+                          geometry: {
+                            type: 'Polygon',
+                            coordinates: asset.Coordinates,
+                          },
+                        }}
+                      >
+                        <Layer
+                          id="asset-polygon-fill"
+                          type="fill"
+                          paint={{
+                            'fill-color': getAssetTypeInfo(asset.AssetType).color,
+                            'fill-opacity': 0.4,
                           }}
-                        >
-                          <Layer
-                            id="asset-polygon-fill"
-                            type="fill"
-                            paint={{
-                              'fill-color': getAssetTypeInfo(asset.AssetType).color,
-                              'fill-opacity': 0.4,
-                            }}
-                          />
-                          <Layer
-                            id="asset-polygon-outline"
-                            type="line"
-                            paint={{
-                              'line-color': getAssetTypeInfo(asset.AssetType).strokeColor,
-                              'line-width': 2,
-                            }}
-                          />
-                        </Source>
-                      )}
-                      
-                      {mapLoaded && asset?.CenterPoint && (
-                        <Marker 
-                          longitude={parseFloat(asset.CenterPoint[0])} 
-                          latitude={parseFloat(asset.CenterPoint[1])}
-                          anchor="bottom"
-                        >
-                          <div className="w-8 h-8 rounded-full bg-white p-1 shadow-lg flex items-center justify-center">
-                            <svg className="w-5 h-5" fill={getAssetTypeInfo(asset.AssetType).color} viewBox="0 0 24 24">
-                              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                            </svg>
-                          </div>
-                        </Marker>
-                      )}
-                    </Map>
-                  )}
+                        />
+                        <Layer
+                          id="asset-polygon-outline"
+                          type="line"
+                          paint={{
+                            'line-color': getAssetTypeInfo(asset.AssetType).strokeColor,
+                            'line-width': 2,
+                          }}
+                        />
+                      </Source>
+                    )}
+                  </Map>
                 </div>
               </div>
               
@@ -620,7 +845,7 @@ const AssetDetails: React.FC = () => {
                     backgroundColor: getAssetTypeInfo(asset.AssetType).color,
                     color: 'white'
                   }}>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={getAssetTypeInfo(asset.AssetType).icon} />
                     </svg>
                   </div>
@@ -630,71 +855,145 @@ const AssetDetails: React.FC = () => {
                 </div>
 
                 <div className="p-4">
-                  {asset.Description && (
-                    <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
-                      {asset.Description}
+                  {isEditing ? (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Asset Name</label>
+                        <input
+                          type="text"
+                          value={editedAsset.Name}
+                          onChange={(e) => handleInputChange('Name', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                        <textarea
+                          value={editedAsset.Description}
+                          onChange={(e) => handleInputChange('Description', e.target.value)}
+                          rows={3}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                        <input
+                          type="text"
+                          value={editedAsset.Address}
+                          onChange={(e) => handleInputChange('Address', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Postcode</label>
+                        <input
+                          type="text"
+                          value={editedAsset.Postcode}
+                          onChange={(e) => handleInputChange('Postcode', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Area (m²)</label>
+                        <input
+                          type="number"
+                          value={editedAsset.Area}
+                          onChange={(e) => handleInputChange('Area', parseFloat(e.target.value))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Asset Type</label>
+                        <select
+                          value={editedAsset.AssetType}
+                          onChange={(e) => handleInputChange('AssetType', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="buildings">Building</option>
+                          <option value="construction">Construction Site</option>
+                          <option value="area">Area/Estate</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
+                        <input
+                          type="text"
+                          value={editedAsset.Tags.join(', ')}
+                          onChange={(e) => handleInputChange('Tags', e.target.value.split(',').map((tag: string) => tag.trim()))}
+                          placeholder="Enter tags separated by commas"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      </div>
                     </div>
-                  )}
+                  ) : (
+                    <>
+                      {asset.Description && (
+                        <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
+                          {asset.Description}
+                        </div>
+                      )}
 
-                  <dl className="divide-y divide-gray-200">
-                    <div className="py-2.5 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Asset Name</dt>
-                      <dd className="text-sm text-gray-900 text-right">{asset.Name || 'Unnamed Asset'}</dd>
-                    </div>
-                    <div className="py-2.5 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Address</dt>
-                      <dd className="text-sm text-gray-900 text-right">{asset.Address || "Not specified"}</dd>
-                    </div>
-                    <div className="py-2.5 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Postcode</dt>
-                      <dd className="text-sm text-gray-900 text-right">{asset.Postcode || asset.PostCode || asset.postcode || "Not specified"}</dd>
-                    </div>
-                    <div className="py-2.5 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Asset Type</dt>
-                      <dd className="text-sm text-gray-900 text-right">{getAssetTypeInfo(asset.AssetType).title}</dd>
-                    </div>
-                    <div className="py-2.5 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Area Size</dt>
-                      <dd className="text-sm text-gray-900 text-right">{asset.Area ? parseFloat(asset.Area).toLocaleString() : '0'} m²</dd>
-                    </div>
-                    <div className="py-2.5 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Created On</dt>
-                      <dd className="text-sm text-gray-900 text-right">{formatDate(asset.CreatedAt)}</dd>
-                    </div>
-                    {asset.UpdatedAt && (
-                      <div className="py-2.5 flex justify-between">
-                        <dt className="text-sm font-medium text-gray-500">Last Updated</dt>
-                        <dd className="text-sm text-gray-900 text-right">{formatDate(asset.UpdatedAt)}</dd>
-                      </div>
-                    )}
-                    <div className="py-2.5 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Status</dt>
-                      <dd className="text-right">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          {asset.status || 'Active'}
-                        </span>
-                      </dd>
-                    </div>
-                    {asset.Tags && asset.Tags.length > 0 && (
-                      <div className="py-2.5">
-                        <dt className="text-sm font-medium text-gray-500 mb-1.5">Tags</dt>
-                        <dd className="flex flex-wrap gap-1">
-                          {asset.Tags.map((tag: string, index: number) => (
-                            <span 
-                              key={index} 
-                              className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800"
-                            >
-                              {tag}
+                      <dl className="divide-y divide-gray-200">
+                        <div className="py-2.5 flex justify-between">
+                          <dt className="text-sm font-medium text-gray-500">Asset Name</dt>
+                          <dd className="text-sm text-gray-900 text-right">{asset.Name || 'Unnamed Asset'}</dd>
+                        </div>
+                        <div className="py-2.5 flex justify-between">
+                          <dt className="text-sm font-medium text-gray-500">Address</dt>
+                          <dd className="text-sm text-gray-900 text-right">{asset.Address || "Not specified"}</dd>
+                        </div>
+                        <div className="py-2.5 flex justify-between">
+                          <dt className="text-sm font-medium text-gray-500">Postcode</dt>
+                          <dd className="text-sm text-gray-900 text-right">{asset.Postcode || "Not specified"}</dd>
+                        </div>
+                        <div className="py-2.5 flex justify-between">
+                          <dt className="text-sm font-medium text-gray-500">Asset Type</dt>
+                          <dd className="text-sm text-gray-900 text-right">{getAssetTypeInfo(asset.AssetType || 'buildings').title}</dd>
+                        </div>
+                        <div className="py-2.5 flex justify-between">
+                          <dt className="text-sm font-medium text-gray-500">Area Size</dt>
+                          <dd className="text-sm text-gray-900 text-right">{asset.Area ? parseFloat(asset.Area.toString()).toLocaleString() : '0'} m²</dd>
+                        </div>
+                        <div className="py-2.5 flex justify-between">
+                          <dt className="text-sm font-medium text-gray-500">Created On</dt>
+                          <dd className="text-sm text-gray-900 text-right">{formatDate(asset.CreatedAt)}</dd>
+                        </div>
+                        {asset.UpdatedAt && (
+                          <div className="py-2.5 flex justify-between">
+                            <dt className="text-sm font-medium text-gray-500">Last Updated</dt>
+                            <dd className="text-sm text-gray-900 text-right">{formatDate(asset.UpdatedAt)}</dd>
+                          </div>
+                        )}
+                        <div className="py-2.5 flex justify-between">
+                          <dt className="text-sm font-medium text-gray-500">Status</dt>
+                          <dd className="text-right">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              Active
                             </span>
-                          ))}
-                        </dd>
-                      </div>
-                    )}
-                    <div className="py-2.5 flex justify-between">
-                      <dt className="text-sm font-medium text-gray-500">Asset ID</dt>
-                      <dd className="text-sm text-gray-900 font-mono truncate max-w-[180px] text-right">{asset.AssetId}</dd>
-                    </div>
-                  </dl>
+                          </dd>
+                        </div>
+                        {asset.Tags && asset.Tags.length > 0 && (
+                          <div className="py-2.5">
+                            <dt className="text-sm font-medium text-gray-500 mb-1.5">Tags</dt>
+                            <dd className="flex flex-wrap gap-1">
+                              {asset.Tags.map((tag: string, index: number) => (
+                                <span 
+                                  key={index} 
+                                  className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </dd>
+                          </div>
+                        )}
+                        <div className="py-2.5 flex justify-between">
+                          <dt className="text-sm font-medium text-gray-500">Asset ID</dt>
+                          <dd className="text-sm text-gray-900 font-mono truncate max-w-[180px] text-right">{asset.AssetId}</dd>
+                        </div>
+                      </dl>
+                    </>
+                  )}
                 </div>
               </div>
               
@@ -707,11 +1006,158 @@ const AssetDetails: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* Add the bookings section */}
+            <div className="md:col-span-12">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-900">Flight History</h2>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  {bookings.length > 0 ? (
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date & Time</th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service Type</th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {bookings.map((booking, index) => {
+                          const statusColor = bookingStatusColors[(booking.status || 'pending').toLowerCase() as keyof typeof bookingStatusColors] || bookingStatusColors.pending;
+                          
+                          return (
+                            <tr key={booking.BookingId || index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColor.bg} ${statusColor.text}`}>
+                                  <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={statusColor.icon} />
+                                  </svg>
+                                  {booking.status || 'Pending'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <div>{booking.scheduling?.date ? formatDate(booking.scheduling.date) : 'No date'}</div>
+                                {booking.scheduling?.timeSlot && (
+                                  <div className="text-gray-500 text-xs mt-1">
+                                    {booking.scheduling.timeSlot.charAt(0).toUpperCase() + booking.scheduling.timeSlot.slice(1)}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {booking.jobTypes?.map((jobType: string, idx: number) => (
+                                  <div key={idx} className="mb-1">{jobType}</div>
+                                ))}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-900">
+                                {booking.siteContact ? (
+                                  <div>
+                                    <div className="font-medium">{booking.siteContact.name}</div>
+                                    <div className="text-gray-500 text-xs mt-1">{booking.siteContact.phone}</div>
+                                    <div className="text-gray-500 text-xs">{booking.siteContact.email}</div>
+                                    {booking.siteContact.isAvailableOnsite && (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mt-1">
+                                        Available on-site
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-gray-500">No contact info</div>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-900">
+                                {Object.entries(booking.serviceOptions || {}).map(([service, options]: [string, any]) => {
+                                  // Skip empty service options
+                                  if (!options || ((!options.coverage || options.coverage.length === 0) && !options.detail)) {
+                                    return null;
+                                  }
+                                  return (
+                                    <div key={service} className="mb-3 last:mb-0">
+                                      <div className="flex items-center">
+                                        <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700">
+                                          {service}
+                                        </span>
+                                      </div>
+                                      <div className="mt-1.5 pl-2 border-l-2 border-gray-100">
+                                        {options.coverage && options.coverage.length > 0 && (
+                                          <div className="flex flex-wrap gap-1 mb-1">
+                                            {options.coverage.map((item: string, idx: number) => (
+                                              <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-gray-50 text-gray-600">
+                                                {item}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {options.detail && (
+                                          <div className="flex items-center text-xs text-gray-500">
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-gray-50 text-gray-600">
+                                              {options.detail} Detail
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {booking.quote && (
+                                  <div className="mt-3 pt-3 border-t border-gray-100">
+                                    <div className="flex items-center">
+                                      <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-green-50 text-green-700">
+                                        Quote
+                                      </span>
+                                      <span className="ml-2 text-sm font-medium text-gray-900">
+                                        {booking.quote.currency} {booking.quote.amount}
+                                      </span>
+                                    </div>
+                                    {booking.quote.notes && (
+                                      <div className="mt-1 text-xs text-gray-500 pl-2 border-l-2 border-gray-100">
+                                        {booking.quote.notes}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-900">
+                                <div className="text-xs text-gray-500">
+                                  <div>Booked by: {booking.userName || 'Unknown'}</div>
+                                  <div>{booking.userEmail || ''}</div>
+                                  {booking.userPhone && <div>{booking.userPhone}</div>}
+                                  <div className="mt-1">Created: {booking.createdAt ? formatDate(booking.createdAt) : 'Unknown'}</div>
+                                  {booking.updatedAt && booking.updatedAt !== booking.createdAt && (
+                                    <div>Updated: {formatDate(booking.updatedAt)}</div>
+                                  )}
+                                  {booking.notes && (
+                                    <div className="mt-2 font-medium text-gray-700">Notes: {booking.notes}</div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="text-center py-8">
+                      <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <h3 className="mt-2 text-sm font-medium text-gray-900">No flights booked</h3>
+                      <p className="mt-1 text-gray-500">No flight history available for this asset.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="bg-white shadow-lg rounded-lg p-8 text-center">
             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <h3 className="mt-2 text-lg font-medium text-gray-900">No Asset Found</h3>
             <p className="mt-1 text-gray-500 mb-6">The requested asset could not be found or doesn't exist.</p>

@@ -2,6 +2,9 @@
  * Improved utility for handling S3 images with proper error handling and fallbacks
  */
 
+import { PLACEHOLDER_IMAGE } from '../config/apiConfig';
+import logger from './logger';
+
 // Track failed image URLs to avoid repeated fetch attempts
 const failedImageUrls = new Set<string>();
 const imageRetryCount = new Map<string, number>();
@@ -13,7 +16,7 @@ const MAX_RETRIES = 2;
 export const getImageUrl = (s3Key: string, s3Url?: string): string => {
   // Check if we've already failed to load this image multiple times
   if (failedImageUrls.has(s3Key)) {
-    return getPlaceholderImage('error');
+    return getPlaceholderImage('Image Error');
   }
   
   // If we already have a pre-signed URL, use it if it's valid
@@ -27,7 +30,7 @@ export const getImageUrl = (s3Key: string, s3Url?: string): string => {
         
         // If URL is expired, try the Netlify function approach
         if (currentTime > expireTime) {
-          console.warn(`S3 URL expired for ${s3Key}, falling back to proxy`);
+          logger.warn(`S3 URL expired for ${s3Key}, falling back to proxy`);
           return getProxiedImageUrl(s3Key);
         }
       }
@@ -58,24 +61,70 @@ const getProxiedImageUrl = (s3Key: string): string => {
 };
 
 /**
- * Get a placeholder image when the real image fails to load
+ * Generate a placeholder image URL
+ * @param text Optional text to display on placeholder
+ * @param width Width of placeholder
+ * @param height Height of placeholder
+ * @returns Placeholder image URL
  */
-export const getPlaceholderImage = (type: 'loading' | 'error' | 'notfound' = 'notfound'): string => {
-  let svgContent = '';
-  
-  switch (type) {
-    case 'error':
-      svgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%"><rect width="24" height="24" fill="#FEE2E2"/><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="#EF4444" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      break;
-    case 'loading':
-      svgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%"><rect width="24" height="24" fill="#F3F4F6"/><circle cx="12" cy="12" r="10" stroke="#D1D5DB" fill="none" stroke-width="2" stroke-dasharray="32" stroke-dashoffset="12"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle></svg>';
-      break;
-    default: // notfound
-      svgContent = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%"><rect width="24" height="24" fill="#F3F4F6"/><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" stroke="#9CA3AF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+export function getPlaceholderImage(text = 'Image Not Found', width = 300, height = 200): string {
+  // Use the placeholder from config, or fall back to a data URI
+  if (PLACEHOLDER_IMAGE) {
+    return PLACEHOLDER_IMAGE;
   }
   
-  return `data:image/svg+xml;base64,${btoa(svgContent)}`;
-};
+  // Create a data URI as fallback (safe, generated locally)
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  
+  // Draw background
+  ctx.fillStyle = '#f0f0f0';
+  ctx.fillRect(0, 0, width, height);
+  
+  // Draw text
+  ctx.fillStyle = '#999999';
+  ctx.font = 'bold 16px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, width / 2, height / 2);
+  
+  return canvas.toDataURL('image/png');
+}
+
+/**
+ * Handle image loading errors
+ * @param event Error event
+ * @param fallbackText Optional fallback text
+ */
+export function handleImageError(
+  event: React.SyntheticEvent<HTMLImageElement, Event>,
+  fallbackText = 'Image Error'
+): void {
+  const img = event.currentTarget;
+  img.src = getPlaceholderImage(fallbackText, img.width || 300, img.height || 200);
+  logger.warn(`Failed to load image: ${img.alt || 'unknown'}`);
+}
+
+/**
+ * Preload an image
+ * @param src Image source URL
+ * @returns Promise that resolves when image is loaded
+ */
+export function preloadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = (e) => {
+      logger.warn(`Failed to preload image: ${src}`);
+      reject(e);
+    };
+    img.src = src;
+  });
+}
 
 /**
  * Mark an image URL as failed to avoid repeated fetch attempts
@@ -116,6 +165,8 @@ export const formatFileSize = (sizeInBytes: number): string => {
 export default {
   getImageUrl,
   getPlaceholderImage,
+  handleImageError,
+  preloadImage,
   markImageAsFailed,
   resetImageFailedStatus,
   formatFileSize
